@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashback-agent"
+version = "0.3.0"
+description = "Flashback AI Legacy Mode - Python agent service"
+readme = "README-step-1.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Flashback Labs" }]
+# Pins tightened where the SDK surface matters; loosened on voyageai
+# because the upstream wheels lag the newest CPython. The minimum
+# version below is the one we have validated the call signature
+# (Client(api_key=...).embed(texts, model=, input_type=)) against.
+dependencies = [
+    "psycopg[binary,pool]>=3.2.3,<4.0",
+    "pgvector>=0.3.6,<0.4",
+    "boto3>=1.35.49,<2.0",
+    "voyageai>=0.2.4,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3,<9.0",
+    "pytest-postgresql>=6.1.1,<7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["flashback*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+filterwarnings = [
+    "ignore::DeprecationWarning:botocore.*",
+]
+
+[tool.setuptools.package-data]
+flashback = ["py.typed"]
