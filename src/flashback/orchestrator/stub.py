@@ -28,6 +28,7 @@ from psycopg_pool import AsyncConnectionPool
 from flashback.config import HttpConfig
 from flashback.intent_classifier import IntentClassifier
 from flashback.llm.interface import Provider
+from flashback.retrieval import RetrievalService
 from flashback.working_memory import WorkingMemory
 
 log = structlog.get_logger("flashback.orchestrator.stub")
@@ -111,11 +112,13 @@ class StubOrchestrator:
         db_pool: AsyncConnectionPool,
         settings: HttpConfig | None = None,
         intent_classifier: IntentClassifier | None = None,
+        retrieval: RetrievalService | None = None,
     ) -> None:
         self._wm = wm
         self._db = db_pool
         self._settings = settings
         self._intent_classifier = intent_classifier
+        self._retrieval = retrieval
         if self._intent_classifier is None and settings is not None:
             self._intent_classifier = IntentClassifier(
                 settings=settings,
@@ -188,8 +191,52 @@ class StubOrchestrator:
                     exc_info=True,
                 )
 
+        n_moments = 0
+        n_entities = 0
+        n_threads = 0
+        if self._retrieval is not None and intent in {"recall", "clarify", "switch"}:
+            try:
+                moments = await self._retrieval.search_moments(
+                    query=user_message,
+                    person_id=person_id,
+                )
+                n_moments = len(moments)
+                if intent == "switch":
+                    entities = await self._retrieval.get_entities(person_id)
+                    threads = await self._retrieval.get_threads(person_id)
+                    n_entities = len(entities)
+                    n_threads = len(threads)
+                log.info(
+                    "retrieval_called",
+                    session_id=str(session_id),
+                    intent=intent,
+                    person_id=str(person_id),
+                    n_moments=n_moments,
+                    n_entities=n_entities,
+                    n_threads=n_threads,
+                )
+            except Exception as e:
+                log.warning(
+                    "retrieval.failed",
+                    session_id=str(session_id),
+                    intent=intent,
+                    person_id=str(person_id),
+                    error=str(e),
+                    exc_info=True,
+                )
+                log.info(
+                    "retrieval_called",
+                    session_id=str(session_id),
+                    intent=intent,
+                    person_id=str(person_id),
+                    n_moments=0,
+                    n_entities=0,
+                    n_threads=0,
+                )
+
         # Retrieval, Response Generator, and Segment Detector still land
-        # later. For now, return the neutral acknowledgement.
+        # context is intentionally discarded until the Response Generator
+        # lands in step 7. For now, return the neutral acknowledgement.
         return TurnResult(
             reply="I hear you. Tell me more.",
             intent=intent,

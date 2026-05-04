@@ -31,6 +31,7 @@ from flashback.http.routes.health import router as health_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.turn import router as turn_router
 from flashback.orchestrator import StubOrchestrator
+from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.working_memory import WorkingMemory
 
 
@@ -61,7 +62,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         transcript_limit=cfg.working_memory_transcript_limit,
     )
     app.state.working_memory = wm
-    app.state.orchestrator = StubOrchestrator(wm=wm, db_pool=db_pool, settings=cfg)
+    retrieval = RetrievalService(
+        db_pool=db_pool,
+        voyage_embedder=VoyageQueryEmbedder.from_api_key(
+            cfg.voyage_api_key,
+            model=cfg.embedding_model,
+            timeout=cfg.retrieval_query_embed_timeout_seconds,
+        ),
+        embedding_model=cfg.embedding_model,
+        embedding_model_version=cfg.embedding_model_version,
+        default_limit=cfg.retrieval_default_limit,
+        max_limit=cfg.retrieval_max_limit,
+    )
+    app.state.retrieval = retrieval
+    app.state.orchestrator = StubOrchestrator(
+        wm=wm,
+        db_pool=db_pool,
+        settings=cfg,
+        retrieval=retrieval,
+    )
 
     log = structlog.get_logger("flashback.http")
     log.info("service.started")

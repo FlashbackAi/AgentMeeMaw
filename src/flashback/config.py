@@ -94,6 +94,12 @@ class HttpConfig:
     llm_intent_model: str = "gpt-5-mini"
     llm_intent_timeout_seconds: float = 8.0
     llm_intent_max_tokens: int = 300
+    voyage_api_key: str = ""
+    embedding_model: str = "voyage-3-large"
+    embedding_model_version: str = "2025-01-07"
+    retrieval_query_embed_timeout_seconds: float = 2.0
+    retrieval_default_limit: int = 10
+    retrieval_max_limit: int = 50
 
     @classmethod
     def from_env(cls) -> "HttpConfig":
@@ -123,4 +129,16 @@ class HttpConfig:
                 os.environ.get("LLM_INTENT_TIMEOUT_SECONDS", "8")
             ),
             llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "300")),
+            voyage_api_key=_required("VOYAGE_API_KEY"),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
+            ),
+            retrieval_query_embed_timeout_seconds=float(
+                os.environ.get("RETRIEVAL_QUERY_EMBED_TIMEOUT_SECONDS", "2")
+            ),
+            retrieval_default_limit=int(
+                os.environ.get("RETRIEVAL_DEFAULT_LIMIT", "10")
+            ),
+            retrieval_max_limit=int(os.environ.get("RETRIEVAL_MAX_LIMIT", "50")),
         )
