@@ -1,0 +1,92 @@
+"""LLM wrapper for P4 ``thread_deepen`` question generation (Sonnet).
+
+Per ARCHITECTURE.md §3.16, P4 runs inline at the end of the Thread
+Detector — once per *affected* thread (new OR existing) — and produces
+1–2 questions whose ``attributes.themes`` feed the ranker. CLAUDE.md §4
+invariant #9 requires every emitted question carry ``themes``; the
+:class:`P4Result` Pydantic model enforces that with a min-length-1
+constraint on each question.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import Iterable
+
+import structlog
+
+from flashback.llm.interface import call_with_tool
+
+from .prompts import P4_SYSTEM_PROMPT, P4_TOOL
+from .schema import ClusterableMoment, P4Result, ThreadSnapshot
+
+log = structlog.get_logger("flashback.workers.thread_detector.p4_llm")
+
+
+@dataclass
+class P4LLMConfig:
+    provider: str
+    model: str
+    timeout: float
+    max_tokens: int
+
+
+def propose_thread_deepen_questions(
+    *,
+    cfg: P4LLMConfig,
+    settings,
+    person_name: str,
+    thread: ThreadSnapshot,
+    member_moments: Iterable[ClusterableMoment],
+) -> P4Result:
+    """Run the P4 LLM for one thread. Returns a typed result."""
+    user_message = _build_user_message(
+        person_name=person_name,
+        thread=thread,
+        member_moments=member_moments,
+    )
+    args = asyncio.run(
+        call_with_tool(
+            provider=cfg.provider,  # type: ignore[arg-type]
+            model=cfg.model,
+            system_prompt=P4_SYSTEM_PROMPT,
+            user_message=user_message,
+            tool=P4_TOOL,
+            max_tokens=cfg.max_tokens,
+            timeout=cfg.timeout,
+            settings=settings,
+        )
+    )
+    result = P4Result.model_validate(args)
+    log.info(
+        "thread_detector.p4_returned",
+        thread_id=thread.id,
+        question_count=len(result.questions),
+    )
+    return result
+
+
+def _build_user_message(
+    *,
+    person_name: str,
+    thread: ThreadSnapshot,
+    member_moments: Iterable[ClusterableMoment],
+) -> str:
+    lines: list[str] = [
+        f"<subject>{person_name}</subject>",
+        "",
+        "<thread>",
+        f"name: {thread.name}",
+        f"description: {thread.description}",
+        "</thread>",
+        "",
+        "<member_moments>",
+    ]
+    for m in member_moments:
+        lines.append(f"<moment id='{m.id}'>")
+        lines.append(f"title: {m.title}")
+        lines.append(f"narrative: {m.narrative}")
+        lines.append("</moment>")
+    lines.append("</member_moments>")
+    return "\n".join(lines)
