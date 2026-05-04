@@ -63,3 +63,43 @@ class Config:
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
         )
+
+
+@dataclass(frozen=True)
+class HttpConfig:
+    """
+    Configuration for the FastAPI agent service (step 4).
+
+    Kept separate from :class:`Config` (the embedding worker config) so
+    each process loads only what it needs. The HTTP service does not
+    require ``EMBEDDING_QUEUE_URL`` or ``VOYAGE_API_KEY`` — those are
+    embedding-worker concerns.
+    """
+
+    database_url: str
+    valkey_url: str
+    service_token: str
+    http_host: str
+    http_port: int
+    working_memory_ttl_seconds: int
+    working_memory_transcript_limit: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(cls) -> "HttpConfig":
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            valkey_url=_required("VALKEY_URL"),
+            service_token=_required("SERVICE_TOKEN"),
+            http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
+            http_port=int(os.environ.get("HTTP_PORT", "8000")),
+            working_memory_ttl_seconds=int(
+                os.environ.get("WORKING_MEMORY_TTL_SECONDS", "86400")
+            ),
+            working_memory_transcript_limit=int(
+                os.environ.get("WORKING_MEMORY_TRANSCRIPT_LIMIT", "30")
+            ),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )

@@ -1,0 +1,104 @@
+"""
+FastAPI application factory.
+
+Run via uvicorn::
+
+    uvicorn flashback.http.app:create_app --factory --host 0.0.0.0 --port 8000
+
+The factory pattern lets tests construct an app with overridden
+dependencies (in-process fakeredis, a Postgres test pool, a stub
+orchestrator, etc.) without re-importing the module.
+"""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+import redis.asyncio as redis_asyncio
+import structlog
+from fastapi import FastAPI
+
+from flashback.config import HttpConfig
+from flashback.db.connection import make_async_pool
+from flashback.http.errors import install_exception_handlers
+from flashback.http.logging import (
+    configure_logging,
+    install_request_logging_middleware,
+)
+from flashback.http.routes.admin import router as admin_router
+from flashback.http.routes.health import router as health_router
+from flashback.http.routes.session import router as session_router
+from flashback.http.routes.turn import router as turn_router
+from flashback.orchestrator import StubOrchestrator
+from flashback.working_memory import WorkingMemory
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Boot and tear down the long-lived singletons.
+
+    Order matters on startup: pool open before the WM client (so a
+    health check during boot doesn't race), redis client before the
+    orchestrator. Order is reversed on teardown.
+    """
+    cfg: HttpConfig = app.state.http_config
+
+    db_pool = make_async_pool(
+        cfg.database_url,
+        min_size=cfg.db_pool_min_size,
+        max_size=cfg.db_pool_max_size,
+    )
+    await db_pool.open()
+    app.state.db_pool = db_pool
+
+    redis_client = redis_asyncio.from_url(cfg.valkey_url)
+    app.state.redis = redis_client
+
+    wm = WorkingMemory(
+        redis_client=redis_client,
+        ttl_seconds=cfg.working_memory_ttl_seconds,
+        transcript_limit=cfg.working_memory_transcript_limit,
+    )
+    app.state.working_memory = wm
+    app.state.orchestrator = StubOrchestrator(wm=wm, db_pool=db_pool)
+
+    log = structlog.get_logger("flashback.http")
+    log.info("service.started")
+
+    try:
+        yield
+    finally:
+        log.info("service.stopping")
+        await redis_client.aclose()
+        await db_pool.close()
+
+
+def create_app(http_config: HttpConfig | None = None) -> FastAPI:
+    """Build the FastAPI app.
+
+    Tests pass their own ``http_config`` plus override
+    ``app.dependency_overrides`` for the singletons. Production lets
+    this read environment variables via ``HttpConfig.from_env()``.
+    """
+    configure_logging()
+    cfg = http_config or HttpConfig.from_env()
+
+    app = FastAPI(
+        title="Flashback Agent",
+        version="0.4.0",
+        lifespan=_lifespan,
+        docs_url=None,  # internal service; no public OpenAPI surface
+        redoc_url=None,
+    )
+    app.state.http_config = cfg
+
+    install_exception_handlers(app)
+    install_request_logging_middleware(app)
+
+    app.include_router(health_router)
+    app.include_router(session_router)
+    app.include_router(turn_router)
+    app.include_router(admin_router)
+
+    return app
