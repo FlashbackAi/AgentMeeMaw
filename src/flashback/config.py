@@ -70,6 +70,115 @@ class Config:
 
 
 @dataclass(frozen=True)
+class ExtractionConfig:
+    """
+    Configuration for the Extraction Worker (step 11).
+
+    Like ``Config`` for the embedding worker, this is its own dataclass so
+    the worker process loads only what it needs. The HTTP service does not
+    use it; it has its own ``HttpConfig``.
+
+    Notable inheritances (kept aligned with HttpConfig):
+
+    * ``LLM_EXTRACTION_*`` defaults to the ``LLM_BIG_*`` family (Sonnet).
+    * ``LLM_COMPATIBILITY_*`` defaults to the ``LLM_SMALL_*`` family
+      (gpt-5-mini).
+    * ``EMBEDDING_MODEL`` and ``EMBEDDING_MODEL_VERSION`` are the same
+      identity stamps the embedding worker uses; the extraction worker
+      pushes embedding jobs with these values.
+    """
+
+    database_url: str
+    aws_region: str
+
+    extraction_queue_url: str
+    embedding_queue_url: str
+    artifact_queue_url: str
+
+    voyage_api_key: str
+    embedding_model: str
+    embedding_model_version: str
+
+    openai_api_key: str
+    anthropic_api_key: str
+
+    llm_extraction_provider: str
+    llm_extraction_model: str
+    llm_extraction_timeout_seconds: float
+    llm_extraction_max_tokens: int
+
+    llm_compatibility_provider: str
+    llm_compatibility_model: str
+    llm_compatibility_timeout_seconds: float
+    llm_compatibility_max_tokens: int
+
+    extraction_refinement_distance_threshold: float
+    extraction_refinement_candidate_limit: int
+    extraction_voyage_query_timeout_seconds: float
+
+    sqs_wait_seconds: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(cls) -> "ExtractionConfig":
+        small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        big_provider = os.environ.get("LLM_BIG_PROVIDER", "anthropic")
+        big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
+            embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
+            artifact_queue_url=_required("ARTIFACT_QUEUE_URL"),
+            voyage_api_key=_required("VOYAGE_API_KEY"),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
+            ),
+            openai_api_key=_required("OPENAI_API_KEY"),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_extraction_provider=os.environ.get(
+                "LLM_EXTRACTION_PROVIDER", big_provider
+            ),
+            llm_extraction_model=os.environ.get(
+                "LLM_EXTRACTION_MODEL", big_model
+            ),
+            llm_extraction_timeout_seconds=float(
+                os.environ.get("LLM_EXTRACTION_TIMEOUT_SECONDS", "45")
+            ),
+            llm_extraction_max_tokens=int(
+                os.environ.get("LLM_EXTRACTION_MAX_TOKENS", "4000")
+            ),
+            llm_compatibility_provider=os.environ.get(
+                "LLM_COMPATIBILITY_PROVIDER", small_provider
+            ),
+            llm_compatibility_model=os.environ.get(
+                "LLM_COMPATIBILITY_MODEL", small_model
+            ),
+            llm_compatibility_timeout_seconds=float(
+                os.environ.get("LLM_COMPATIBILITY_TIMEOUT_SECONDS", "8")
+            ),
+            llm_compatibility_max_tokens=int(
+                os.environ.get("LLM_COMPATIBILITY_MAX_TOKENS", "400")
+            ),
+            extraction_refinement_distance_threshold=float(
+                os.environ.get("EXTRACTION_REFINEMENT_DISTANCE_THRESHOLD", "0.35")
+            ),
+            extraction_refinement_candidate_limit=int(
+                os.environ.get("EXTRACTION_REFINEMENT_CANDIDATE_LIMIT", "3")
+            ),
+            extraction_voyage_query_timeout_seconds=float(
+                os.environ.get("EXTRACTION_VOYAGE_QUERY_TIMEOUT_SECONDS", "5")
+            ),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True)
 class HttpConfig:
     """
     Configuration for the FastAPI agent service (step 4).
