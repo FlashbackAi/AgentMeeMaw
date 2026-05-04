@@ -11,8 +11,8 @@ from flashback.http.auth import require_service_token
 from flashback.http.deps import get_orchestrator, get_working_memory
 from flashback.http.models import TurnMetadata, TurnRequest, TurnResponse
 from flashback.orchestrator import OrchestratorProtocol
+from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.working_memory import WorkingMemory
-from flashback.working_memory.client import WorkingMemoryError
 
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.turn")
@@ -30,18 +30,20 @@ async def turn(
     )
 
     if not await wm.exists(str(body.session_id)):
-        raise WorkingMemoryError(
+        raise WorkingMemoryNotFound(
             f"No working memory for session {body.session_id}; "
             "did /session/start succeed?"
         )
 
-    user_ts = datetime.now(timezone.utc)
-    await wm.append_turn(
-        session_id=str(body.session_id),
-        role="user",
-        content=body.message,
-        timestamp=user_ts,
-    )
+    orchestrator_owns_wm = getattr(orch, "owns_working_memory", False)
+    if not orchestrator_owns_wm:
+        user_ts = datetime.now(timezone.utc)
+        await wm.append_turn(
+            session_id=str(body.session_id),
+            role="user",
+            content=body.message,
+            timestamp=user_ts,
+        )
 
     result = await orch.handle_turn(
         session_id=body.session_id,
@@ -50,12 +52,13 @@ async def turn(
         user_message=body.message,
     )
 
-    await wm.append_turn(
-        session_id=str(body.session_id),
-        role="assistant",
-        content=result.reply,
-        timestamp=datetime.now(timezone.utc),
-    )
+    if not orchestrator_owns_wm:
+        await wm.append_turn(
+            session_id=str(body.session_id),
+            role="assistant",
+            content=result.reply,
+            timestamp=datetime.now(timezone.utc),
+        )
 
     log.info(
         "turn.completed",

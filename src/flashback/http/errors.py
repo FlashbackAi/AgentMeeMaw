@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from flashback.llm.errors import LLMError
-from flashback.orchestrator.stub import PersonNotFoundError
+from flashback.orchestrator.errors import PersonNotFound, WorkingMemoryNotFound
 from flashback.phase_gate import PhaseGateError
 from flashback.working_memory.client import WorkingMemoryError
 from flashback.working_memory.keys import InvalidSessionIdError
@@ -27,9 +27,13 @@ def install_exception_handlers(app: FastAPI) -> None:
     FastAPI's default 500 handler so unexpected failures stay loud.
     """
 
-    @app.exception_handler(PersonNotFoundError)
-    async def _person_not_found(_: Request, exc: PersonNotFoundError):
+    @app.exception_handler(PersonNotFound)
+    async def _person_not_found(_: Request, exc: PersonNotFound):
         return _json_error(status.HTTP_404_NOT_FOUND, str(exc))
+
+    @app.exception_handler(WorkingMemoryNotFound)
+    async def _orch_wm_missing(_: Request, exc: WorkingMemoryNotFound):
+        return _json_error(status.HTTP_409_CONFLICT, str(exc))
 
     @app.exception_handler(WorkingMemoryError)
     async def _wm_missing(_: Request, exc: WorkingMemoryError):

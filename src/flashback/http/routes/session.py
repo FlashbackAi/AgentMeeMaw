@@ -18,8 +18,8 @@ from flashback.http.models import (
     SessionWrapResponse,
 )
 from flashback.orchestrator import OrchestratorProtocol
+from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.working_memory import WorkingMemory
-from flashback.working_memory.client import WorkingMemoryError
 
 router = APIRouter(prefix="/session", dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.session")
@@ -39,10 +39,6 @@ async def session_start(
     started_at = datetime.now(timezone.utc)
     seed_summary = body.session_metadata.get("prior_session_summary", "") or ""
 
-    # The orchestrator's DB read is what surfaces 404 for unknown person.
-    # Doing it before initialising WM means a bad request leaves no
-    # orphaned Valkey keys. PersonNotFoundError -> 404 via the global
-    # exception handler.
     result = await orch.handle_session_start(
         session_id=body.session_id,
         person_id=body.person_id,
@@ -50,35 +46,33 @@ async def session_start(
         session_metadata=body.session_metadata,
     )
 
-    await wm.initialize(
-        session_id=str(body.session_id),
-        person_id=str(body.person_id),
-        role_id=str(body.role_id),
-        started_at=started_at,
-        seed_rolling_summary=seed_summary,
-    )
-    # The opener is an assistant turn, even if it precedes any user
-    # message — log it so the Extraction Worker can attribute the next
-    # user response to it via answered_by edges.
-    await wm.append_turn(
-        session_id=str(body.session_id),
-        role="assistant",
-        content=result.opener,
-        timestamp=started_at,
-    )
-    await wm.update_signals(
-        session_id=str(body.session_id),
-        last_opener=result.opener,
-    )
-    if result.selected_question_id is not None:
-        await wm.set_seeded_question(
+    if not getattr(orch, "owns_working_memory", False):
+        await wm.initialize(
             session_id=str(body.session_id),
-            question_id=str(result.selected_question_id),
+            person_id=str(body.person_id),
+            role_id=str(body.role_id),
+            started_at=started_at,
+            seed_rolling_summary=seed_summary,
         )
-        await wm.append_asked_question(
+        await wm.append_turn(
             session_id=str(body.session_id),
-            question_id=str(result.selected_question_id),
+            role="assistant",
+            content=result.opener,
+            timestamp=started_at,
         )
+        await wm.update_signals(
+            session_id=str(body.session_id),
+            last_opener=result.opener,
+        )
+        if result.selected_question_id is not None:
+            await wm.set_seeded_question(
+                session_id=str(body.session_id),
+                question_id=str(result.selected_question_id),
+            )
+            await wm.append_asked_question(
+                session_id=str(body.session_id),
+                question_id=str(result.selected_question_id),
+            )
 
     log.info("session.start", phase=result.phase)
     return SessionStartResponse(
@@ -103,8 +97,7 @@ async def session_wrap(
     )
 
     if not await wm.exists(str(body.session_id)):
-        # Surface as a domain error so the global handler maps to 409.
-        raise WorkingMemoryError(
+        raise WorkingMemoryNotFound(
             f"No working memory for session {body.session_id}; "
             "session was not started or has already been wrapped."
         )

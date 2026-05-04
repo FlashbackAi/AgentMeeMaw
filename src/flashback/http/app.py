@@ -13,7 +13,7 @@ orchestrator, etc.) without re-importing the module.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
 
 import redis.asyncio as redis_asyncio
 import structlog
@@ -30,7 +30,11 @@ from flashback.http.routes.admin import router as admin_router
 from flashback.http.routes.health import router as health_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.turn import router as turn_router
-from flashback.orchestrator import Orchestrator
+from flashback.intent_classifier import IntentClassifier
+from flashback.llm.interface import Provider
+from flashback.orchestrator import Orchestrator, OrchestratorDeps
+from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
+from flashback.response_generator import ResponseGenerator
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.working_memory import WorkingMemory
 
@@ -75,12 +79,36 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_limit=cfg.retrieval_max_limit,
     )
     app.state.retrieval = retrieval
-    app.state.orchestrator = Orchestrator(
-        wm=wm,
-        db_pool=db_pool,
+    intent_classifier = IntentClassifier(
         settings=cfg,
-        retrieval=retrieval,
+        provider=cast(Provider, cfg.llm_small_provider),
+        model=cfg.llm_intent_model,
+        timeout=cfg.llm_intent_timeout_seconds,
+        max_tokens=cfg.llm_intent_max_tokens,
     )
+    response_generator = ResponseGenerator(
+        settings=cfg,
+        provider=cast(Provider, cfg.llm_response_provider),
+        model=cfg.llm_response_model,
+        timeout=cfg.llm_response_timeout_seconds,
+        max_tokens=cfg.llm_response_max_tokens,
+    )
+    phase_gate = PhaseGate(
+        db_pool=db_pool,
+        starter_selector=StarterSelector(db_pool),
+        steady_selector=SteadySelector(db_pool, wm),
+    )
+    orchestrator_deps = OrchestratorDeps(
+        db_pool=db_pool,
+        working_memory=wm,
+        intent_classifier=intent_classifier,
+        retrieval=retrieval,
+        phase_gate=phase_gate,
+        response_generator=response_generator,
+        settings=cfg,
+    )
+    app.state.orchestrator_deps = orchestrator_deps
+    app.state.orchestrator = Orchestrator(orchestrator_deps)
 
     log = structlog.get_logger("flashback.http")
     log.info("service.started")
