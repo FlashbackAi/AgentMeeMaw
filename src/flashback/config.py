@@ -373,6 +373,93 @@ class TraitSynthesizerConfig:
 
 
 @dataclass(frozen=True)
+class ProfileSummaryConfig:
+    """
+    Configuration for the Profile Summary Generator worker (step 14).
+
+    Sibling to :class:`TraitSynthesizerConfig`. Drains the
+    ``profile_summary`` SQS queue (one message per person; producer is
+    Session Wrap, step 16) and runs a single big-LLM (Sonnet) call per
+    person to generate the prose ``persons.profile_summary`` text.
+
+    A separate ``run-once --person-id <uuid>`` CLI path uses the same
+    generation logic synchronously without the queue. For that path
+    ``profile_summary_queue_url`` may be empty.
+
+    Notes:
+
+    * Profile summary is user-facing prose shown at the top of the
+      legacy view, so it defaults to the ``LLM_BIG_*`` family (Sonnet).
+    * Token budget is 600 (summaries are ~150–300 words; 600 leaves
+      headroom). Hard timeout is 30s — generous because this is a
+      background job, not a user-facing call.
+    * No embedding queue here: profile summaries are display only.
+    """
+
+    database_url: str
+    aws_region: str
+
+    profile_summary_queue_url: str
+
+    openai_api_key: str
+    anthropic_api_key: str
+
+    llm_profile_summary_provider: str
+    llm_profile_summary_model: str
+    llm_profile_summary_timeout_seconds: float
+    llm_profile_summary_max_tokens: int
+
+    profile_summary_top_traits_max: int
+    profile_summary_top_threads_max: int
+    profile_summary_top_entities_max: int
+
+    sqs_wait_seconds: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(cls, *, queue_required: bool = True) -> "ProfileSummaryConfig":
+        big_provider = os.environ.get("LLM_BIG_PROVIDER", "anthropic")
+        big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
+        queue_url = (
+            _required("PROFILE_SUMMARY_QUEUE_URL")
+            if queue_required
+            else os.environ.get("PROFILE_SUMMARY_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            profile_summary_queue_url=queue_url,
+            openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_profile_summary_provider=os.environ.get(
+                "LLM_PROFILE_SUMMARY_PROVIDER", big_provider
+            ),
+            llm_profile_summary_model=os.environ.get(
+                "LLM_PROFILE_SUMMARY_MODEL", big_model
+            ),
+            llm_profile_summary_timeout_seconds=float(
+                os.environ.get("LLM_PROFILE_SUMMARY_TIMEOUT_SECONDS", "30")
+            ),
+            llm_profile_summary_max_tokens=int(
+                os.environ.get("LLM_PROFILE_SUMMARY_MAX_TOKENS", "600")
+            ),
+            profile_summary_top_traits_max=int(
+                os.environ.get("PROFILE_SUMMARY_TOP_TRAITS_MAX", "7")
+            ),
+            profile_summary_top_threads_max=int(
+                os.environ.get("PROFILE_SUMMARY_TOP_THREADS_MAX", "5")
+            ),
+            profile_summary_top_entities_max=int(
+                os.environ.get("PROFILE_SUMMARY_TOP_ENTITIES_MAX", "8")
+            ),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True)
 class ThreadDetectorConfig:
     """
     Configuration for the Thread Detector worker (step 12).
