@@ -75,6 +75,10 @@ async def session_start(
             session_id=str(body.session_id),
             question_id=str(result.selected_question_id),
         )
+        await wm.append_asked_question(
+            session_id=str(body.session_id),
+            question_id=str(result.selected_question_id),
+        )
 
     log.info("session.start", phase=result.phase)
     return SessionStartResponse(

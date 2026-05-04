@@ -247,7 +247,7 @@ class Orchestrator:
                     source=selection.source,
                     rationale=selection.rationale,
                 )
-            except PhaseGateError as e:
+            except Exception as e:
                 log.warning(
                     "phase_gate.failed",
                     session_id=str(session_id),
@@ -321,29 +321,6 @@ class Orchestrator:
         name, relationship, phase = row
         return _Person(name=name, relationship=relationship, phase=phase)
 
-    async def _fetch_random_starter_question(self) -> "_StarterQuestion":
-        async with self._db.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    SELECT id, text, attributes->>'dimension' AS dimension
-                    FROM active_questions
-                    WHERE source = 'starter_anchor'
-                    ORDER BY random()
-                    LIMIT 1
-                    """
-                )
-                row = await cur.fetchone()
-        if row is None:
-            raise StarterQuestionNotFoundError("no active starter anchors found")
-        question_id, text, dimension = row
-        if dimension not in {"sensory", "voice", "place", "relation", "era"}:
-            raise StarterQuestionNotFoundError(
-                f"starter anchor {question_id} has invalid dimension {dimension!r}"
-            )
-        return _StarterQuestion(id=question_id, text=text, dimension=dimension)
-
-
 def _string_or_none(value: object) -> str | None:
     if value is None:
         return None
@@ -356,10 +333,3 @@ class _Person:
     name: str
     relationship: str | None
     phase: str
-
-
-@dataclass(frozen=True)
-class _StarterQuestion:
-    id: UUID
-    text: str
-    dimension: str

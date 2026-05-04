@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from flashback.llm.errors import LLMError
 from flashback.orchestrator.stub import PersonNotFoundError
+from flashback.phase_gate import PhaseGateError
 from flashback.working_memory.client import WorkingMemoryError
 from flashback.working_memory.keys import InvalidSessionIdError
 
@@ -46,5 +47,16 @@ def install_exception_handlers(app: FastAPI) -> None:
             content={
                 "error": "service_unavailable",
                 "detail": "response generation failed",
+            },
+        )
+
+    @app.exception_handler(PhaseGateError)
+    async def _phase_gate_error(_: Request, exc: PhaseGateError):
+        log.error("phase gate failed", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": "service_unavailable",
+                "detail": "phase gate selection failed",
             },
         )

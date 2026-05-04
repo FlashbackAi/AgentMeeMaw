@@ -102,8 +102,10 @@ class FakeCursor:
     async def fetchone(self):
         if "FROM persons" in self.sql:
             return (self.pool.person_name, self.pool.relationship, self.pool.phase)
+        if "FROM active_moments" in self.sql:
+            return (False,)
         if "FROM active_questions" in self.sql:
-            return (QUESTION_ID, self.pool.question_text, self.pool.question_dimension)
+            return (QUESTION_ID, self.pool.question_text)
         raise AssertionError(f"unexpected SQL: {self.sql}")
 
 
