@@ -460,6 +460,110 @@ class ProfileSummaryConfig:
 
 
 @dataclass(frozen=True)
+class ProducerConfig:
+    """
+    Configuration for Question Producers P2/P3/P5 (step 15).
+
+    ``run-per-session`` requires ``PRODUCERS_PER_SESSION_QUEUE_URL`` and
+    only accepts P2 messages. ``run-weekly`` requires
+    ``PRODUCERS_WEEKLY_QUEUE_URL`` and accepts P3/P5 messages. The CLI
+    ``run-once`` path does not require either producer queue URL, but it
+    still needs the embedding queue because new questions are embedded
+    after commit.
+    """
+
+    database_url: str
+    aws_region: str
+
+    producers_per_session_queue_url: str
+    producers_weekly_queue_url: str
+    embedding_queue_url: str
+
+    embedding_model: str
+    embedding_model_version: str
+
+    openai_api_key: str
+    anthropic_api_key: str
+
+    llm_producer_provider: str
+    llm_producer_model: str
+    llm_producer_timeout_seconds: float
+    llm_producer_max_tokens: int
+
+    p2_max_entities_per_run: int
+    p2_questions_per_entity: int
+    p3_max_gaps_per_run: int
+    p3_questions_per_gap: int
+    p5_max_dimensions_per_run: int
+    p5_questions_per_dimension: int
+    p5_dimension_coverage_threshold: int
+
+    sqs_wait_seconds: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(
+        cls, *, queue_required: str | None = None
+    ) -> "ProducerConfig":
+        small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        per_session_queue_url = (
+            _required("PRODUCERS_PER_SESSION_QUEUE_URL")
+            if queue_required == "per-session"
+            else os.environ.get("PRODUCERS_PER_SESSION_QUEUE_URL", "")
+        )
+        weekly_queue_url = (
+            _required("PRODUCERS_WEEKLY_QUEUE_URL")
+            if queue_required == "weekly"
+            else os.environ.get("PRODUCERS_WEEKLY_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            producers_per_session_queue_url=per_session_queue_url,
+            producers_weekly_queue_url=weekly_queue_url,
+            embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
+            ),
+            openai_api_key=_required("OPENAI_API_KEY"),
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            llm_producer_provider=os.environ.get(
+                "LLM_PRODUCER_PROVIDER", small_provider
+            ),
+            llm_producer_model=os.environ.get("LLM_PRODUCER_MODEL", small_model),
+            llm_producer_timeout_seconds=float(
+                os.environ.get("LLM_PRODUCER_TIMEOUT_SECONDS", "15")
+            ),
+            llm_producer_max_tokens=int(
+                os.environ.get("LLM_PRODUCER_MAX_TOKENS", "1500")
+            ),
+            p2_max_entities_per_run=int(
+                os.environ.get("P2_MAX_ENTITIES_PER_RUN", "3")
+            ),
+            p2_questions_per_entity=int(
+                os.environ.get("P2_QUESTIONS_PER_ENTITY", "2")
+            ),
+            p3_max_gaps_per_run=int(os.environ.get("P3_MAX_GAPS_PER_RUN", "3")),
+            p3_questions_per_gap=int(os.environ.get("P3_QUESTIONS_PER_GAP", "4")),
+            p5_max_dimensions_per_run=int(
+                os.environ.get("P5_MAX_DIMENSIONS_PER_RUN", "5")
+            ),
+            p5_questions_per_dimension=int(
+                os.environ.get("P5_QUESTIONS_PER_DIMENSION", "2")
+            ),
+            p5_dimension_coverage_threshold=int(
+                os.environ.get("P5_DIMENSION_COVERAGE_THRESHOLD", "3")
+            ),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True)
 class ThreadDetectorConfig:
     """
     Configuration for the Thread Detector worker (step 12).
