@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from flashback.llm.errors import LLMError
 from flashback.orchestrator.stub import PersonNotFoundError
 from flashback.working_memory.client import WorkingMemoryError
 from flashback.working_memory.keys import InvalidSessionIdError
+
+log = structlog.get_logger("flashback.http.errors")
 
 
 def _json_error(status_code: int, detail: str) -> JSONResponse:
@@ -33,3 +37,14 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(InvalidSessionIdError)
     async def _invalid_session(_: Request, exc: InvalidSessionIdError):
         return _json_error(status.HTTP_400_BAD_REQUEST, str(exc))
+
+    @app.exception_handler(LLMError)
+    async def _llm_error(_: Request, exc: LLMError):
+        log.error("response generation failed", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": "service_unavailable",
+                "detail": "response generation failed",
+            },
+        )

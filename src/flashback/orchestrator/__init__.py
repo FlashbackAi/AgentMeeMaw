@@ -1,24 +1,26 @@
-"""
-The Turn Orchestrator surface (CLAUDE.md s3, ARCHITECTURE.md s3.2).
+"""The Turn Orchestrator surface."""
 
-Step 4 ships a stub implementation that returns canned text but
-correctly reads from and writes to Working Memory and Postgres. Step 9
-replaces :class:`StubOrchestrator` with the real Turn Orchestrator;
-the protocol stays the same so the swap is mechanical.
-"""
-
-from flashback.orchestrator.stub import (
+from flashback.orchestrator.orchestrator import (
     Orchestrator,
+    PersonNotFoundError,
+    StarterQuestionNotFoundError,
+)
+from flashback.orchestrator.protocol import (
+    OrchestratorProtocol,
     SessionStartResult,
     SessionWrapResult,
-    StubOrchestrator,
     TurnResult,
 )
 
+StubOrchestrator = Orchestrator
+
 __all__ = [
     "Orchestrator",
+    "OrchestratorProtocol",
+    "PersonNotFoundError",
     "SessionStartResult",
     "SessionWrapResult",
+    "StarterQuestionNotFoundError",
     "StubOrchestrator",
     "TurnResult",
 ]

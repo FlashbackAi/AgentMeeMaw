@@ -10,4 +10,4 @@ class LLMTimeout(LLMError):
 
 
 class LLMMalformedResponse(LLMError):
-    """Raised when a provider response does not contain the forced tool call."""
+    """Raised when a provider response is missing the expected content."""

@@ -94,6 +94,10 @@ class HttpConfig:
     llm_intent_model: str = "gpt-5-mini"
     llm_intent_timeout_seconds: float = 8.0
     llm_intent_max_tokens: int = 300
+    llm_response_provider: str = "anthropic"
+    llm_response_model: str = "claude-sonnet-4-6"
+    llm_response_timeout_seconds: float = 12.0
+    llm_response_max_tokens: int = 400
     voyage_api_key: str = ""
     embedding_model: str = "voyage-3-large"
     embedding_model_version: str = "2025-01-07"
@@ -104,6 +108,7 @@ class HttpConfig:
     @classmethod
     def from_env(cls) -> "HttpConfig":
         llm_small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        llm_big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
         return cls(
             database_url=_required("DATABASE_URL"),
             valkey_url=_required("VALKEY_URL"),
@@ -123,12 +128,20 @@ class HttpConfig:
             llm_small_provider=os.environ.get("LLM_SMALL_PROVIDER", "openai"),
             llm_small_model=llm_small_model,
             llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
-            llm_big_model=os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6"),
+            llm_big_model=llm_big_model,
             llm_intent_model=os.environ.get("LLM_INTENT_MODEL", llm_small_model),
             llm_intent_timeout_seconds=float(
                 os.environ.get("LLM_INTENT_TIMEOUT_SECONDS", "8")
             ),
             llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "300")),
+            llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
+            llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),
+            llm_response_timeout_seconds=float(
+                os.environ.get("LLM_RESPONSE_TIMEOUT_SECONDS", "12")
+            ),
+            llm_response_max_tokens=int(
+                os.environ.get("LLM_RESPONSE_MAX_TOKENS", "400")
+            ),
             voyage_api_key=_required("VOYAGE_API_KEY"),
             embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
             embedding_model_version=os.environ.get(

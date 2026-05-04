@@ -17,7 +17,7 @@ from flashback.http.models import (
     SessionWrapRequest,
     SessionWrapResponse,
 )
-from flashback.orchestrator import Orchestrator
+from flashback.orchestrator import OrchestratorProtocol
 from flashback.working_memory import WorkingMemory
 from flashback.working_memory.client import WorkingMemoryError
 
@@ -29,7 +29,7 @@ log = structlog.get_logger("flashback.http.session")
 async def session_start(
     body: SessionStartRequest,
     wm: WorkingMemory = Depends(get_working_memory),
-    orch: Orchestrator = Depends(get_orchestrator),
+    orch: OrchestratorProtocol = Depends(get_orchestrator),
 ) -> SessionStartResponse:
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
@@ -91,7 +91,7 @@ async def session_start(
 async def session_wrap(
     body: SessionWrapRequest,
     wm: WorkingMemory = Depends(get_working_memory),
-    orch: Orchestrator = Depends(get_orchestrator),
+    orch: OrchestratorProtocol = Depends(get_orchestrator),
 ) -> SessionWrapResponse:
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),

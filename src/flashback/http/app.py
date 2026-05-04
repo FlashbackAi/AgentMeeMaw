@@ -30,7 +30,7 @@ from flashback.http.routes.admin import router as admin_router
 from flashback.http.routes.health import router as health_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.turn import router as turn_router
-from flashback.orchestrator import StubOrchestrator
+from flashback.orchestrator import Orchestrator
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.working_memory import WorkingMemory
 
@@ -75,7 +75,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_limit=cfg.retrieval_max_limit,
     )
     app.state.retrieval = retrieval
-    app.state.orchestrator = StubOrchestrator(
+    app.state.orchestrator = Orchestrator(
         wm=wm,
         db_pool=db_pool,
         settings=cfg,

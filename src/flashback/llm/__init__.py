@@ -1,7 +1,7 @@
 """Provider-agnostic LLM adapter surface."""
 
 from flashback.llm.errors import LLMError, LLMMalformedResponse, LLMTimeout
-from flashback.llm.interface import Provider, call_with_tool
+from flashback.llm.interface import Provider, call_text, call_with_tool
 from flashback.llm.tool_spec import ToolSpec
 
 __all__ = [
@@ -10,5 +10,6 @@ __all__ = [
     "LLMTimeout",
     "Provider",
     "ToolSpec",
+    "call_text",
     "call_with_tool",
 ]

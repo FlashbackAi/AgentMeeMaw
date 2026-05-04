@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from flashback.http.auth import require_service_token
 from flashback.http.deps import get_orchestrator, get_working_memory
 from flashback.http.models import TurnMetadata, TurnRequest, TurnResponse
-from flashback.orchestrator import Orchestrator
+from flashback.orchestrator import OrchestratorProtocol
 from flashback.working_memory import WorkingMemory
 from flashback.working_memory.client import WorkingMemoryError
 
@@ -22,7 +22,7 @@ log = structlog.get_logger("flashback.http.turn")
 async def turn(
     body: TurnRequest,
     wm: WorkingMemory = Depends(get_working_memory),
-    orch: Orchestrator = Depends(get_orchestrator),
+    orch: OrchestratorProtocol = Depends(get_orchestrator),
 ) -> TurnResponse:
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),

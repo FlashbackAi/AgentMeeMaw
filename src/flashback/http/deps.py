@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 
 from flashback.config import HttpConfig
-from flashback.orchestrator import Orchestrator
+from flashback.orchestrator import OrchestratorProtocol
 from flashback.working_memory import WorkingMemory
 
 if TYPE_CHECKING:
@@ -44,5 +44,5 @@ def get_working_memory(request: Request) -> WorkingMemory:
     return request.app.state.working_memory
 
 
-def get_orchestrator(request: Request) -> Orchestrator:
+def get_orchestrator(request: Request) -> OrchestratorProtocol:
     return request.app.state.orchestrator
