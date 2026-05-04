@@ -13,10 +13,15 @@ Each DB test gets a freshly migrated database via the
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from pathlib import Path
 
 import pytest
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
