@@ -299,6 +299,80 @@ class HttpConfig:
 
 
 @dataclass(frozen=True)
+class TraitSynthesizerConfig:
+    """
+    Configuration for the Trait Synthesizer worker (step 13).
+
+    Sibling to :class:`ThreadDetectorConfig`. Drains the
+    ``trait_synthesizer`` SQS queue (one message per person; producer
+    is Session Wrap, step 16) and runs a single small-LLM call per
+    person to upgrade/downgrade existing traits and propose new ones.
+
+    A separate ``run-once --person-id <uuid>`` CLI path uses the same
+    synthesizer logic synchronously without the queue. For that path
+    ``trait_synthesizer_queue_url`` may be empty.
+    """
+
+    database_url: str
+    aws_region: str
+
+    trait_synthesizer_queue_url: str
+    embedding_queue_url: str
+
+    embedding_model: str
+    embedding_model_version: str
+
+    openai_api_key: str
+    anthropic_api_key: str
+
+    llm_trait_synth_provider: str
+    llm_trait_synth_model: str
+    llm_trait_synth_timeout_seconds: float
+    llm_trait_synth_max_tokens: int
+
+    sqs_wait_seconds: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(cls, *, queue_required: bool = True) -> "TraitSynthesizerConfig":
+        small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        queue_url = (
+            _required("TRAIT_SYNTHESIZER_QUEUE_URL")
+            if queue_required
+            else os.environ.get("TRAIT_SYNTHESIZER_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            trait_synthesizer_queue_url=queue_url,
+            embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
+            ),
+            openai_api_key=_required("OPENAI_API_KEY"),
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            llm_trait_synth_provider=os.environ.get(
+                "LLM_TRAIT_SYNTH_PROVIDER", small_provider
+            ),
+            llm_trait_synth_model=os.environ.get(
+                "LLM_TRAIT_SYNTH_MODEL", small_model
+            ),
+            llm_trait_synth_timeout_seconds=float(
+                os.environ.get("LLM_TRAIT_SYNTH_TIMEOUT_SECONDS", "15")
+            ),
+            llm_trait_synth_max_tokens=int(
+                os.environ.get("LLM_TRAIT_SYNTH_MAX_TOKENS", "1500")
+            ),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True)
 class ThreadDetectorConfig:
     """
     Configuration for the Thread Detector worker (step 12).

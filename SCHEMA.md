@@ -235,7 +235,7 @@ combinations. The DB only checks `edge_type` membership.
 | `involves` | moment → entity | Role goes in `attributes` |
 | `happened_at` | moment → entity | Entity must be `kind='place'` (caller-enforced) |
 | `exemplifies` | moment → trait | Evidence link |
-| `evidences` | moment → thread, entity → thread | |
+| `evidences` | moment → thread, entity → thread, thread → trait, entity → trait | thread → trait written by Trait Synthesizer; entity → trait is forward-compat (no v1 writer) |
 | `related_to` | entity → entity | Generic relationship |
 | `motivated_by` | question → moment, question → entity, question → thread | What seeded this question |
 | `targets` | question → entity | What the question is asking about |

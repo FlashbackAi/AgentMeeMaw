@@ -38,6 +38,11 @@ VALID_EDGE_PATTERNS: dict[str, frozenset[tuple[str, str]]] = {
     "evidences": frozenset({
         ("moment", "thread"),
         ("entity", "thread"),
+        # Step 13 (Trait Synthesizer):
+        ("thread", "trait"),
+        # forward-compat for a future entity-level evidences writer; no
+        # caller in v1.
+        ("entity", "trait"),
     }),
     "related_to": frozenset({
         ("entity", "entity"),
