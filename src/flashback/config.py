@@ -85,9 +85,19 @@ class HttpConfig:
     working_memory_transcript_limit: int
     db_pool_min_size: int
     db_pool_max_size: int
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    llm_small_provider: str = "openai"
+    llm_small_model: str = "gpt-5-mini"
+    llm_big_provider: str = "anthropic"
+    llm_big_model: str = "claude-sonnet-4-6"
+    llm_intent_model: str = "gpt-5-mini"
+    llm_intent_timeout_seconds: float = 8.0
+    llm_intent_max_tokens: int = 300
 
     @classmethod
     def from_env(cls) -> "HttpConfig":
+        llm_small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
         return cls(
             database_url=_required("DATABASE_URL"),
             valkey_url=_required("VALKEY_URL"),
@@ -102,4 +112,15 @@ class HttpConfig:
             ),
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+            openai_api_key=_required("OPENAI_API_KEY"),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_small_provider=os.environ.get("LLM_SMALL_PROVIDER", "openai"),
+            llm_small_model=llm_small_model,
+            llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            llm_big_model=os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6"),
+            llm_intent_model=os.environ.get("LLM_INTENT_MODEL", llm_small_model),
+            llm_intent_timeout_seconds=float(
+                os.environ.get("LLM_INTENT_TIMEOUT_SECONDS", "8")
+            ),
+            llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "300")),
         )

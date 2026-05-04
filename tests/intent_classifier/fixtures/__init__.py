@@ -1,0 +1,1 @@
+"""Intent classifier fixtures."""

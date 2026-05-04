@@ -19,12 +19,18 @@ Detector; the Conversation Gateway brackets it with WM hydration).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
+import structlog
 from psycopg_pool import AsyncConnectionPool
 
+from flashback.config import HttpConfig
+from flashback.intent_classifier import IntentClassifier
+from flashback.llm.interface import Provider
 from flashback.working_memory import WorkingMemory
+
+log = structlog.get_logger("flashback.orchestrator.stub")
 
 
 # --- Result shapes ----------------------------------------------------------
@@ -103,9 +109,21 @@ class StubOrchestrator:
         self,
         wm: WorkingMemory,
         db_pool: AsyncConnectionPool,
+        settings: HttpConfig | None = None,
+        intent_classifier: IntentClassifier | None = None,
     ) -> None:
         self._wm = wm
         self._db = db_pool
+        self._settings = settings
+        self._intent_classifier = intent_classifier
+        if self._intent_classifier is None and settings is not None:
+            self._intent_classifier = IntentClassifier(
+                settings=settings,
+                provider=cast(Provider, settings.llm_small_provider),
+                model=settings.llm_intent_model,
+                timeout=settings.llm_intent_timeout_seconds,
+                max_tokens=settings.llm_intent_max_tokens,
+            )
 
     async def handle_session_start(
         self,
@@ -133,13 +151,49 @@ class StubOrchestrator:
         role_id: UUID,
         user_message: str,
     ) -> TurnResult:
-        # Step-9 replaces this with: Intent Classifier -> Retrieval ->
-        # Response Generator -> Segment Detector. For step 4, return a
-        # neutral acknowledgement.
+        intent: str | None = None
+        emotional_temperature: str | None = None
+
+        if self._intent_classifier is not None:
+            try:
+                recent_turns = await self._wm.get_transcript(str(session_id))
+                state = await self._wm.get_state(str(session_id))
+                signals = state.model_dump()
+                result = await self._intent_classifier.classify(
+                    recent_turns=recent_turns,
+                    signals=signals,
+                )
+                await self._wm.update_signals(
+                    str(session_id),
+                    signal_last_intent=result.intent,
+                    signal_emotional_temperature_estimate=(
+                        result.emotional_temperature
+                    ),
+                )
+                intent = result.intent
+                emotional_temperature = result.emotional_temperature
+                log.info(
+                    "intent_classifier.completed",
+                    session_id=str(session_id),
+                    intent=result.intent,
+                    confidence=result.confidence,
+                    emotional_temperature=result.emotional_temperature,
+                    reasoning=result.reasoning,
+                )
+            except Exception as e:
+                log.warning(
+                    "intent_classifier.failed",
+                    session_id=str(session_id),
+                    error=str(e),
+                    exc_info=True,
+                )
+
+        # Retrieval, Response Generator, and Segment Detector still land
+        # later. For now, return the neutral acknowledgement.
         return TurnResult(
             reply="I hear you. Tell me more.",
-            intent=None,
-            emotional_temperature=None,
+            intent=intent,
+            emotional_temperature=emotional_temperature,
             segment_boundary=False,
         )
 

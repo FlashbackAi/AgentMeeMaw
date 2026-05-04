@@ -36,14 +36,15 @@ This is **grief technology**. A few rules that flow from that:
 | Concern | Choice |
 |---|---|
 | Language / runtime | Python |
-| LLMs | Anthropic — Haiku for small calls, Sonnet for big calls |
+| LLMs (small calls) | OpenAI — `gpt-5-mini` |
+| LLMs (big calls) | Anthropic — `claude-sonnet-4-6` |
 | Embeddings | Voyage AI (`voyage-3` or `voyage-3-large`, 1024-dim) |
 | Canonical graph | Postgres + pgvector |
 | Working memory | Valkey (Redis-compatible) |
 | Queues | AWS SQS — `extraction`, `embedding`, `artifact_generation` |
 
 External dependencies we **call** but do not own: the Node Backend
-(REST), Anthropic API, Voyage API, Postgres, Valkey, SQS.
+(REST), Anthropic API, OpenAI API, Voyage API, Postgres, Valkey, SQS.
 
 ---
 

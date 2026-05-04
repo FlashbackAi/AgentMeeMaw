@@ -61,7 +61,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         transcript_limit=cfg.working_memory_transcript_limit,
     )
     app.state.working_memory = wm
-    app.state.orchestrator = StubOrchestrator(wm=wm, db_pool=db_pool)
+    app.state.orchestrator = StubOrchestrator(wm=wm, db_pool=db_pool, settings=cfg)
 
     log = structlog.get_logger("flashback.http")
     log.info("service.started")
