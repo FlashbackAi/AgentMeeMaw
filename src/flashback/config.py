@@ -94,6 +94,7 @@ class ExtractionConfig:
     extraction_queue_url: str
     embedding_queue_url: str
     artifact_queue_url: str
+    thread_detector_queue_url: str
 
     voyage_api_key: str
     embedding_model: str
@@ -132,6 +133,7 @@ class ExtractionConfig:
             extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
             artifact_queue_url=_required("ARTIFACT_QUEUE_URL"),
+            thread_detector_queue_url=_required("THREAD_DETECTOR_QUEUE_URL"),
             voyage_api_key=_required("VOYAGE_API_KEY"),
             embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
             embedding_model_version=os.environ.get(
@@ -293,4 +295,92 @@ class HttpConfig:
                 os.environ.get("RETRIEVAL_DEFAULT_LIMIT", "10")
             ),
             retrieval_max_limit=int(os.environ.get("RETRIEVAL_MAX_LIMIT", "50")),
+        )
+
+
+@dataclass(frozen=True)
+class ThreadDetectorConfig:
+    """
+    Configuration for the Thread Detector worker (step 12).
+
+    Sibling to :class:`ExtractionConfig`. Drains the ``thread_detector``
+    SQS queue (pushed by the Extraction Worker post-commit), clusters
+    moments via HDBSCAN, and writes new threads + P4 questions back.
+
+    Two LLM calls per cluster (naming + P4) — both Sonnet by default.
+    """
+
+    database_url: str
+    aws_region: str
+
+    thread_detector_queue_url: str
+    embedding_queue_url: str
+    artifact_queue_url: str
+
+    embedding_model: str
+    embedding_model_version: str
+
+    anthropic_api_key: str
+    openai_api_key: str
+
+    llm_thread_naming_provider: str
+    llm_thread_naming_model: str
+    llm_thread_naming_timeout_seconds: float
+    llm_thread_naming_max_tokens: int
+
+    llm_p4_provider: str
+    llm_p4_model: str
+    llm_p4_timeout_seconds: float
+    llm_p4_max_tokens: int
+
+    thread_detector_min_cluster_size: int
+    thread_detector_existing_match_distance: float
+
+    sqs_wait_seconds: int
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+    @classmethod
+    def from_env(cls) -> "ThreadDetectorConfig":
+        big_provider = os.environ.get("LLM_BIG_PROVIDER", "anthropic")
+        big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            thread_detector_queue_url=_required("THREAD_DETECTOR_QUEUE_URL"),
+            embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
+            artifact_queue_url=_required("ARTIFACT_QUEUE_URL"),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
+            ),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+            llm_thread_naming_provider=os.environ.get(
+                "LLM_THREAD_NAMING_PROVIDER", big_provider
+            ),
+            llm_thread_naming_model=os.environ.get(
+                "LLM_THREAD_NAMING_MODEL", big_model
+            ),
+            llm_thread_naming_timeout_seconds=float(
+                os.environ.get("LLM_THREAD_NAMING_TIMEOUT_SECONDS", "30")
+            ),
+            llm_thread_naming_max_tokens=int(
+                os.environ.get("LLM_THREAD_NAMING_MAX_TOKENS", "800")
+            ),
+            llm_p4_provider=os.environ.get("LLM_P4_PROVIDER", big_provider),
+            llm_p4_model=os.environ.get("LLM_P4_MODEL", big_model),
+            llm_p4_timeout_seconds=float(
+                os.environ.get("LLM_P4_TIMEOUT_SECONDS", "30")
+            ),
+            llm_p4_max_tokens=int(os.environ.get("LLM_P4_MAX_TOKENS", "800")),
+            thread_detector_min_cluster_size=int(
+                os.environ.get("THREAD_DETECTOR_MIN_CLUSTER_SIZE", "3")
+            ),
+            thread_detector_existing_match_distance=float(
+                os.environ.get("THREAD_DETECTOR_EXISTING_MATCH_DISTANCE", "0.4")
+            ),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
         )
