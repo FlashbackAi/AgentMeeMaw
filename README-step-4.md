@@ -138,7 +138,7 @@ curl -s -X POST "http://localhost:8000/turn" \
 curl -s -X POST "http://localhost:8000/session/wrap" \
   -H "$H" -H "Content-Type: application/json" \
   -d "{\"session_id\":\"$SESSION\",\"person_id\":\"$PERSON\"}"
-# {"session_summary":"","metadata":{"moments_extracted_estimate":0}}
+# {"session_summary":"","metadata":{"segments_extracted_count":0}}
 
 # 5. Reset phase (admin)
 curl -s -X POST "http://localhost:8000/admin/reset_phase" \

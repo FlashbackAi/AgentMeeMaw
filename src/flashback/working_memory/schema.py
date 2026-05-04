@@ -68,6 +68,7 @@ class WorkingMemoryState(BaseModel):
 
     rolling_summary: str = ""
     prior_rolling_summary: str = ""
+    segments_pushed_this_session: int = 0
 
     signal_turns_in_current_segment: int = 0
     signal_recent_words: str = ""
@@ -92,6 +93,7 @@ _INT_FIELDS: frozenset[str] = frozenset(
     {
         "signal_turns_in_current_segment",
         "signal_last_user_message_length",
+        "segments_pushed_this_session",
     }
 )
 
@@ -129,6 +131,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "started_at": state.started_at.isoformat(),
         "rolling_summary": state.rolling_summary,
         "prior_rolling_summary": state.prior_rolling_summary,
+        "segments_pushed_this_session": str(state.segments_pushed_this_session),
         "signal_turns_in_current_segment": str(state.signal_turns_in_current_segment),
         "signal_recent_words": state.signal_recent_words,
         "signal_last_user_message_length": str(state.signal_last_user_message_length),

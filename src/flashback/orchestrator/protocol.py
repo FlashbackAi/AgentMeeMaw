@@ -25,7 +25,7 @@ class TurnResult:
 @dataclass(frozen=True)
 class SessionWrapResult:
     session_summary: str
-    moments_extracted_estimate: int
+    segments_extracted_count: int
 
 
 class OrchestratorProtocol(Protocol):

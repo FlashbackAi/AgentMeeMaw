@@ -65,3 +65,22 @@ class SessionStartState:
     selection: SelectionResult | None = None
     response: ResponseResult | None = None
     failures: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class SessionWrapState:
+    """Mutable state for ``handle_session_wrap``."""
+
+    session_id: UUID
+    person_id: UUID
+    started_at: datetime
+
+    final_segment_pushed: bool = False
+    session_summary_text: str = ""
+    segments_pushed_count: int = 0
+
+    trait_synthesizer_pushed: bool = False
+    profile_summary_pushed: bool = False
+    producers_per_session_pushed: bool = False
+
+    failures: dict[str, str] = field(default_factory=dict)

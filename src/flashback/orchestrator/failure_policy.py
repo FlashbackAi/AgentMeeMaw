@@ -43,6 +43,16 @@ SESSION_START_POLICIES: dict[str, Policy] = {
     "append_opener": Policy.PROPAGATE,
 }
 
+SESSION_WRAP_POLICIES: dict[str, Policy] = {
+    "load_wm_state": Policy.PROPAGATE,
+    "force_close_segment": Policy.DEGRADE,
+    "generate_session_summary": Policy.DEGRADE,
+    "push_trait_synthesizer": Policy.DEGRADE,
+    "push_profile_summary": Policy.DEGRADE,
+    "push_producers": Policy.DEGRADE,
+    "clear_wm": Policy.DEGRADE,
+}
+
 
 async def execute(
     *,

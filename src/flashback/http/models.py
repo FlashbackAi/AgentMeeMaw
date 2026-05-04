@@ -79,7 +79,7 @@ class SessionWrapRequest(BaseModel):
 class SessionWrapMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    moments_extracted_estimate: int = 0
+    segments_extracted_count: int = 0
 
 
 class SessionWrapResponse(BaseModel):

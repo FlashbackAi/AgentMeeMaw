@@ -98,6 +98,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     )
     await deps.working_memory.reset_segment(str(state.session_id))
     await deps.working_memory.set_seeded_question(str(state.session_id), None)
+    await deps.working_memory.increment_segments_pushed(str(state.session_id))
 
     state.segment_boundary_detected = True
 

@@ -35,10 +35,17 @@ from flashback.intent_classifier import IntentClassifier
 from flashback.llm.interface import Provider
 from flashback.orchestrator import Orchestrator, OrchestratorDeps
 from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
-from flashback.queues import AsyncSQSClient, ExtractionQueueProducer
+from flashback.queues import (
+    AsyncSQSClient,
+    ExtractionQueueProducer,
+    ProducersPerSessionQueueProducer,
+    ProfileSummaryQueueProducer,
+    TraitSynthesizerQueueProducer,
+)
 from flashback.response_generator import ResponseGenerator
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.segment_detector import SegmentDetector
+from flashback.session_summary import SessionSummaryGenerator
 from flashback.working_memory import WorkingMemory
 
 
@@ -103,12 +110,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         timeout=cfg.llm_segment_detector_timeout_seconds,
         max_tokens=cfg.llm_segment_detector_max_tokens,
     )
+    sqs_client = AsyncSQSClient(
+        boto3.client("sqs", region_name=cfg.aws_region),
+    )
     extraction_queue = ExtractionQueueProducer(
-        sqs_client=AsyncSQSClient(
-            boto3.client("sqs", region_name=cfg.aws_region),
-        ),
+        sqs_client=sqs_client,
         queue_url=cfg.extraction_queue_url,
     )
+    trait_synthesizer_queue = TraitSynthesizerQueueProducer(
+        sqs_client=sqs_client,
+        queue_url=cfg.trait_synthesizer_queue_url,
+    )
+    profile_summary_queue = ProfileSummaryQueueProducer(
+        sqs_client=sqs_client,
+        queue_url=cfg.profile_summary_queue_url,
+    )
+    producers_per_session_queue = ProducersPerSessionQueueProducer(
+        sqs_client=sqs_client,
+        queue_url=cfg.producers_per_session_queue_url,
+    )
+    session_summary_generator = SessionSummaryGenerator(settings=cfg)
     phase_gate = PhaseGate(
         db_pool=db_pool,
         starter_selector=StarterSelector(db_pool),
@@ -123,6 +144,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         response_generator=response_generator,
         segment_detector=segment_detector,
         extraction_queue=extraction_queue,
+        session_summary_generator=session_summary_generator,
+        trait_synthesizer_queue=trait_synthesizer_queue,
+        profile_summary_queue=profile_summary_queue,
+        producers_per_session_queue=producers_per_session_queue,
         settings=cfg,
     )
     app.state.orchestrator_deps = orchestrator_deps

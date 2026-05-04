@@ -224,6 +224,15 @@ class WorkingMemory:
             str(self._ttl),
         )
 
+    async def increment_segments_pushed(self, session_id: str) -> int:
+        """Atomically increment the session's pushed-segment counter."""
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hincrby(s_key, "segments_pushed_this_session", 1)
+            p.expire(s_key, self._ttl)
+            results = await p.execute()
+        return int(results[0])
+
     async def update_signals(self, session_id: str, **signals: Any) -> None:
         """
         Partial update of state fields.

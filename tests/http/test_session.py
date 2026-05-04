@@ -160,3 +160,36 @@ class TestSessionWrap:
         assert not await fake_redis.exists(state_key(session_id))
         assert not await fake_redis.exists(transcript_key(session_id))
         assert not await fake_redis.exists(segment_key(session_id))
+
+    async def test_wrap_response_uses_segments_extracted_count(
+        self, client, fake_orchestrator: FakeOrchestrator
+    ):
+        from flashback.orchestrator import SessionWrapResult
+
+        session_id, person_id, role_id = new_uuids()
+        fake_orchestrator.wrap_result = SessionWrapResult(
+            session_summary="the lake cabin",
+            segments_extracted_count=3,
+        )
+        await client.post(
+            "/session/start",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "session_metadata": {},
+            },
+        )
+
+        resp = await client.post(
+            "/session/wrap",
+            headers=auth_headers(),
+            json={"session_id": session_id, "person_id": person_id},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "session_summary": "the lake cabin",
+            "metadata": {"segments_extracted_count": 3},
+        }

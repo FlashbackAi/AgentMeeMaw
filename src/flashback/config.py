@@ -219,6 +219,13 @@ class HttpConfig:
     llm_response_timeout_seconds: float = 12.0
     llm_response_max_tokens: int = 400
     extraction_queue_url: str = ""
+    trait_synthesizer_queue_url: str = ""
+    profile_summary_queue_url: str = ""
+    producers_per_session_queue_url: str = ""
+    llm_session_summary_provider: str = "anthropic"
+    llm_session_summary_model: str = "claude-sonnet-4-6"
+    llm_session_summary_timeout_seconds: float = 12.0
+    llm_session_summary_max_tokens: int = 300
     aws_region: str = "us-east-1"
     voyage_api_key: str = ""
     embedding_model: str = "voyage-3-large"
@@ -282,6 +289,25 @@ class HttpConfig:
                 os.environ.get("LLM_RESPONSE_MAX_TOKENS", "400")
             ),
             extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
+            trait_synthesizer_queue_url=_required("TRAIT_SYNTHESIZER_QUEUE_URL"),
+            profile_summary_queue_url=_required("PROFILE_SUMMARY_QUEUE_URL"),
+            producers_per_session_queue_url=_required(
+                "PRODUCERS_PER_SESSION_QUEUE_URL"
+            ),
+            llm_session_summary_provider=os.environ.get(
+                "LLM_SESSION_SUMMARY_PROVIDER",
+                os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            ),
+            llm_session_summary_model=os.environ.get(
+                "LLM_SESSION_SUMMARY_MODEL",
+                llm_big_model,
+            ),
+            llm_session_summary_timeout_seconds=float(
+                os.environ.get("LLM_SESSION_SUMMARY_TIMEOUT_SECONDS", "12")
+            ),
+            llm_session_summary_max_tokens=int(
+                os.environ.get("LLM_SESSION_SUMMARY_MAX_TOKENS", "300")
+            ),
             aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             voyage_api_key=_required("VOYAGE_API_KEY"),
             embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),

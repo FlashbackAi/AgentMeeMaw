@@ -106,12 +106,13 @@ async def session_wrap(
         session_id=body.session_id,
         person_id=body.person_id,
     )
-    await wm.clear(str(body.session_id))
+    if not getattr(orch, "owns_working_memory", False):
+        await wm.clear(str(body.session_id))
 
     log.info("session.wrap")
     return SessionWrapResponse(
         session_summary=result.session_summary,
         metadata=SessionWrapMetadata(
-            moments_extracted_estimate=result.moments_extracted_estimate,
+            segments_extracted_count=result.segments_extracted_count,
         ),
     )

@@ -30,6 +30,7 @@ class FakeWorkingMemory:
         )
         self.updated_summary = None
         self.reset_calls = 0
+        self.increment_calls = 0
         self.seeded_question_updates = []
 
     async def get_segment(self, session_id: str):
@@ -49,6 +50,10 @@ class FakeWorkingMemory:
 
     async def set_seeded_question(self, session_id: str, question_id: str | None):
         self.seeded_question_updates.append(question_id)
+
+    async def increment_segments_pushed(self, session_id: str):
+        self.increment_calls += 1
+        return self.increment_calls
 
 
 class FakeDetector:
@@ -161,6 +166,7 @@ async def test_boundary_pushes_queue_then_updates_wm_and_state():
     assert queue.calls[0]["prior_rolling_summary"] == "Old summary."
     assert wm.updated_summary == "New summary."
     assert wm.reset_calls == 1
+    assert wm.increment_calls == 1
     assert wm.seeded_question_updates == [None]
     assert state.segment_boundary_detected is True
 

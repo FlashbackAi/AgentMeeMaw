@@ -16,6 +16,7 @@ from flashback.orchestrator.errors import (
     PersonNotFound,
     PersonNotFoundError,
     StarterQuestionNotFoundError,
+    WorkingMemoryNotFound,
 )
 from flashback.orchestrator.failure_policy import (
     SESSION_START_POLICIES,
@@ -27,7 +28,11 @@ from flashback.orchestrator.protocol import (
     SessionWrapResult,
     TurnResult,
 )
-from flashback.orchestrator.state import SessionStartState, TurnState
+from flashback.orchestrator.state import (
+    SessionStartState,
+    SessionWrapState,
+    TurnState,
+)
 from flashback.orchestrator.steps import (
     append_assistant,
     append_opener,
@@ -42,8 +47,13 @@ from flashback.orchestrator.steps import (
     select_question,
     select_starter_anchor,
 )
+from flashback.orchestrator.steps.wrap_session import wrap_session
 from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
+from flashback.queues.producers_per_session import ProducersPerSessionQueueProducer
+from flashback.queues.profile_summary import ProfileSummaryQueueProducer
+from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
 from flashback.response_generator import ResponseGenerator
+from flashback.session_summary import SessionSummaryGenerator
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -237,11 +247,30 @@ class Orchestrator:
         session_id: UUID,
         person_id: UUID,
     ) -> SessionWrapResult:
-        _ = (session_id, person_id)
-        return SessionWrapResult(
-            session_summary="",
-            moments_extracted_estimate=0,
+        if not await self._deps.working_memory.exists(str(session_id)):
+            raise WorkingMemoryNotFound(
+                f"No working memory for session {session_id}; "
+                "session was not started or has already been wrapped."
+            )
+
+        state = SessionWrapState(
+            session_id=session_id,
+            person_id=person_id,
+            started_at=datetime.now(timezone.utc),
         )
+        token = structlog.contextvars.bind_contextvars(
+            wrap_id=str(uuid4()),
+            session_id=str(session_id),
+            person_id=str(person_id),
+        )
+        try:
+            await wrap_session(state, self._deps)
+            return SessionWrapResult(
+                session_summary=state.session_summary_text,
+                segments_extracted_count=state.segments_pushed_count,
+            )
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
 
 
 def _build_turn_result(state: TurnState) -> TurnResult:
@@ -267,6 +296,10 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
     phase_gate = kwargs.get("phase_gate")
     segment_detector = kwargs.get("segment_detector")
     extraction_queue = kwargs.get("extraction_queue")
+    session_summary_generator = kwargs.get("session_summary_generator")
+    trait_synthesizer_queue = kwargs.get("trait_synthesizer_queue")
+    profile_summary_queue = kwargs.get("profile_summary_queue")
+    producers_per_session_queue = kwargs.get("producers_per_session_queue")
 
     if intent_classifier is None and settings is not None:
         intent_classifier = IntentClassifier(
@@ -290,6 +323,8 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
             starter_selector=StarterSelector(db_pool),
             steady_selector=SteadySelector(db_pool, wm),
         )
+    if session_summary_generator is None and settings is not None:
+        session_summary_generator = SessionSummaryGenerator(settings=settings)
     return OrchestratorDeps(
         db_pool=db_pool,
         working_memory=wm,
@@ -299,6 +334,19 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
         response_generator=response_generator,
         segment_detector=segment_detector,
         extraction_queue=extraction_queue,
+        session_summary_generator=session_summary_generator,
+        trait_synthesizer_queue=cast(
+            TraitSynthesizerQueueProducer | None,
+            trait_synthesizer_queue,
+        ),
+        profile_summary_queue=cast(
+            ProfileSummaryQueueProducer | None,
+            profile_summary_queue,
+        ),
+        producers_per_session_queue=cast(
+            ProducersPerSessionQueueProducer | None,
+            producers_per_session_queue,
+        ),
         settings=settings,
     )
 

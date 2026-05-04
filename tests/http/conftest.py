@@ -75,7 +75,7 @@ class FakeOrchestrator:
         )
         self.wrap_result = SessionWrapResult(
             session_summary="",
-            moments_extracted_estimate=0,
+            segments_extracted_count=0,
         )
         self.start_raises: Exception | None = None
         self.turn_raises: Exception | None = None
