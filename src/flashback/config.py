@@ -18,6 +18,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from flashback.env import load_dotenv_local
+
+load_dotenv_local()
+
 
 class ConfigError(RuntimeError):
     """Raised when a required environment variable is missing."""

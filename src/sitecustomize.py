@@ -11,5 +11,9 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from flashback.env import load_dotenv_local
+
+load_dotenv_local()
+
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
