@@ -1,0 +1,39 @@
+name: flashback-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: flashback-postgres
+    environment:
+      POSTGRES_DB: flashback
+      POSTGRES_USER: flashback
+      POSTGRES_PASSWORD: flashback
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "15432:5432"
+    volumes:
+      - flashback_postgres_data:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flashback -d flashback"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:7.2
+    container_name: flashback-valkey
+    command: ["valkey-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - flashback_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  flashback_postgres_data:
+  flashback_valkey_data:
