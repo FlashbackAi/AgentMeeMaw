@@ -1,15 +1,16 @@
 """
 Pure key-naming helpers for Working Memory.
 
-Three keys per session, all scoped by session_id:
+Four keys per session, all scoped by session_id:
 
     wm:session:{session_id}:transcript    LIST   rolling buffer (trimmed)
     wm:session:{session_id}:segment       LIST   turns since last boundary
     wm:session:{session_id}:state         HASH   everything else
+    wm:session:{session_id}:asked         LIST   recent seeded questions
 
 The functions here do NOT touch Valkey; they only build strings.
 ``session_id`` is validated to be a non-empty string with no Valkey
-delimiter chars — defence against an upstream caller that hands us
+delimiter chars. This defends against an upstream caller that hands us
 something pathological.
 """
 
@@ -54,10 +55,16 @@ def state_key(session_id: str) -> str:
     return f"{KEY_PREFIX}:{session_id}:state"
 
 
-def all_keys(session_id: str) -> tuple[str, str, str]:
-    """Return (transcript, segment, state) — useful for bulk DEL / EXPIRE."""
+def asked_key(session_id: str) -> str:
+    _validate(session_id)
+    return f"{KEY_PREFIX}:{session_id}:asked"
+
+
+def all_keys(session_id: str) -> tuple[str, str, str, str]:
+    """Return all per-session keys, useful for bulk DEL / EXPIRE."""
     return (
         transcript_key(session_id),
         segment_key(session_id),
         state_key(session_id),
+        asked_key(session_id),
     )

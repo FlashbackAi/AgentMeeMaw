@@ -7,6 +7,7 @@ import pytest
 from flashback.working_memory.keys import (
     InvalidSessionIdError,
     all_keys,
+    asked_key,
     segment_key,
     state_key,
     transcript_key,
@@ -23,12 +24,16 @@ class TestKeyShapes:
     def test_state_key_shape(self):
         assert state_key("abc-123") == "wm:session:abc-123:state"
 
-    def test_all_keys_returns_three(self):
+    def test_asked_key_shape(self):
+        assert asked_key("abc-123") == "wm:session:abc-123:asked"
+
+    def test_all_keys_returns_four(self):
         keys = all_keys("abc-123")
         assert keys == (
             "wm:session:abc-123:transcript",
             "wm:session:abc-123:segment",
             "wm:session:abc-123:state",
+            "wm:session:abc-123:asked",
         )
 
 

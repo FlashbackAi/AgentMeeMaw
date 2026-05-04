@@ -27,6 +27,7 @@ from redis.asyncio import Redis
 
 from flashback.working_memory.keys import (
     all_keys,
+    asked_key,
     segment_key,
     state_key,
     transcript_key,
@@ -250,6 +251,36 @@ class WorkingMemory:
             session_id,
             last_seeded_question_id=question_id or "",
         )
+
+    async def append_asked_question(
+        self,
+        session_id: str,
+        question_id: str,
+    ) -> None:
+        """Push a seeded question id and trim the recently asked window.
+
+        The window is stored as a Valkey LIST at
+        ``wm:session:{session_id}:asked``. It is session-scoped and read by
+        the steady Phase Gate for duplicate avoidance and themes diversity.
+        """
+        from flashback.phase_gate.ranking import RECENTLY_ASKED_WINDOW
+
+        key = asked_key(session_id)
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.rpush(key, question_id)
+            p.ltrim(key, -RECENTLY_ASKED_WINDOW, -1)
+            p.expire(key, self._ttl)
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def get_recently_asked_question_ids(self, session_id: str) -> list[str]:
+        """Return the last 5 seeded question ids, oldest first."""
+        raw = await self._redis.lrange(asked_key(session_id), 0, -1)
+        return [
+            item.decode("utf-8") if isinstance(item, bytes) else str(item)
+            for item in raw
+        ]
 
     # --- Internal ----------------------------------------------------------
 
