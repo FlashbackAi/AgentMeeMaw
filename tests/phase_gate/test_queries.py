@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from flashback.phase_gate.queries import (
+    SELECT_STEADY_CANDIDATES,
+    SELECT_UNANSWERED_STARTER,
+)
+
+
+def test_starter_answered_by_filter_sql_excludes_answered_templates():
+    assert "NOT EXISTS" in SELECT_UNANSWERED_STARTER
+    assert "active_edges" in SELECT_UNANSWERED_STARTER
+    assert "answered_by" in SELECT_UNANSWERED_STARTER
+    assert "active_moments" in SELECT_UNANSWERED_STARTER
+
+
+def test_steady_candidate_query_excludes_recently_asked_ids():
+    assert "NOT (q.id = ANY(%(recent_ids)s::uuid[]))" in SELECT_STEADY_CANDIDATES
+    assert "q.person_id = %(person_id)s" in SELECT_STEADY_CANDIDATES
