@@ -28,6 +28,7 @@ from flashback.workers.extraction.sqs_client import (
     ExtractionSQSClient,
     ReceivedMessage,
 )
+from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,17 @@ class StubSQSArtifactSender(ArtifactJobSender):
     def send(self, **kwargs) -> str:  # type: ignore[override]
         self.sent.append(dict(kwargs))
         return f"msg-art-{len(self.sent)}"
+
+
+@dataclass
+class StubSQSThreadDetectorSender(ThreadDetectorJobSender):
+    queue_url: str = "stub://thread_detector"
+    region_name: str = "us-east-1"
+    sent: list[dict] = field(default_factory=list)
+
+    def send(self, **kwargs) -> str:  # type: ignore[override]
+        self.sent.append(dict(kwargs))
+        return f"msg-td-{len(self.sent)}"
 
 
 @dataclass

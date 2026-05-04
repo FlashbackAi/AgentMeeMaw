@@ -64,10 +64,11 @@ from .sqs_client import (
     ExtractionSQSClient,
     ReceivedMessage,
 )
-from .thread_trigger import check_thread_detector_trigger
+from .thread_trigger import check_and_push_thread_detector_trigger
 from .voyage_query import SyncVoyageQueryEmbedder
 from .coverage import run_coverage_tracker
 from .handover import run_handover_check
+from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 
 log = structlog.get_logger("flashback.workers.extraction")
 
@@ -89,6 +90,7 @@ class ExtractionWorker:
     sqs: ExtractionSQSClient
     embedding_sender: EmbeddingJobSender
     artifact_sender: ArtifactJobSender
+    thread_detector_sender: ThreadDetectorJobSender
     voyage: SyncVoyageQueryEmbedder
     extraction_cfg: ExtractionLLMConfig
     compatibility_cfg: CompatibilityLLMConfig
@@ -188,12 +190,14 @@ class ExtractionWorker:
             )
 
         try:
-            check_thread_detector_trigger(
-                self.db_pool, person_id=str(msg.payload.person_id)
+            check_and_push_thread_detector_trigger(
+                self.db_pool,
+                person_id=str(msg.payload.person_id),
+                sender=self.thread_detector_sender,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "extraction.thread_trigger_check_failed",
+                "extraction.thread_trigger_push_failed",
                 error=str(exc),
             )
 

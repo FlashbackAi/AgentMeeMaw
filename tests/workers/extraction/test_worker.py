@@ -21,6 +21,7 @@ from tests.workers.extraction.conftest import (
     StubExtractionSQSClient,
     StubSQSArtifactSender,
     StubSQSEmbeddingSender,
+    StubSQSThreadDetectorSender,
     StubVoyage,
     make_received_message,
 )
@@ -59,6 +60,7 @@ def _build_worker(
         sqs=sqs or StubExtractionSQSClient(),
         embedding_sender=StubSQSEmbeddingSender(),
         artifact_sender=StubSQSArtifactSender(),
+        thread_detector_sender=StubSQSThreadDetectorSender(),
         voyage=voyage or StubVoyage(return_none=True),
         extraction_cfg=extraction_cfg,
         compatibility_cfg=compat_cfg,

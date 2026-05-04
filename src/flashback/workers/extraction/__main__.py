@@ -27,6 +27,7 @@ from .sqs_client import (
 )
 from .voyage_query import SyncVoyageQueryEmbedder
 from .worker import ExtractionWorker, _configure_logging
+from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,10 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
         queue_url=cfg.artifact_queue_url,
         region_name=cfg.aws_region,
     )
+    thread_detector_sender = ThreadDetectorJobSender(
+        queue_url=cfg.thread_detector_queue_url,
+        region_name=cfg.aws_region,
+    )
     voyage = SyncVoyageQueryEmbedder(
         api_key=cfg.voyage_api_key,
         model=cfg.embedding_model,
@@ -68,6 +73,7 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
         sqs=sqs,
         embedding_sender=embedding_sender,
         artifact_sender=artifact_sender,
+        thread_detector_sender=thread_detector_sender,
         voyage=voyage,
         extraction_cfg=ExtractionLLMConfig(
             provider=cfg.llm_extraction_provider,
