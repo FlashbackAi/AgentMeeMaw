@@ -14,6 +14,7 @@ import structlog
 
 from flashback.llm.errors import LLMError
 from flashback.phase_gate.errors import PhaseGateError
+from flashback.queues.client import QueueError
 
 log = structlog.get_logger("flashback.orchestrator.failure_policy")
 T = TypeVar("T")
@@ -31,6 +32,7 @@ TURN_POLICIES: dict[str, Policy] = {
     "select_question": Policy.DEGRADE,
     "generate_response": Policy.PROPAGATE,
     "append_assistant": Policy.PROPAGATE,
+    "detect_segment": Policy.DEGRADE,
 }
 
 SESSION_START_POLICIES: dict[str, Policy] = {
@@ -54,7 +56,7 @@ async def execute(
     policy = policies.get(step_name, Policy.PROPAGATE)
     try:
         return await fn()
-    except (LLMError, PhaseGateError) as exc:
+    except (LLMError, PhaseGateError, QueueError) as exc:
         if policy == Policy.DEGRADE:
             log.warning(
                 "step_degraded",

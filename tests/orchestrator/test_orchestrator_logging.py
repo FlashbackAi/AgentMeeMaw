@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import fakeredis.aioredis
@@ -13,6 +14,7 @@ from flashback.http.app import create_app
 from flashback.intent_classifier.schema import IntentResult
 from flashback.llm.errors import LLMError
 from flashback.orchestrator import Orchestrator, OrchestratorDeps
+from flashback.segment_detector.schema import SegmentDetectionResult
 from flashback.working_memory import WorkingMemory
 from tests.http.conftest import auth_headers
 
@@ -32,6 +34,24 @@ class FixedClassifier:
 class FailingClassifier:
     async def classify(self, recent_turns, signals):
         raise LLMError("classifier unavailable")
+
+
+class BoundaryDetector:
+    async def detect(self, **kwargs):
+        return SegmentDetectionResult(
+            boundary_detected=True,
+            rolling_summary="The contributor talked about Sunday pasta.",
+            reasoning="The segment reached a natural close.",
+        )
+
+
+class CapturingExtractionQueue:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def push(self, **kwargs):
+        self.calls.append(kwargs)
+        return "msg-boundary"
 
 
 class FakeDbPool:
@@ -98,6 +118,22 @@ def _orchestrator(wm: WorkingMemory, classifier) -> Orchestrator:
             phase_gate=None,
             response_generator=None,
             settings=None,
+        )
+    )
+
+
+def _orchestrator_with_boundary_detector(wm: WorkingMemory) -> Orchestrator:
+    return Orchestrator(
+        OrchestratorDeps(
+            db_pool=FakeDbPool(),
+            working_memory=wm,
+            intent_classifier=FixedClassifier(),
+            retrieval=None,
+            phase_gate=None,
+            response_generator=None,
+            segment_detector=BoundaryDetector(),
+            extraction_queue=CapturingExtractionQueue(),
+            settings=SimpleNamespace(segment_detector_min_turns=2),
         )
     )
 
@@ -202,6 +238,54 @@ async def test_degraded_step_logs_error_type(fake_redis):
     assert len(degraded) == 1
     assert degraded[0]["step"] == "intent_classify"
     assert degraded[0]["error"] == "LLMError"
+
+
+async def test_boundary_turn_logs_detect_segment_message_id(fake_redis):
+    cfg = _config()
+    app = create_app(cfg)
+    wm = WorkingMemory(
+        redis_client=fake_redis,
+        ttl_seconds=cfg.working_memory_ttl_seconds,
+        transcript_limit=cfg.working_memory_transcript_limit,
+    )
+    app.state.redis = fake_redis
+    app.state.db_pool = FakeDbPool()
+    app.state.working_memory = wm
+    app.state.orchestrator = _orchestrator_with_boundary_detector(wm)
+    session_id = uuid4()
+    person_id = uuid4()
+    role_id = uuid4()
+    await app.state.working_memory.initialize(
+        str(session_id),
+        str(person_id),
+        str(role_id),
+        datetime.now(timezone.utc),
+    )
+
+    async with await _client(app) as client:
+        with capture_logs() as logs:
+            resp = await client.post(
+                "/turn",
+                headers=auth_headers(),
+                json={
+                    "session_id": str(session_id),
+                    "person_id": str(person_id),
+                    "role_id": str(role_id),
+                    "message": "She loved making pasta from scratch.",
+                },
+            )
+
+    assert resp.status_code == 200
+    assert resp.json()["metadata"]["segment_boundary"] is True
+    boundary_logs = [
+        record
+        for record in logs
+        if record["event"] == "step_complete"
+        and record.get("step") == "detect_segment"
+        and record.get("boundary") is True
+    ]
+    assert len(boundary_logs) == 1
+    assert boundary_logs[0]["sqs_message_id"] == "msg-boundary"
 
 
 async def test_session_start_logs_bound_correlation_ids(fake_redis):

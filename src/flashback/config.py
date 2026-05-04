@@ -98,10 +98,17 @@ class HttpConfig:
     llm_intent_model: str = "gpt-5-mini"
     llm_intent_timeout_seconds: float = 8.0
     llm_intent_max_tokens: int = 300
+    llm_segment_detector_provider: str = "openai"
+    llm_segment_detector_model: str = "gpt-5-mini"
+    llm_segment_detector_timeout_seconds: float = 10.0
+    llm_segment_detector_max_tokens: int = 600
+    segment_detector_min_turns: int = 4
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
     llm_response_max_tokens: int = 400
+    extraction_queue_url: str = ""
+    aws_region: str = "us-east-1"
     voyage_api_key: str = ""
     embedding_model: str = "voyage-3-large"
     embedding_model_version: str = "2025-01-07"
@@ -138,6 +145,23 @@ class HttpConfig:
                 os.environ.get("LLM_INTENT_TIMEOUT_SECONDS", "8")
             ),
             llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "300")),
+            llm_segment_detector_provider=os.environ.get(
+                "LLM_SEGMENT_DETECTOR_PROVIDER",
+                os.environ.get("LLM_SMALL_PROVIDER", "openai"),
+            ),
+            llm_segment_detector_model=os.environ.get(
+                "LLM_SEGMENT_DETECTOR_MODEL",
+                llm_small_model,
+            ),
+            llm_segment_detector_timeout_seconds=float(
+                os.environ.get("LLM_SEGMENT_DETECTOR_TIMEOUT_SECONDS", "10")
+            ),
+            llm_segment_detector_max_tokens=int(
+                os.environ.get("LLM_SEGMENT_DETECTOR_MAX_TOKENS", "600")
+            ),
+            segment_detector_min_turns=int(
+                os.environ.get("SEGMENT_DETECTOR_MIN_TURNS", "4")
+            ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),
             llm_response_timeout_seconds=float(
@@ -146,6 +170,8 @@ class HttpConfig:
             llm_response_max_tokens=int(
                 os.environ.get("LLM_RESPONSE_MAX_TOKENS", "400")
             ),
+            extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             voyage_api_key=_required("VOYAGE_API_KEY"),
             embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
             embedding_model_version=os.environ.get(

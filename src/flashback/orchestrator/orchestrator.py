@@ -33,6 +33,7 @@ from flashback.orchestrator.steps import (
     append_opener,
     append_user_turn,
     classify,
+    detect_segment,
     generate_opener,
     generate_response,
     init_working_memory,
@@ -202,6 +203,12 @@ class Orchestrator:
                 fn=lambda: append_assistant(state, self._deps),
                 state=state,
             )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="detect_segment",
+                fn=lambda: detect_segment(state, self._deps),
+                state=state,
+            )
 
             duration_ms = max(1, round((time.perf_counter() - started) * 1000))
             log.info(
@@ -246,7 +253,7 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         emotional_temperature=(
             state.intent_result.emotional_temperature if state.intent_result else None
         ),
-        segment_boundary=False,
+        segment_boundary=state.segment_boundary_detected,
     )
 
 
@@ -258,6 +265,8 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
     retrieval = kwargs.get("retrieval")
     response_generator = kwargs.get("response_generator")
     phase_gate = kwargs.get("phase_gate")
+    segment_detector = kwargs.get("segment_detector")
+    extraction_queue = kwargs.get("extraction_queue")
 
     if intent_classifier is None and settings is not None:
         intent_classifier = IntentClassifier(
@@ -288,6 +297,8 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
         retrieval=retrieval,
         phase_gate=phase_gate,
         response_generator=response_generator,
+        segment_detector=segment_detector,
+        extraction_queue=extraction_queue,
         settings=settings,
     )
 

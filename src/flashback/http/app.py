@@ -15,6 +15,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, cast
 
+import boto3
 import redis.asyncio as redis_asyncio
 import structlog
 from fastapi import FastAPI
@@ -34,8 +35,10 @@ from flashback.intent_classifier import IntentClassifier
 from flashback.llm.interface import Provider
 from flashback.orchestrator import Orchestrator, OrchestratorDeps
 from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
+from flashback.queues import AsyncSQSClient, ExtractionQueueProducer
 from flashback.response_generator import ResponseGenerator
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
+from flashback.segment_detector import SegmentDetector
 from flashback.working_memory import WorkingMemory
 
 
@@ -93,6 +96,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         timeout=cfg.llm_response_timeout_seconds,
         max_tokens=cfg.llm_response_max_tokens,
     )
+    segment_detector = SegmentDetector(
+        settings=cfg,
+        provider=cast(Provider, cfg.llm_segment_detector_provider),
+        model=cfg.llm_segment_detector_model,
+        timeout=cfg.llm_segment_detector_timeout_seconds,
+        max_tokens=cfg.llm_segment_detector_max_tokens,
+    )
+    extraction_queue = ExtractionQueueProducer(
+        sqs_client=AsyncSQSClient(
+            boto3.client("sqs", region_name=cfg.aws_region),
+        ),
+        queue_url=cfg.extraction_queue_url,
+    )
     phase_gate = PhaseGate(
         db_pool=db_pool,
         starter_selector=StarterSelector(db_pool),
@@ -105,6 +121,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         retrieval=retrieval,
         phase_gate=phase_gate,
         response_generator=response_generator,
+        segment_detector=segment_detector,
+        extraction_queue=extraction_queue,
         settings=cfg,
     )
     app.state.orchestrator_deps = orchestrator_deps
