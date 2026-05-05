@@ -10,6 +10,7 @@ from psycopg_pool import AsyncConnectionPool
 from flashback.phase_gate.queries import (
     HAS_ACTIVE_MOMENTS,
     READ_COVERAGE_STATE,
+    READ_PERSON_NAME,
     SELECT_ANY_STARTER_FOR_DIMENSION,
     SELECT_UNANSWERED_STARTER,
 )
@@ -43,15 +44,25 @@ class StarterSelector:
             )
 
         question_id, text = row
+        rendered_text = text.replace("{name}", await self._read_name(person_id))
         filter_note = "unanswered template" if answered_filter_used else "fallback"
         return SelectionResult(
             phase="starter",
             question_id=question_id,
-            question_text=text,
+            question_text=rendered_text,
             source="starter_anchor",
             dimension=dimension,
             rationale=f"starter {filter_note}; selected {dimension}",
         )
+
+    async def _read_name(self, person_id: UUID) -> str:
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(READ_PERSON_NAME, {"person_id": person_id})
+                row = await cur.fetchone()
+        if row is None:
+            raise PhaseGateError(f"person {person_id} not found")
+        return str(row[0])
 
     async def _choose_dimension(self, person_id: UUID) -> Dimension:
         async with self._pool.connection() as conn:

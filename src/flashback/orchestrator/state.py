@@ -35,6 +35,7 @@ class TurnState:
     person_name: str = ""
     person_relationship: str | None = None
     person_phase: str = ""
+    person_gender: str = "they"
 
     intent_result: IntentResult | None = None
     effective_intent: Intent = "story"
@@ -62,6 +63,7 @@ class SessionStartState:
     person_name: str = ""
     person_relationship: str | None = None
     person_phase: str = ""
+    person_gender: str = "they"
     selection: SelectionResult | None = None
     response: ResponseResult | None = None
     failures: dict[str, str] = field(default_factory=dict)

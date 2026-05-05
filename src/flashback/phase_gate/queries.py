@@ -8,6 +8,12 @@ FROM persons
 WHERE id = %(person_id)s
 """
 
+READ_PERSON_NAME = """
+SELECT name
+FROM persons
+WHERE id = %(person_id)s
+"""
+
 READ_COVERAGE_STATE = """
 SELECT coverage_state
 FROM persons

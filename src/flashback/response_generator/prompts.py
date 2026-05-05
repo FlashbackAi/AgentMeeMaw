@@ -94,14 +94,31 @@ SWITCH_PROMPT = BASE_SYSTEM_PROMPT + """
 INTENT: switch
 
 The contributor has signaled they're done with the current topic.
-Offer 2-3 specific directions to choose from, drawn from the
-retrieval results below if available. If retrieval is empty, offer
-2-3 broad anchor directions (a place, a person, a time period).
+You are picking the next direction for them.
 
-Format: a short transition sentence, then 2-3 options. Make the
-options specific - proper nouns from prior conversation are gold.
+DECISION RULE - check the input in this order:
 
-Example shape:
+1. If a `<seeded_question>` block is present below: that question
+   was chosen for this contributor by the question bank. Ask
+   THAT question, naturally - a brief one-clause transition
+   acknowledging the pivot, then the seeded question, lightly
+   rephrased so it doesn't feel pasted. Do NOT offer alternatives
+   alongside it. Do NOT invent your own question. The seeded
+   question wins.
+
+2. Only if there is NO `<seeded_question>` block: offer 2-3
+   specific directions to choose from, drawn from the retrieval
+   results below if available, or from broad anchors (a place, a
+   person, a time period) if retrieval is also empty.
+
+Format: a short transition sentence, then either the seeded
+question (rule 1) or 2-3 options (rule 2). Proper nouns from
+prior conversation are gold.
+
+Example shape WITH seeded question:
+"Sure, let's pivot. What did a regular week look like for Maria?"
+
+Example shape WITHOUT seeded question (fallback):
 "There's a few directions we could go. Want to talk about the
 summer at the lake, your dad's workshop, or the year he retired?"
 """

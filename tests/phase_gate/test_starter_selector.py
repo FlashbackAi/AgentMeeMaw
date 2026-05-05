@@ -19,11 +19,13 @@ class FakeStarterPool:
         coverage_state: dict,
         unanswered: dict[str, list[tuple[UUID, str]]] | None = None,
         any_templates: dict[str, list[tuple[UUID, str]]] | None = None,
+        person_name: str = "Test Subject",
     ) -> None:
         self.has_moments = has_moments
         self.coverage_state = coverage_state
         self.unanswered = unanswered or {}
         self.any_templates = any_templates or {}
+        self.person_name = person_name
         self.last_dimension: str | None = None
 
     def connection(self):
@@ -55,6 +57,8 @@ class FakeCursor:
             return (self.pool.has_moments,)
         if "SELECT coverage_state" in self.sql:
             return (self.pool.coverage_state,)
+        if "SELECT name" in self.sql and "FROM persons" in self.sql:
+            return (self.pool.person_name,)
         if "FROM active_questions" in self.sql:
             dimension = self.params["dimension"]
             source = (
@@ -165,3 +169,29 @@ async def test_no_templates_raises_phase_gate_error():
 
     with pytest.raises(PhaseGateError):
         await StarterSelector(pool).select(PERSON_ID)
+
+
+async def test_name_placeholder_is_substituted_with_person_name():
+    pool = FakeStarterPool(
+        has_moments=False,
+        coverage_state={},
+        unanswered={"sensory": [_template("What did {name} do with their hands?")]},
+        person_name="Margaret",
+    )
+
+    result = await StarterSelector(pool).select(PERSON_ID)
+
+    assert result.question_text == "What did Margaret do with their hands?"
+
+
+async def test_text_without_placeholder_is_returned_unchanged():
+    pool = FakeStarterPool(
+        has_moments=False,
+        coverage_state={},
+        unanswered={"sensory": [_template("Plain question.")]},
+        person_name="Margaret",
+    )
+
+    result = await StarterSelector(pool).select(PERSON_ID)
+
+    assert result.question_text == "Plain question."

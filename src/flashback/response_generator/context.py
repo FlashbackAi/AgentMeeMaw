@@ -6,7 +6,7 @@ from flashback.response_generator.schema import StarterContext, TurnContext
 
 
 def render_turn_context(ctx: TurnContext) -> str:
-    sections: list[str] = [_render_subject(ctx.person_name, ctx.person_relationship)]
+    sections: list[str] = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
 
     if ctx.rolling_summary.strip():
         sections.append(_block("rolling_summary", ctx.rolling_summary.strip()))
@@ -53,7 +53,7 @@ def render_turn_context(ctx: TurnContext) -> str:
 
 
 def render_starter_context(ctx: StarterContext) -> str:
-    sections = [_render_subject(ctx.person_name, ctx.person_relationship)]
+    sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
     sections.append(
         "\n".join(
             [
@@ -70,10 +70,19 @@ def render_starter_context(ctx: StarterContext) -> str:
     return "\n\n".join(sections)
 
 
-def _render_subject(name: str, relationship: str | None) -> str:
+_PRONOUN_MAP = {
+    "he": "he/him/his",
+    "she": "she/her/hers",
+    "they": "they/them/theirs",
+}
+
+
+def _render_subject(name: str, relationship: str | None, gender: str = "they") -> str:
     lines = ["<subject>", f"Name: {name}"]
     if relationship:
         lines.append(f"Relationship to contributor: {relationship}")
+    pronouns = _PRONOUN_MAP.get(gender, "they/them/theirs")
+    lines.append(f"Pronouns: {pronouns}")
     lines.append("</subject>")
     return "\n".join(lines)
 

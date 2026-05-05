@@ -92,8 +92,9 @@ INTENT_TOOL = ToolSpec(
             "reasoning": {
                 "type": "string",
                 "description": (
-                    "One or two sentences explaining the classification "
-                    "decision. For logs only."
+                    "MAX 15 words, single short phrase. For logs only. "
+                    "Do not restate the intent name; give the signal that "
+                    "drove it. Example: 'asks to move on'."
                 ),
             },
         },

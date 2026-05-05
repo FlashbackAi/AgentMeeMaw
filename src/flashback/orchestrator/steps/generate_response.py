@@ -25,6 +25,7 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
         state.person_name = person.name
         state.person_relationship = person.relationship
         state.person_phase = person.phase
+        state.person_gender = person.gender or "they"
         wm_state = state.working_memory_state
         if wm_state is None:
             wm_state = await deps.working_memory.get_state(str(state.session_id))
@@ -37,6 +38,7 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
         ctx = TurnContext(
             person_name=person.name,
             person_relationship=person.relationship,
+            person_gender=state.person_gender,
             intent=state.effective_intent,
             emotional_temperature=state.effective_temperature,
             rolling_summary=wm_state.rolling_summary,

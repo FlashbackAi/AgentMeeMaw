@@ -28,6 +28,7 @@ class StarterContext(BaseModel):
 
     person_name: str
     person_relationship: str | None = None
+    person_gender: str = "they"
     contributor_role: str | None = None
     anchor_question_text: str
     anchor_dimension: AnchorDimension
@@ -41,6 +42,7 @@ class TurnContext(BaseModel):
 
     person_name: str
     person_relationship: str | None = None
+    person_gender: str = "they"
     intent: Intent
     emotional_temperature: Temperature
     rolling_summary: str = ""

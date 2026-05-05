@@ -21,6 +21,7 @@ class PersonRow:
     name: str
     relationship: str | None
     phase: str
+    gender: str | None = None
 
 
 async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
@@ -28,7 +29,7 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT name, relationship, phase
+                SELECT name, relationship, phase, gender
                 FROM persons
                 WHERE id = %s
                 """,
@@ -37,8 +38,8 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
             row = await cur.fetchone()
     if row is None:
         raise PersonNotFound(f"person {person_id} not found")
-    name, relationship, phase = row
-    return PersonRow(name=name, relationship=relationship, phase=phase)
+    name, relationship, phase, gender = row
+    return PersonRow(name=name, relationship=relationship, phase=phase, gender=gender)
 
 
 async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
@@ -47,6 +48,7 @@ async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
         state.person_name = person.name
         state.person_relationship = person.relationship
         state.person_phase = person.phase
+        state.person_gender = person.gender or "they"
 
 
 async def select_starter_anchor(
@@ -89,6 +91,7 @@ async def generate_opener(
         ctx = StarterContext(
             person_name=state.person_name,
             person_relationship=state.person_relationship,
+            person_gender=state.person_gender,
             contributor_role=_string_or_none(
                 state.session_metadata.get("contributor_role")
                 or state.session_metadata.get("role")
