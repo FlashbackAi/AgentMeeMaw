@@ -37,6 +37,7 @@ TURN_POLICIES: dict[str, Policy] = {
 
 SESSION_START_POLICIES: dict[str, Policy] = {
     "load_person": Policy.PROPAGATE,
+    "load_continuity_context": Policy.DEGRADE,
     "select_starter_anchor": Policy.PROPAGATE,
     "generate_opener": Policy.PROPAGATE,
     "init_working_memory": Policy.PROPAGATE,

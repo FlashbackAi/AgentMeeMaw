@@ -23,6 +23,8 @@ import sys
 
 from flashback.config import ProfileSummaryConfig
 from flashback.db.connection import make_pool
+from flashback.profile_facts.extraction import FactExtractionConfig
+from flashback.workers.extraction.sqs_client import EmbeddingJobSender
 
 from .idempotency import make_runonce_key
 from .runner import run_once
@@ -59,6 +61,29 @@ def _build_summary_cfg(cfg: ProfileSummaryConfig) -> SummaryLLMConfig:
     )
 
 
+def _build_fact_extraction_cfg(cfg: ProfileSummaryConfig) -> FactExtractionConfig:
+    return FactExtractionConfig(
+        provider=cfg.llm_profile_facts_provider,
+        model=cfg.llm_profile_facts_model,
+        timeout=cfg.llm_profile_facts_timeout_seconds,
+        max_tokens=cfg.llm_profile_facts_max_tokens,
+    )
+
+
+def _build_embedding_sender(cfg: ProfileSummaryConfig):
+    """Construct an EmbeddingJobSender. The sender's ``send`` method
+    matches the :class:`_EmbeddingPusher` protocol expected by
+    :func:`flashback.profile_facts.repository.upsert_fact`.
+    """
+    if not cfg.embedding_queue_url:
+        return None
+    sender = EmbeddingJobSender(
+        queue_url=cfg.embedding_queue_url,
+        region_name=cfg.aws_region,
+    )
+    return sender.send
+
+
 def _cmd_run(cfg: ProfileSummaryConfig) -> int:
     pool = make_pool(
         cfg.database_url,
@@ -78,6 +103,10 @@ def _cmd_run(cfg: ProfileSummaryConfig) -> int:
         top_threads_max=cfg.profile_summary_top_threads_max,
         top_entities_max=cfg.profile_summary_top_entities_max,
         sqs_wait_seconds=cfg.sqs_wait_seconds,
+        fact_extraction_cfg=_build_fact_extraction_cfg(cfg),
+        embedding_sender=_build_embedding_sender(cfg),
+        embedding_model=cfg.embedding_model,
+        embedding_model_version=cfg.embedding_model_version,
     )
     try:
         worker.run_forever()
@@ -102,6 +131,10 @@ def _cmd_run_once(cfg: ProfileSummaryConfig, *, person_id: str) -> int:
             top_traits_max=cfg.profile_summary_top_traits_max,
             top_threads_max=cfg.profile_summary_top_threads_max,
             top_entities_max=cfg.profile_summary_top_entities_max,
+            fact_extraction_cfg=_build_fact_extraction_cfg(cfg),
+            embedding_sender=_build_embedding_sender(cfg),
+            embedding_model=cfg.embedding_model,
+            embedding_model_version=cfg.embedding_model_version,
         )
     finally:
         pool.close()

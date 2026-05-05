@@ -28,7 +28,7 @@ The package layout follows the existing `src/flashback/...` structure.
 ## User-Turn Cadence
 
 `SEGMENT_DETECTOR_USER_TURN_CADENCE` controls how often the detector
-gets called. The default is `10`. A "user turn" is one user message
+gets called. The default is `6`. A "user turn" is one user message
 plus the assistant reply.
 
 The orchestrator increments
@@ -98,7 +98,7 @@ LLM_SEGMENT_DETECTOR_PROVIDER=openai
 LLM_SEGMENT_DETECTOR_MODEL=gpt-5.1
 LLM_SEGMENT_DETECTOR_TIMEOUT_SECONDS=10
 LLM_SEGMENT_DETECTOR_MAX_TOKENS=600
-SEGMENT_DETECTOR_USER_TURN_CADENCE=10
+SEGMENT_DETECTOR_USER_TURN_CADENCE=6
 EXTRACTION_QUEUE_URL=...
 ```
 

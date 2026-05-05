@@ -72,14 +72,14 @@ class StarterSelector:
                 if moments_row is None:
                     raise PhaseGateError(f"person {person_id} not found")
                 has_moments = bool(moments_row[0])
-                if not has_moments:
-                    return "sensory"
 
                 await cur.execute(READ_COVERAGE_STATE, {"person_id": person_id})
                 coverage_row = await cur.fetchone()
 
         if coverage_row is None:
             raise PhaseGateError(f"person {person_id} not found")
+        if not has_moments and not _has_any_coverage(coverage_row[0]):
+            return "relation"
         return _lowest_coverage_dimension(coverage_row[0])
 
     async def _fetch_template(
@@ -120,6 +120,12 @@ def _lowest_coverage_dimension(coverage_state: Any) -> Dimension:
         if counts[dim] == lowest:
             return cast(Dimension, dim)
     raise PhaseGateError("could not choose starter dimension")
+
+
+def _has_any_coverage(coverage_state: Any) -> bool:
+    if not isinstance(coverage_state, dict):
+        return False
+    return any(_coverage_count(coverage_state.get(dim, 0)) > 0 for dim in TIEBREAKER_DIMENSIONS)
 
 
 def _coverage_count(value: Any) -> int:

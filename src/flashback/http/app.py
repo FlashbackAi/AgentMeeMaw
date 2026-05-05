@@ -28,6 +28,7 @@ from flashback.http.logging import (
 )
 from flashback.http.routes.admin import router as admin_router
 from flashback.http.routes.health import router as health_router
+from flashback.http.routes.profile_facts import router as profile_facts_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.turn import router as turn_router
 from flashback.intent_classifier import IntentClassifier
@@ -190,5 +191,6 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
     app.include_router(session_router)
     app.include_router(turn_router)
     app.include_router(admin_router)
+    app.include_router(profile_facts_router)
 
     return app

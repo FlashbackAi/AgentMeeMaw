@@ -11,6 +11,7 @@ from flashback.orchestrator.steps.starter_opener import (
     append_opener,
     generate_opener,
     init_working_memory,
+    load_continuity_context,
     load_person,
     select_starter_anchor,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "generate_opener",
     "generate_response",
     "init_working_memory",
+    "load_continuity_context",
     "load_person",
     "retrieve",
     "select_question",

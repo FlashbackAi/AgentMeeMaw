@@ -201,6 +201,50 @@ mutual exclusion.
   lookup of starter templates by dimension
 - HNSW on `embedding` partial WHERE active
 
+**Question `attributes` JSONB keys (non-relational only):**
+
+| Key | Notes |
+|---|---|
+| `dimension` | One of the 5 anchor dimensions; primary axis for Coverage Tracker |
+| `themes` | List of theme strings; powers diversity ranking |
+| `dropped_phrase` | Verbatim phrase the dropped_reference producer captured |
+| `life_period` | Optional; set by life_period_gap producer |
+| `targets_fact_keys` | Optional list of `profile_facts.fact_key` slugs an answer is likely to fill (used by extraction prompts; not load-bearing for selection) |
+
+### 2.7 `profile_facts`
+
+Open-ended `(question, answer)` pairs surfaced on the legacy profile
+page. The seven seed slugs are display defaults, not a hard registry.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `person_id` | UUID NOT NULL FK→persons | ON DELETE CASCADE |
+| `fact_key` | TEXT NOT NULL | snake_case slug. Free-form; LLM- or Node-supplied. Seeds: `profession`, `birthplace`, `residence`, `faith`, `family_role`, `era`, `personality_essence` |
+| `question_text` | TEXT NOT NULL | How the fact reads on the profile (with name interpolated) |
+| `answer_text` | TEXT NOT NULL | 1–15 words typically; cap is 300 chars |
+| `source` | TEXT NOT NULL | `starter_extraction` (profile_summary worker) or `user_edit` (`POST /profile_facts/upsert`) |
+| `status` | TEXT NOT NULL DEFAULT `'active'` | `'active'` or `'superseded'` |
+| `superseded_by` | UUID NULL FK→profile_facts(id) | |
+| `answer_embedding` | vector(1024) | Filled by embedding worker |
+| `embedding_model`, `embedding_model_version` | TEXT | Lockstep with vector |
+| `created_at`, `updated_at` | TIMESTAMPTZ | |
+
+**Constraints:**
+- `chk_profile_facts_embedding_complete` — vector + model identity move together.
+
+**Indexes:**
+- Partial UNIQUE `(person_id, fact_key) WHERE status='active'` — at
+  most one active row per (person, key).
+- `(person_id, status)` — cap-counting + per-person listing.
+
+**Cap:** 25 active rows per person, enforced in app code
+(`flashback.profile_facts.repository.MAX_ACTIVE_FACTS_PER_PERSON`).
+Updates to existing keys are always allowed; new keys are rejected at
+the cap.
+
+**View:** `active_profile_facts` filters to `status='active'`.
+
 ---
 
 ## 3. The `edges` table

@@ -19,7 +19,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     Run the Segment Detector on a fixed user-turn cadence.
 
     Gate: skip unless ``signal_user_turns_since_segment_check`` has
-    reached ``segment_detector_user_turn_cadence`` (default 10). One
+    reached ``segment_detector_user_turn_cadence`` (default 6). One
     "user turn" = one user message + the assistant reply. The counter
     is incremented in ``append_user_turn`` and reset to 0 here on every
     invocation, regardless of whether a boundary fires.

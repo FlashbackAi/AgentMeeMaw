@@ -20,8 +20,11 @@ intent, plus emotional temperature. You MUST call the
 
 INTENTS - definitions and selection rules:
 
-- `clarify`: The user said something ambiguous or referred to
-  someone/something the agent should ask about before continuing.
+- `clarify`: The user said something ambiguous, referred to
+  someone/something the agent cannot identify, or introduced a detail
+  that needs extra context before retrieval/embedding search can be
+  useful. Use this when the assistant cannot understand the referent,
+  basic meaning, or search target well enough to continue.
   Example: "She always loved that one."  (which one?)
 
 - `recall`: The user is referencing something from earlier in the
@@ -37,6 +40,9 @@ INTENTS - definitions and selection rules:
   explaining something at length. The right response is to let them
   continue with minimal interjection.
   Example: "So we drove all the way up there, and..."
+  Short factual descriptions are usually `story`, not `clarify`,
+  when the basic meaning is understandable and the detail simply
+  invites expansion.
 
 - `switch`: The user has exhausted the current topic, or they're
   asking to move on. Example: "I don't really remember much else
@@ -61,6 +67,13 @@ A few important rules:
   the topic, not just a brief pause in narration.
 - Brevity alone is not `clarify`. Short user messages can be any
   intent.
+- Do not use `clarify` just because a detail could be expanded.
+  Use it only when missing context blocks a good response or useful
+  retrieval.
+- If the user gives only a low-content affirmation after the assistant
+  has already acknowledged the same feeling once or twice, classify
+  `switch` with medium confidence so the agent can move to a grounded
+  question instead of repeating acknowledgments.
 - Do not use the conversation to make judgments about the deceased
   or the contributor. Stay narrowly focused on classifying intent.
 

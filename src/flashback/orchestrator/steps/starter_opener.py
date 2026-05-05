@@ -22,6 +22,7 @@ class PersonRow:
     relationship: str | None
     phase: str
     gender: str | None = None
+    profile_summary: str | None = None
 
 
 async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
@@ -29,7 +30,7 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT name, relationship, phase, gender
+                SELECT name, relationship, phase, gender, profile_summary
                 FROM persons
                 WHERE id = %s
                 """,
@@ -38,8 +39,14 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
             row = await cur.fetchone()
     if row is None:
         raise PersonNotFound(f"person {person_id} not found")
-    name, relationship, phase, gender = row
-    return PersonRow(name=name, relationship=relationship, phase=phase, gender=gender)
+    name, relationship, phase, gender, profile_summary = row
+    return PersonRow(
+        name=name,
+        relationship=relationship,
+        phase=phase,
+        gender=gender,
+        profile_summary=profile_summary,
+    )
 
 
 async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
@@ -49,6 +56,23 @@ async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
         state.person_relationship = person.relationship
         state.person_phase = person.phase
         state.person_gender = person.gender or "they"
+        if person.profile_summary and not state.session_metadata.get(
+            "prior_session_summary"
+        ):
+            state.session_metadata["prior_session_summary"] = person.profile_summary
+
+
+async def load_continuity_context(
+    state: SessionStartState,
+    deps: OrchestratorDeps,
+) -> None:
+    with timed_step(log, "load_continuity_context"):
+        existing = _string_or_none(state.session_metadata.get("prior_session_summary"))
+        if existing:
+            return
+        summary = await _build_continuity_summary(deps, state.person_id)
+        if summary:
+            state.session_metadata["prior_session_summary"] = summary
 
 
 async def select_starter_anchor(
@@ -155,3 +179,59 @@ def _string_or_none(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+async def _build_continuity_summary(deps: OrchestratorDeps, person_id) -> str:
+    async with deps.db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT title, narrative
+                FROM active_moments
+                WHERE person_id = %s
+                ORDER BY created_at DESC
+                LIMIT 3
+                """,
+                (str(person_id),),
+            )
+            moments = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT kind, name, description
+                FROM active_entities
+                WHERE person_id = %s
+                ORDER BY created_at DESC
+                LIMIT 5
+                """,
+                (str(person_id),),
+            )
+            entities = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT question_text, answer_text
+                FROM active_profile_facts
+                WHERE person_id = %s
+                ORDER BY created_at DESC
+                LIMIT 5
+                """,
+                (str(person_id),),
+            )
+            facts = await cur.fetchall()
+
+    lines: list[str] = []
+    if moments:
+        lines.append("Earlier extracted moments:")
+        for title, narrative in moments:
+            lines.append(f"- {title}: {narrative}")
+    if entities:
+        lines.append("Known people, places, and things:")
+        for kind, name, description in entities:
+            detail = f": {description}" if description else ""
+            lines.append(f"- {kind} {name}{detail}")
+    if facts:
+        lines.append("Known profile facts:")
+        for question, answer in facts:
+            lines.append(f"- {question} {answer}")
+    return "\n".join(lines)

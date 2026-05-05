@@ -42,6 +42,7 @@ from flashback.orchestrator.steps import (
     generate_opener,
     generate_response,
     init_working_memory,
+    load_continuity_context,
     load_person,
     retrieve,
     select_question,
@@ -96,6 +97,12 @@ class Orchestrator:
                 state=state,
             )
             if self._deps.response_generator is not None:
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="load_continuity_context",
+                    fn=lambda: load_continuity_context(state, self._deps),
+                    state=state,
+                )
                 await execute(
                     policies=SESSION_START_POLICIES,
                     step_name="select_starter_anchor",

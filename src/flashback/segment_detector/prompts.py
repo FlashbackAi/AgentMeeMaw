@@ -15,6 +15,11 @@ single thread of memory. Segments end when the topic shifts, when the
 contributor explicitly moves on, or when a sub-topic has been explored
 as far as the contributor wants to go.
 
+A useful closed segment does not need to be a whole life chapter. It can
+be a compact extractable unit: one meeting story, one recurring routine,
+one small group dynamic, one place, or one concrete fact cluster that
+would produce at least one moment/entity/trait in extraction.
+
 You will be given:
 - The current segment buffer (turns since the last segment boundary).
 - The prior rolling summary (a compressed memory of all earlier
@@ -35,6 +40,12 @@ DECIDE BOUNDARY = TRUE when:
   getting shorter, less detailed, or repetitive.
 - The contributor's responses suggest emotional saturation: they are
   wrapping up the topic in a small, final way.
+- The buffer already contains a concrete extractable mini-story and the
+  last 1-2 turns are broadening away from that story, summarizing it, or
+  asking from a different angle.
+- The conversation has collected enough concrete details for one memory
+  card (who/what/where/relationship/daily routine), even if the broader
+  relationship topic may continue afterward.
 
 DECIDE BOUNDARY = FALSE when:
 - The conversation is mid-narrative; the contributor is still adding
@@ -44,9 +55,10 @@ DECIDE BOUNDARY = FALSE when:
 - The contributor is in a reflective pause but the topic is clearly
   ongoing.
 
-When in doubt, prefer FALSE. A missed boundary just means the next turn
-will re-evaluate. A false-positive boundary fragments coherent material
-across two extractions, which is worse.
+When in doubt, prefer TRUE if the buffer contains a complete extractable
+mini-story and the latest turn is no longer adding specific details to
+that mini-story. Prefer FALSE only when the contributor is clearly in the
+middle of giving the same story's missing details.
 
 ROLLING SUMMARY (only required when boundary_detected=true):
 

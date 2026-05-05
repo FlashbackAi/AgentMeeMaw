@@ -35,6 +35,7 @@ from dataclasses import dataclass
 import structlog
 
 from flashback.llm.errors import LLMError, LLMTimeout
+from flashback.profile_facts.extraction import FactExtractionConfig
 
 from .runner import RunResult, run_once
 from .sqs_client import (
@@ -49,7 +50,13 @@ log = structlog.get_logger("flashback.workers.profile_summary")
 @dataclass
 class ProfileSummaryWorker:
     """Long-running worker. Construct with stubs in tests; call
-    :meth:`process_message` directly."""
+    :meth:`process_message` directly.
+
+    ``fact_extraction_cfg`` and ``embedding_sender`` are optional so
+    legacy callers and the run-once CLI can still construct a
+    summary-only worker. When both are present, each message also runs
+    profile-fact extraction (best-effort).
+    """
 
     db_pool: object
     sqs: ProfileSummarySQSClient
@@ -59,6 +66,10 @@ class ProfileSummaryWorker:
     top_threads_max: int
     top_entities_max: int
     sqs_wait_seconds: int = 20
+    fact_extraction_cfg: FactExtractionConfig | None = None
+    embedding_sender: object = None
+    embedding_model: str | None = None
+    embedding_model_version: str | None = None
 
     def run_forever(self, stop: "_StopSignal | None" = None) -> None:
         stop = stop or _StopSignal()
@@ -91,6 +102,10 @@ class ProfileSummaryWorker:
                 top_traits_max=self.top_traits_max,
                 top_threads_max=self.top_threads_max,
                 top_entities_max=self.top_entities_max,
+                fact_extraction_cfg=self.fact_extraction_cfg,
+                embedding_sender=self.embedding_sender,
+                embedding_model=self.embedding_model,
+                embedding_model_version=self.embedding_model_version,
             )
         except LLMTimeout as exc:
             log.warning(

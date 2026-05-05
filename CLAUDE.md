@@ -133,7 +133,7 @@ Every piece of code touching the graph or queues must respect these.
     the next-question slate. Otherwise it feels like a survey.
 11. **The Segment Detector is an LLM call**, not rules. It runs on a
     fixed user-turn cadence: once every
-    `segment_detector_user_turn_cadence` user turns (default 10; 1 turn
+    `segment_detector_user_turn_cadence` user turns (default 6; 1 turn
     = 1 user message + 1 assistant reply). The orchestrator increments
     `signal_user_turns_since_segment_check` in Working Memory on each
     user-turn append, and resets it to 0 after every detector
@@ -159,6 +159,17 @@ Every piece of code touching the graph or queues must respect these.
     The Extraction Worker reads it as compressed prior context when
     generating moments. The rolling summary is always a fresh
     compressed rewrite, not an append — never let it grow unbounded.
+16. **Profile facts are open-ended but capped.** `profile_facts` rows
+    are `(question, answer)` pairs surfaced on the legacy profile.
+    `fact_key` is a free-form snake_case slug picked by the
+    extraction LLM (or by Node on user edit), not a fixed registry.
+    Hard cap: **25 active facts per person** — at the cap, only
+    updates to existing keys are accepted, new keys are rejected. Per
+    profile-summary run, at most **5** new/updated facts are written
+    (LLM tool schema + code-side enforcement). Edits supersede via
+    status flip + new row, mirroring moments / entities / threads.
+    Every new active row pushes an `embedding` queue job.
+    `POST /profile_facts/upsert` is the only Node-driven write path.
 
 ---
 
@@ -184,7 +195,16 @@ Every piece of code touching the graph or queues must respect these.
 - **Questions are first-class nodes.** Their relational data lives in
   `edges` via `motivated_by`, `targets`, `answered_by`. The questions
   `attributes` JSONB only holds non-relational fields:
-  `dropped_phrase`, `life_period`, `dimension`, `themes`.
+  `dropped_phrase`, `life_period`, `dimension`, `themes`,
+  `targets_fact_keys` (slugs in `profile_facts` an answer can fill).
+- **Profile facts** live in their own table `profile_facts`:
+  `(person_id, fact_key, question_text, answer_text, status, source,
+  answer_embedding, ...)`. `fact_key` is a free-form snake_case slug
+  with a unique partial index per active row per person. Edits
+  supersede; never destructive UPDATE. Cap = 25 active per person.
+  The seven seed slugs (`profession`, `birthplace`, `residence`,
+  `faith`, `family_role`, `era`, `personality_essence`) are display
+  defaults, not a hard registry.
 
 ### Persons cold-start columns
 
@@ -279,10 +299,17 @@ write them together as we go.
 15. **Trait Synthesizer** (small LLM) — strength ladder
     (`mentioned_once → moderate → strong → defining`).
 16. **Profile Summary Generator** — display name, top 5–7 traits, key
-    threads, life period, key entities.
+    threads, life period, key entities. Also runs profile-fact
+    extraction as a second LLM call and writes to `profile_facts`
+    (≤5 high-confidence Q+A pairs per run, capped at 25 active per
+    person).
 17. **Question Producers P2 / P3 / P5** — per-session and weekly.
 18. **Session Wrap** — force-close segment, session summary, invoke
     profile summary, fan out to background workers.
+19. **Profile Facts edit endpoint** — `POST /profile_facts/upsert`
+    (Node-driven). Supersedes the prior active row, writes a new one
+    with `source='user_edit'`, pushes an `embedding` job. 409s when
+    the person is at the active-fact cap.
 
 ---
 
@@ -301,6 +328,11 @@ We expose an HTTP service. Node calls us; we never call Node.
   post-session sequencing. Returns the session summary.
 - `POST /admin/reset_phase` — admin-only escape hatch for Handover
   Check stickiness. Body: `{ person_id }`.
+- `POST /profile_facts/upsert` — Node-driven fact edit. Body:
+  `{ person_id, fact_key, answer_text, question_text? }`. Supersedes
+  the prior active row, inserts new with `source='user_edit'`, pushes
+  embedding. 409 at the per-person cap; 503 if
+  `EMBEDDING_QUEUE_URL` is unset.
 
 We do **not** auth these endpoints. Node is the auth boundary.
 

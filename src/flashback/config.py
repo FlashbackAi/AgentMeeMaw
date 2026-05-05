@@ -193,9 +193,10 @@ class HttpConfig:
     Configuration for the FastAPI agent service (step 4).
 
     Kept separate from :class:`Config` (the embedding worker config) so
-    each process loads only what it needs. The HTTP service does not
-    require ``EMBEDDING_QUEUE_URL`` or ``VOYAGE_API_KEY`` — those are
-    embedding-worker concerns.
+    each process loads only what it needs. ``VOYAGE_API_KEY`` is used
+    by the retrieval query-embedder. ``EMBEDDING_QUEUE_URL`` is used by
+    ``POST /profile_facts/upsert`` to push the re-embed job after a
+    contributor edits a fact.
     """
 
     database_url: str
@@ -221,7 +222,7 @@ class HttpConfig:
     llm_segment_detector_model: str = "gpt-5.1"
     llm_segment_detector_timeout_seconds: float = 10.0
     llm_segment_detector_max_tokens: int = 1000
-    segment_detector_user_turn_cadence: int = 10
+    segment_detector_user_turn_cadence: int = 6
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
@@ -230,6 +231,7 @@ class HttpConfig:
     trait_synthesizer_queue_url: str = ""
     profile_summary_queue_url: str = ""
     producers_per_session_queue_url: str = ""
+    embedding_queue_url: str = ""
     llm_session_summary_provider: str = "anthropic"
     llm_session_summary_model: str = "claude-sonnet-4-6"
     llm_session_summary_timeout_seconds: float = 12.0
@@ -287,7 +289,7 @@ class HttpConfig:
                 os.environ.get("LLM_SEGMENT_DETECTOR_MAX_TOKENS", "1000")
             ),
             segment_detector_user_turn_cadence=int(
-                os.environ.get("SEGMENT_DETECTOR_USER_TURN_CADENCE", "10")
+                os.environ.get("SEGMENT_DETECTOR_USER_TURN_CADENCE", "6")
             ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),
@@ -303,6 +305,7 @@ class HttpConfig:
             producers_per_session_queue_url=_required(
                 "PRODUCERS_PER_SESSION_QUEUE_URL"
             ),
+            embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
             llm_session_summary_provider=os.environ.get(
                 "LLM_SESSION_SUMMARY_PROVIDER",
                 os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
@@ -428,13 +431,17 @@ class ProfileSummaryConfig:
     * Token budget is 600 (summaries are ~150–300 words; 600 leaves
       headroom). Hard timeout is 30s — generous because this is a
       background job, not a user-facing call.
-    * No embedding queue here: profile summaries are display only.
+    * Profile summaries themselves are display only (no embedding), but
+      each profile-fact written by the extraction step pushes an
+      ``embedding`` queue job — so this worker DOES need
+      ``EMBEDDING_QUEUE_URL`` plus the embedding model identity.
     """
 
     database_url: str
     aws_region: str
 
     profile_summary_queue_url: str
+    embedding_queue_url: str
 
     openai_api_key: str
     anthropic_api_key: str
@@ -443,6 +450,17 @@ class ProfileSummaryConfig:
     llm_profile_summary_model: str
     llm_profile_summary_timeout_seconds: float
     llm_profile_summary_max_tokens: int
+
+    # Profile-fact extraction is a small structured tool call; uses the
+    # small-LLM family. Independent timeouts so profile-fact failures
+    # don't drag the prose summary's budget.
+    llm_profile_facts_provider: str
+    llm_profile_facts_model: str
+    llm_profile_facts_timeout_seconds: float
+    llm_profile_facts_max_tokens: int
+
+    embedding_model: str
+    embedding_model_version: str
 
     profile_summary_top_traits_max: int
     profile_summary_top_threads_max: int
@@ -456,15 +474,23 @@ class ProfileSummaryConfig:
     def from_env(cls, *, queue_required: bool = True) -> "ProfileSummaryConfig":
         big_provider = os.environ.get("LLM_BIG_PROVIDER", "anthropic")
         big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
+        small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         queue_url = (
             _required("PROFILE_SUMMARY_QUEUE_URL")
             if queue_required
             else os.environ.get("PROFILE_SUMMARY_QUEUE_URL", "")
         )
+        embedding_queue_url = (
+            _required("EMBEDDING_QUEUE_URL")
+            if queue_required
+            else os.environ.get("EMBEDDING_QUEUE_URL", "")
+        )
         return cls(
             database_url=_required("DATABASE_URL"),
             aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             profile_summary_queue_url=queue_url,
+            embedding_queue_url=embedding_queue_url,
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
             anthropic_api_key=_required("ANTHROPIC_API_KEY"),
             llm_profile_summary_provider=os.environ.get(
@@ -478,6 +504,22 @@ class ProfileSummaryConfig:
             ),
             llm_profile_summary_max_tokens=int(
                 os.environ.get("LLM_PROFILE_SUMMARY_MAX_TOKENS", "600")
+            ),
+            llm_profile_facts_provider=os.environ.get(
+                "LLM_PROFILE_FACTS_PROVIDER", small_provider
+            ),
+            llm_profile_facts_model=os.environ.get(
+                "LLM_PROFILE_FACTS_MODEL", small_model
+            ),
+            llm_profile_facts_timeout_seconds=float(
+                os.environ.get("LLM_PROFILE_FACTS_TIMEOUT_SECONDS", "15")
+            ),
+            llm_profile_facts_max_tokens=int(
+                os.environ.get("LLM_PROFILE_FACTS_MAX_TOKENS", "800")
+            ),
+            embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+            embedding_model_version=os.environ.get(
+                "EMBEDDING_MODEL_VERSION", "2025-01-07"
             ),
             profile_summary_top_traits_max=int(
                 os.environ.get("PROFILE_SUMMARY_TOP_TRAITS_MAX", "7")

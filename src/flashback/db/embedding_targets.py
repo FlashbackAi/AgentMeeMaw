@@ -71,6 +71,13 @@ EMBEDDING_TARGETS: dict[str, EmbeddingTarget] = {
         vector_column="embedding",
         source_sql_expr="text",
     ),
+    "profile_fact": EmbeddingTarget(
+        record_type="profile_fact",
+        table="profile_facts",
+        source_column="answer_text",
+        vector_column="answer_embedding",
+        source_sql_expr="answer_text",
+    ),
 }
 
 
