@@ -34,6 +34,26 @@ services:
       timeout: 5s
       retries: 20
 
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: flashback-localstack
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      SERVICES: sqs
+    ports:
+      - "4566:4566"
+    volumes:
+      - flashback_localstack_data:/var/lib/localstack
+      - ./scripts/localstack/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh:ro
+    healthcheck:
+      test: ["CMD", "awslocal", "sqs", "list-queues"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   flashback_postgres_data:
   flashback_valkey_data:
+  flashback_localstack_data:

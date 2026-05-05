@@ -49,7 +49,7 @@ def _parse_env_line(line: str) -> tuple[str, str] | None:
     if stripped.startswith("export "):
         stripped = stripped.removeprefix("export ").lstrip()
     key, value = stripped.split("=", 1)
-    key = key.strip()
+    key = key.strip().lstrip("\ufeff")
     if not key:
         return None
     value = value.strip()

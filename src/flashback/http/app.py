@@ -15,7 +15,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, cast
 
-import boto3
 import redis.asyncio as redis_asyncio
 import structlog
 from fastapi import FastAPI
@@ -42,6 +41,7 @@ from flashback.queues import (
     ProfileSummaryQueueProducer,
     TraitSynthesizerQueueProducer,
 )
+from flashback.queues.boto import make_sqs_client
 from flashback.response_generator import ResponseGenerator
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.segment_detector import SegmentDetector
@@ -111,7 +111,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_tokens=cfg.llm_segment_detector_max_tokens,
     )
     sqs_client = AsyncSQSClient(
-        boto3.client("sqs", region_name=cfg.aws_region),
+        make_sqs_client(cfg.aws_region),
     )
     extraction_queue = ExtractionQueueProducer(
         sqs_client=sqs_client,

@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-import boto3
+from flashback.queues.boto import make_sqs_client
 
 from .schema import ProducerMessage
 
@@ -29,7 +29,7 @@ class ProducerJobSender:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def send(self, *, person_id: str, producer: str) -> str:
@@ -51,7 +51,7 @@ class ProducerSQSClient:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def receive(self, *, wait_seconds: int = 20) -> list[ReceivedProducerMessage]:
@@ -79,4 +79,3 @@ class ProducerSQSClient:
             QueueUrl=self.queue_url,
             ReceiptHandle=receipt_handle,
         )
-

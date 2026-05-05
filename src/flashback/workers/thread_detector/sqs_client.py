@@ -26,7 +26,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-import boto3
+from flashback.queues.boto import make_sqs_client
 
 from .schema import ThreadDetectorMessage
 
@@ -51,7 +51,7 @@ class ThreadDetectorJobSender:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def send(
@@ -83,7 +83,7 @@ class ThreadDetectorSQSClient:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def receive(

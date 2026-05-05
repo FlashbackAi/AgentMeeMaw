@@ -37,6 +37,13 @@ def _required(name: str) -> str:
     return value
 
 
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Config:
     database_url: str
@@ -163,7 +170,7 @@ class ExtractionConfig:
                 os.environ.get("LLM_COMPATIBILITY_TIMEOUT_SECONDS", "8")
             ),
             llm_compatibility_max_tokens=int(
-                os.environ.get("LLM_COMPATIBILITY_MAX_TOKENS", "400")
+                os.environ.get("LLM_COMPATIBILITY_MAX_TOKENS", "800")
             ),
             extraction_refinement_distance_threshold=float(
                 os.environ.get("EXTRACTION_REFINEMENT_DISTANCE_THRESHOLD", "0.35")
@@ -200,6 +207,7 @@ class HttpConfig:
     working_memory_transcript_limit: int
     db_pool_min_size: int
     db_pool_max_size: int
+    service_token_auth_disabled: bool = False
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     llm_small_provider: str = "openai"
@@ -208,12 +216,12 @@ class HttpConfig:
     llm_big_model: str = "claude-sonnet-4-6"
     llm_intent_model: str = "gpt-5.1"
     llm_intent_timeout_seconds: float = 8.0
-    llm_intent_max_tokens: int = 300
+    llm_intent_max_tokens: int = 800
     llm_segment_detector_provider: str = "openai"
     llm_segment_detector_model: str = "gpt-5.1"
     llm_segment_detector_timeout_seconds: float = 10.0
-    llm_segment_detector_max_tokens: int = 600
-    segment_detector_min_turns: int = 4
+    llm_segment_detector_max_tokens: int = 1000
+    segment_detector_user_turn_cadence: int = 10
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
@@ -242,6 +250,7 @@ class HttpConfig:
             database_url=_required("DATABASE_URL"),
             valkey_url=_required("VALKEY_URL"),
             service_token=_required("SERVICE_TOKEN"),
+            service_token_auth_disabled=_env_bool("SERVICE_TOKEN_AUTH_DISABLED"),
             http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("HTTP_PORT", "8000")),
             working_memory_ttl_seconds=int(
@@ -262,7 +271,7 @@ class HttpConfig:
             llm_intent_timeout_seconds=float(
                 os.environ.get("LLM_INTENT_TIMEOUT_SECONDS", "8")
             ),
-            llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "300")),
+            llm_intent_max_tokens=int(os.environ.get("LLM_INTENT_MAX_TOKENS", "800")),
             llm_segment_detector_provider=os.environ.get(
                 "LLM_SEGMENT_DETECTOR_PROVIDER",
                 os.environ.get("LLM_SMALL_PROVIDER", "openai"),
@@ -275,10 +284,10 @@ class HttpConfig:
                 os.environ.get("LLM_SEGMENT_DETECTOR_TIMEOUT_SECONDS", "10")
             ),
             llm_segment_detector_max_tokens=int(
-                os.environ.get("LLM_SEGMENT_DETECTOR_MAX_TOKENS", "600")
+                os.environ.get("LLM_SEGMENT_DETECTOR_MAX_TOKENS", "1000")
             ),
-            segment_detector_min_turns=int(
-                os.environ.get("SEGMENT_DETECTOR_MIN_TURNS", "4")
+            segment_detector_user_turn_cadence=int(
+                os.environ.get("SEGMENT_DETECTOR_USER_TURN_CADENCE", "10")
             ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),
@@ -561,10 +570,10 @@ class ProducerConfig:
             ),
             llm_producer_model=os.environ.get("LLM_PRODUCER_MODEL", small_model),
             llm_producer_timeout_seconds=float(
-                os.environ.get("LLM_PRODUCER_TIMEOUT_SECONDS", "15")
+                os.environ.get("LLM_PRODUCER_TIMEOUT_SECONDS", "30")
             ),
             llm_producer_max_tokens=int(
-                os.environ.get("LLM_PRODUCER_MAX_TOKENS", "1500")
+                os.environ.get("LLM_PRODUCER_MAX_TOKENS", "3000")
             ),
             p2_max_entities_per_run=int(
                 os.environ.get("P2_MAX_ENTITIES_PER_RUN", "3")

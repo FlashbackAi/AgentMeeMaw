@@ -29,6 +29,8 @@ def require_service_token(
     Returns ``None`` on success — the dependency is purely a guard;
     handlers don't need the token value.
     """
+    if cfg.service_token_auth_disabled:
+        return
     if x_service_token is None or not secrets.compare_digest(
         x_service_token, cfg.service_token
     ):

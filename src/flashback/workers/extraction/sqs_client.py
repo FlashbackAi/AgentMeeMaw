@@ -26,7 +26,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-import boto3
+from flashback.queues.boto import make_sqs_client
 
 from .schema import ExtractionMessage
 
@@ -49,7 +49,7 @@ class ExtractionSQSClient:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def receive(self, *, wait_seconds: int = 20) -> list[ReceivedMessage]:
@@ -96,7 +96,7 @@ class EmbeddingJobSender:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def send(
@@ -148,7 +148,7 @@ class ArtifactJobSender:
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("sqs", region_name=self.region_name)
+            self._client = make_sqs_client(self.region_name)
         return self._client
 
     def send(
