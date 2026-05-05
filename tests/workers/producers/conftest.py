@@ -180,4 +180,3 @@ def seed_edge(
                 (from_kind, from_id, to_kind, to_id, edge_type),
             )
             conn.commit()
-
