@@ -28,4 +28,8 @@ SAMPLE_TRANSCRIPTS: dict[str, list[Turn]] = {
         Turn(role="assistant", content="What else happened at the school?", timestamp=T0),
         Turn(role="user", content="I don't really remember much else about that. What else?", timestamp=T0),
     ],
+    "bare_affirmation_after_question": [
+        Turn(role="assistant", content="Where was Chithanya from?", timestamp=T0),
+        Turn(role="user", content="yeah", timestamp=T0),
+    ],
 }

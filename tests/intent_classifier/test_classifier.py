@@ -136,3 +136,15 @@ def test_build_user_block_uses_expected_format_for_fixtures():
             "</signals>",
         ]
     )
+
+
+def test_prompt_distinguishes_single_and_repeated_affirmations():
+    assert 'A single bare affirmation like "yeah", "yes", "okay", or "hmm" is not' in (
+        SYSTEM_PROMPT
+    )
+    assert "Repeated low-content affirmations across multiple turns can be" in (
+        SYSTEM_PROMPT
+    )
+    assert "Only classify a low-content reply as `switch` when the user actively" in (
+        SYSTEM_PROMPT
+    )

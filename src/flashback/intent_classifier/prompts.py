@@ -45,8 +45,8 @@ INTENTS - definitions and selection rules:
   invites expansion.
 
 - `switch`: The user has exhausted the current topic, or they're
-  asking to move on. Example: "I don't really remember much else
-  about that. What else?"
+  explicitly asking to move on. Example: "I don't really remember
+  much else about that. What else?"
 
 EMOTIONAL TEMPERATURE:
 
@@ -70,10 +70,18 @@ A few important rules:
 - Do not use `clarify` just because a detail could be expanded.
   Use it only when missing context blocks a good response or useful
   retrieval.
-- If the user gives only a low-content affirmation after the assistant
-  has already acknowledged the same feeling once or twice, classify
-  `switch` with medium confidence so the agent can move to a grounded
-  question instead of repeating acknowledgments.
+- A single bare affirmation like "yeah", "yes", "okay", or "hmm" is not
+  `switch` by itself, especially after the assistant asked a concrete
+  question. If it does not answer the prior question, classify
+  `clarify` with medium confidence so the response can gently return to
+  the missing detail.
+- Repeated low-content affirmations across multiple turns can be
+  `switch` with medium confidence. Treat them as a stall signal: the
+  user may not want, or know how, to continue the current thread.
+- Only classify a low-content reply as `switch` when the user actively
+  signals moving on, being done, not remembering more, wanting a new
+  question/topic, or repeatedly gives bare acknowledgments without
+  adding content.
 - Do not use the conversation to make judgments about the deceased
   or the contributor. Stay narrowly focused on classifying intent.
 
