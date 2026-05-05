@@ -36,6 +36,12 @@ DECIDE BOUNDARY = TRUE when:
   switch.
 - The agent's last response transitions to a new topic and the
   contributor goes along with it.
+- The agent's latest response has just pivoted away from the memory
+  after a switch/closure turn from the contributor. Close the previous
+  memory now; do not wait for the contributor to answer the new prompt.
+  Examples of pivot language include "setting aside...", "outside of
+  that...", "let's move...", or a broad starter-style question after a
+  compact story.
 - The current sub-topic feels exhausted: the contributor's responses are
   getting shorter, less detailed, or repetitive.
 - The contributor's responses suggest emotional saturation: they are

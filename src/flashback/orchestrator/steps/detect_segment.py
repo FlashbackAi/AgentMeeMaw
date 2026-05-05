@@ -19,10 +19,13 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     Run the Segment Detector on a fixed user-turn cadence.
 
     Gate: skip unless ``signal_user_turns_since_segment_check`` has
-    reached ``segment_detector_user_turn_cadence`` (default 6). One
-    "user turn" = one user message + the assistant reply. The counter
-    is incremented in ``append_user_turn`` and reset to 0 here on every
-    invocation, regardless of whether a boundary fires.
+    reached ``segment_detector_user_turn_cadence`` (default 6), except
+    for ``switch`` turns. A switch means the conversation just pivoted,
+    so the detector should get a chance to close the completed segment
+    immediately. One "user turn" = one user message + the assistant
+    reply. The counter is incremented in ``append_user_turn`` and reset
+    to 0 here on every invocation, regardless of whether a boundary
+    fires.
 
     On boundary, the extraction queue push happens before Working Memory
     mutation so a failed send leaves the segment available for a later
@@ -46,13 +49,15 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     wm_state = await deps.working_memory.get_state(str(state.session_id))
     cadence = deps.settings.segment_detector_user_turn_cadence
     user_turns_since_check = wm_state.signal_user_turns_since_segment_check
-    if user_turns_since_check < cadence:
+    is_switch_turn = state.effective_intent == "switch"
+    if user_turns_since_check < cadence and not is_switch_turn:
         log.info(
             "step_skipped",
             step="detect_segment",
             reason="below_user_turn_cadence",
             user_turns_since_check=user_turns_since_check,
             cadence=cadence,
+            intent=state.effective_intent,
         )
         return
 

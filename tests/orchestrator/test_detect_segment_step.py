@@ -22,14 +22,17 @@ class FakeWorkingMemory:
         segment_turns=None,
         rolling_summary: str = "Old summary.",
         seeded_question_id: str = "",
+        user_turns_since_segment_check: int = 4,
     ) -> None:
         self.segment_turns = list(segment_turns or [])
         self.state = SimpleNamespace(
             rolling_summary=rolling_summary,
             last_seeded_question_id=seeded_question_id,
+            signal_user_turns_since_segment_check=user_turns_since_segment_check,
         )
         self.updated_summary = None
         self.reset_calls = 0
+        self.reset_counter_calls = 0
         self.increment_calls = 0
         self.seeded_question_updates = []
 
@@ -47,6 +50,10 @@ class FakeWorkingMemory:
         turns = self.segment_turns
         self.segment_turns = []
         return turns
+
+    async def reset_user_turns_since_segment_check(self, session_id: str):
+        self.reset_counter_calls += 1
+        self.state.signal_user_turns_since_segment_check = 0
 
     async def set_seeded_question(self, session_id: str, question_id: str | None):
         self.seeded_question_updates.append(question_id)
@@ -100,7 +107,7 @@ def _deps(
     wm,
     detector=None,
     queue=None,
-    threshold: int = 4,
+    cadence: int = 4,
 ) -> OrchestratorDeps:
     return OrchestratorDeps(
         db_pool=None,
@@ -111,12 +118,15 @@ def _deps(
         response_generator=None,
         segment_detector=detector or FakeDetector(),
         extraction_queue=queue or FakeExtractionQueue(),
-        settings=SimpleNamespace(segment_detector_min_turns=threshold),
+        settings=SimpleNamespace(segment_detector_user_turn_cadence=cadence),
     )
 
 
 async def test_below_threshold_is_noop():
-    wm = FakeWorkingMemory(segment_turns=SAMPLE_SEGMENT[:2])
+    wm = FakeWorkingMemory(
+        segment_turns=SAMPLE_SEGMENT[:2],
+        user_turns_since_segment_check=2,
+    )
     detector = FakeDetector()
     queue = FakeExtractionQueue()
 
@@ -126,10 +136,14 @@ async def test_below_threshold_is_noop():
     assert queue.calls == []
     assert wm.updated_summary is None
     assert wm.reset_calls == 0
+    assert wm.reset_counter_calls == 0
 
 
 async def test_at_threshold_no_boundary_leaves_wm_alone():
-    wm = FakeWorkingMemory(segment_turns=SAMPLE_SEGMENT)
+    wm = FakeWorkingMemory(
+        segment_turns=SAMPLE_SEGMENT,
+        user_turns_since_segment_check=4,
+    )
     detector = FakeDetector(
         result=SegmentDetectionResult(
             boundary_detected=False,
@@ -144,6 +158,29 @@ async def test_at_threshold_no_boundary_leaves_wm_alone():
     assert queue.calls == []
     assert wm.updated_summary is None
     assert wm.reset_calls == 0
+    assert wm.reset_counter_calls == 1
+
+
+async def test_switch_turn_bypasses_cadence():
+    state = _state()
+    state.effective_intent = "switch"
+    wm = FakeWorkingMemory(
+        segment_turns=SAMPLE_SEGMENT[:2],
+        user_turns_since_segment_check=1,
+    )
+    detector = FakeDetector(
+        result=SegmentDetectionResult(
+            boundary_detected=False,
+            reasoning="The detector was still called for the switch.",
+        )
+    )
+    queue = FakeExtractionQueue()
+
+    await detect_segment(state, _deps(wm=wm, detector=detector, queue=queue))
+
+    assert len(detector.calls) == 1
+    assert queue.calls == []
+    assert wm.reset_counter_calls == 1
 
 
 async def test_boundary_pushes_queue_then_updates_wm_and_state():

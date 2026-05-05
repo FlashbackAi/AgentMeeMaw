@@ -46,3 +46,11 @@ def test_system_prompts_are_non_empty_and_distinct():
     assert SYSTEM_PROMPT_NORMAL.strip()
     assert SYSTEM_PROMPT_FORCE.strip()
     assert SYSTEM_PROMPT_NORMAL != SYSTEM_PROMPT_FORCE
+
+
+def test_normal_prompt_closes_when_agent_pivots_after_switch():
+    assert "agent's latest response has just pivoted away" in SYSTEM_PROMPT_NORMAL
+    assert "Close the previous" in SYSTEM_PROMPT_NORMAL
+    assert "do not wait for the contributor to answer the new prompt" in (
+        SYSTEM_PROMPT_NORMAL
+    )
