@@ -7,7 +7,7 @@ queue. For each closed segment it:
 * Calls a Sonnet-class LLM with a structured tool to extract moments,
   entities, traits, and dropped-reference questions.
 * Runs a vector + entity-overlap search for refinement candidates,
-  consulting a small (gpt-5-mini) LLM for each candidate to decide
+  consulting a small (gpt-5.1) LLM for each candidate to decide
   ``refinement | contradiction | independent``.
 * Writes everything in a single Postgres transaction. Edge writes go
   through ``flashback.db.edges.validate_edge`` per CLAUDE.md invariant.

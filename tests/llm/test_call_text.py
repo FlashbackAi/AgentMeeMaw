@@ -70,7 +70,7 @@ async def test_call_text_openai_translates_wire_format(monkeypatch):
 
     result = await interface.call_text(
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         system_prompt="system",
         user_message="user",
         max_tokens=123,
@@ -81,7 +81,7 @@ async def test_call_text_openai_translates_wire_format(monkeypatch):
     assert result == "Generated reply."
     kwargs = client.chat.completions.create.await_args.kwargs
     assert kwargs == {
-        "model": "gpt-5-mini",
+        "model": "gpt-5.1",
         "messages": [
             {"role": "system", "content": "system"},
             {"role": "user", "content": "user"},

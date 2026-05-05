@@ -36,7 +36,7 @@ This is **grief technology**. A few rules that flow from that:
 | Concern | Choice |
 |---|---|
 | Language / runtime | Python |
-| LLMs (small calls) | OpenAI — `gpt-5-mini` |
+| LLMs (small calls) | OpenAI — `gpt-5.1` |
 | LLMs (big calls) | Anthropic — `claude-sonnet-4-6` |
 | Embeddings | Voyage AI (`voyage-3` or `voyage-3-large`, 1024-dim) |
 | Canonical graph | Postgres + pgvector |

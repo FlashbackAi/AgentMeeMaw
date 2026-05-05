@@ -68,7 +68,7 @@ def stub_settings():
         openai_api_key = "stub"
         anthropic_api_key = "stub"
         llm_producer_provider = "openai"
-        llm_producer_model = "gpt-5-mini"
+        llm_producer_model = "gpt-5.1"
         llm_producer_timeout_seconds = 15.0
         llm_producer_max_tokens = 1500
         p2_max_entities_per_run = 3

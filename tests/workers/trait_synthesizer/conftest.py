@@ -73,7 +73,7 @@ def make_trait_synth_message(
 def stub_synth_cfg() -> SynthLLMConfig:
     return SynthLLMConfig(
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         timeout=10.0,
         max_tokens=1000,
     )

@@ -5,7 +5,7 @@ Two LLM calls per message (typical):
 
 * ``EXTRACTION_TOOL`` (Sonnet): one big call per segment that returns the
   full structured-data extraction.
-* ``COMPATIBILITY_TOOL`` (gpt-5-mini): one small call per refinement
+* ``COMPATIBILITY_TOOL`` (gpt-5.1): one small call per refinement
   candidate found by vector search. Most segments fire it zero times.
 
 The drift-detector test in ``tests/workers/extraction/test_prompts.py``

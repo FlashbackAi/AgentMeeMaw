@@ -48,18 +48,10 @@ def _anthropic_response(name=TOOL.name, input_args=None, block_type="tool_use"):
     )
 
 
-def _openai_response(name=TOOL.name, arguments=None, tool_calls=True):
-    calls = None
-    if tool_calls:
-        calls = [
-            SimpleNamespace(
-                function=SimpleNamespace(
-                    name=name,
-                    arguments=arguments if arguments is not None else json.dumps({"intent": "story"}),
-                )
-            )
-        ]
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=calls))])
+def _openai_response(content=None):
+    if content is None:
+        content = json.dumps({"intent": "story"})
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
 async def test_call_with_tool_anthropic_translates_wire_format(monkeypatch):
@@ -101,7 +93,7 @@ async def test_call_with_tool_openai_translates_wire_format(monkeypatch):
 
     result = await interface.call_with_tool(
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         system_prompt="system",
         user_message="user",
         tool=TOOL,
@@ -111,26 +103,55 @@ async def test_call_with_tool_openai_translates_wire_format(monkeypatch):
     )
 
     assert result == {"intent": "story"}
-    client.chat.completions.create.assert_awaited_once_with(
-        model="gpt-5-mini",
-        messages=[
-            {"role": "system", "content": "system"},
+    kwargs = client.chat.completions.create.await_args.kwargs
+    assert kwargs == {
+        "model": "gpt-5.1",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "system\n\n"
+                    "For this OpenAI request, do not emit a tool call. "
+                    "Return only a JSON object matching the `classify_intent` "
+                    "schema. Do not wrap it in markdown or prose."
+                ),
+            },
             {"role": "user", "content": "user"},
         ],
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": TOOL.name,
-                    "description": TOOL.description,
-                    "parameters": TOOL.input_schema,
-                },
-            }
-        ],
-        tool_choice={"type": "function", "function": {"name": TOOL.name}},
-        max_completion_tokens=123,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": TOOL.name,
+                "description": TOOL.description,
+                "schema": TOOL.input_schema,
+                "strict": False,
+            },
+        },
+        "reasoning_effort": "none",
+        "max_completion_tokens": 123,
+        "timeout": 4.5,
+    }
+    assert "tools" not in kwargs
+    assert "tool_choice" not in kwargs
+
+
+async def test_call_with_tool_openai_uses_none_reasoning_for_gpt_5_1(monkeypatch):
+    client = _openai_client(return_value=_openai_response())
+    monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
+
+    await interface.call_with_tool(
+        provider="openai",
+        model="gpt-5.1",
+        system_prompt="system",
+        user_message="user",
+        tool=TOOL,
+        max_tokens=123,
         timeout=4.5,
+        settings=SETTINGS,
     )
+
+    kwargs = client.chat.completions.create.await_args.kwargs
+    assert kwargs["reasoning_effort"] == "none"
 
 
 async def test_anthropic_timeout_maps_to_llm_timeout(monkeypatch):
@@ -186,8 +207,8 @@ async def test_anthropic_non_tool_use_response_is_malformed(monkeypatch):
         )
 
 
-async def test_openai_no_tool_call_response_is_malformed(monkeypatch):
-    client = _openai_client(return_value=_openai_response(tool_calls=False))
+async def test_openai_empty_json_response_is_malformed(monkeypatch):
+    client = _openai_client(return_value=_openai_response(content=""))
     monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
 
     with pytest.raises(LLMMalformedResponse):
@@ -204,7 +225,7 @@ async def test_openai_no_tool_call_response_is_malformed(monkeypatch):
 
 
 async def test_openai_invalid_json_arguments_are_malformed(monkeypatch):
-    client = _openai_client(return_value=_openai_response(arguments="{nope"))
+    client = _openai_client(return_value=_openai_response(content="{nope"))
     monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
 
     with pytest.raises(LLMMalformedResponse):
@@ -237,8 +258,8 @@ async def test_anthropic_wrong_tool_name_is_malformed(monkeypatch):
         )
 
 
-async def test_openai_wrong_tool_name_is_malformed(monkeypatch):
-    client = _openai_client(return_value=_openai_response(name="other_tool"))
+async def test_openai_non_object_json_response_is_malformed(monkeypatch):
+    client = _openai_client(return_value=_openai_response(content='["story"]'))
     monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
 
     with pytest.raises(LLMMalformedResponse):

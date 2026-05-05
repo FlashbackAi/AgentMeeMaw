@@ -171,29 +171,28 @@ async def _call_openai(
     timeout,
     settings,
 ) -> dict:
-    """OpenAI Chat Completions API with a forced function tool call."""
+    """OpenAI Chat Completions API with direct JSON schema output."""
     client = get_openai_client(settings)
     try:
         response = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {
+                    "role": "system",
+                    "content": _openai_json_system_prompt(system_prompt, tool),
+                },
                 {"role": "user", "content": user_message},
             ],
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.input_schema,
-                    },
-                }
-            ],
-            tool_choice={
-                "type": "function",
-                "function": {"name": tool.name},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "schema": tool.input_schema,
+                    "strict": False,
+                },
             },
+            reasoning_effort=_openai_reasoning_effort(model),
             max_completion_tokens=max_tokens,
             timeout=timeout,
         )
@@ -207,19 +206,43 @@ async def _call_openai(
     except (AttributeError, IndexError) as e:
         raise LLMMalformedResponse(f"expected chat choice, got: {response!r}") from e
 
-    if not getattr(msg, "tool_calls", None):
-        raise LLMMalformedResponse(
-            f"expected tool_calls for {tool.name!r}, got message: {msg!r}"
-        )
-    call = msg.tool_calls[0]
-    if call.function.name != tool.name:
-        raise LLMMalformedResponse(
-            f"expected tool {tool.name!r}, got {call.function.name!r}"
-        )
+    content = getattr(msg, "content", None)
+    if not content:
+        refusal = getattr(msg, "refusal", None)
+        detail = f" refusal={refusal!r}" if refusal else ""
+        raise LLMMalformedResponse(f"expected JSON content for {tool.name!r}.{detail}")
     try:
-        return json.loads(call.function.arguments)
+        parsed = json.loads(content)
     except json.JSONDecodeError as e:
-        raise LLMMalformedResponse(f"could not parse tool arguments JSON: {e}") from e
+        raise LLMMalformedResponse(f"could not parse JSON response: {e}") from e
+    if not isinstance(parsed, dict):
+        raise LLMMalformedResponse(
+            f"expected JSON object for {tool.name!r}, got: {type(parsed).__name__}"
+        )
+    return parsed
+
+
+def _openai_json_system_prompt(system_prompt: str, tool: ToolSpec) -> str:
+    """Override tool-call wording when OpenAI returns schema JSON directly."""
+
+    return "\n\n".join(
+        [
+            system_prompt,
+            (
+                "For this OpenAI request, do not emit a tool call. Return only a "
+                f"JSON object matching the `{tool.name}` schema. Do not wrap it "
+                "in markdown or prose."
+            ),
+        ]
+    )
+
+
+def _openai_reasoning_effort(model: str) -> str:
+    """Use true no-reasoning mode where supported, else the lowest GPT-5 mode."""
+
+    if model.startswith("gpt-5.1"):
+        return "none"
+    return "minimal"
 
 
 async def _call_openai_text(

@@ -82,7 +82,7 @@ class ExtractionConfig:
 
     * ``LLM_EXTRACTION_*`` defaults to the ``LLM_BIG_*`` family (Sonnet).
     * ``LLM_COMPATIBILITY_*`` defaults to the ``LLM_SMALL_*`` family
-      (gpt-5-mini).
+      (gpt-5.1).
     * ``EMBEDDING_MODEL`` and ``EMBEDDING_MODEL_VERSION`` are the same
       identity stamps the embedding worker uses; the extraction worker
       pushes embedding jobs with these values.
@@ -124,7 +124,7 @@ class ExtractionConfig:
     @classmethod
     def from_env(cls) -> "ExtractionConfig":
         small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
-        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         big_provider = os.environ.get("LLM_BIG_PROVIDER", "anthropic")
         big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
         return cls(
@@ -203,14 +203,14 @@ class HttpConfig:
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     llm_small_provider: str = "openai"
-    llm_small_model: str = "gpt-5-mini"
+    llm_small_model: str = "gpt-5.1"
     llm_big_provider: str = "anthropic"
     llm_big_model: str = "claude-sonnet-4-6"
-    llm_intent_model: str = "gpt-5-mini"
+    llm_intent_model: str = "gpt-5.1"
     llm_intent_timeout_seconds: float = 8.0
     llm_intent_max_tokens: int = 300
     llm_segment_detector_provider: str = "openai"
-    llm_segment_detector_model: str = "gpt-5-mini"
+    llm_segment_detector_model: str = "gpt-5.1"
     llm_segment_detector_timeout_seconds: float = 10.0
     llm_segment_detector_max_tokens: int = 600
     segment_detector_min_turns: int = 4
@@ -236,7 +236,7 @@ class HttpConfig:
 
     @classmethod
     def from_env(cls) -> "HttpConfig":
-        llm_small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        llm_small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         llm_big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
         return cls(
             database_url=_required("DATABASE_URL"),
@@ -363,7 +363,7 @@ class TraitSynthesizerConfig:
     @classmethod
     def from_env(cls, *, queue_required: bool = True) -> "TraitSynthesizerConfig":
         small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
-        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         queue_url = (
             _required("TRAIT_SYNTHESIZER_QUEUE_URL")
             if queue_required
@@ -533,7 +533,7 @@ class ProducerConfig:
         cls, *, queue_required: str | None = None
     ) -> "ProducerConfig":
         small_provider = os.environ.get("LLM_SMALL_PROVIDER", "openai")
-        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5-mini")
+        small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         per_session_queue_url = (
             _required("PRODUCERS_PER_SESSION_QUEUE_URL")
             if queue_required == "per-session"

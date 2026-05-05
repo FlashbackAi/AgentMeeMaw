@@ -191,7 +191,7 @@ def stub_extraction_cfg() -> ExtractionLLMConfig:
 def stub_compat_cfg() -> CompatibilityLLMConfig:
     return CompatibilityLLMConfig(
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         timeout=5.0,
         max_tokens=200,
     )

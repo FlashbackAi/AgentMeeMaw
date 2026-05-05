@@ -1,7 +1,7 @@
 """
 Compatibility-check LLM wrapper.
 
-Small (gpt-5-mini-class) model; one call per refinement candidate found
+Small (gpt-5.1-class) model; one call per refinement candidate found
 by vector search. The verdict drives the persistence layer:
 
 * ``refinement``    — supersede the existing moment with the new one.

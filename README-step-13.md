@@ -132,7 +132,7 @@ entries when the model has nothing useful to say about them.
 
 ### Single LLM call
 
-One `gpt-5-mini` call per person, structured as one tool invocation
+One `gpt-5.1` call per person, structured as one tool invocation
 (`synthesize_traits`) that emits **both** decision pillars:
 
 1. `existing_trait_decisions` — per-trait keep/upgrade/downgrade with

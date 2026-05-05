@@ -33,7 +33,7 @@ Configuration comes from environment variables (`ExtractionConfig`). See
 | Call | Model | Fires | Purpose |
 |---|---|---|---|
 | Extraction | `LLM_BIG_MODEL` (Sonnet) | once per message | Returns moments + entities + traits + edges + dropped-reference questions |
-| Compatibility | `LLM_SMALL_MODEL` (gpt-5-mini) | once per refinement candidate | Decides `refinement | contradiction | independent` |
+| Compatibility | `LLM_SMALL_MODEL` (gpt-5.1) | once per refinement candidate | Decides `refinement | contradiction | independent` |
 
 The compatibility call only fires when the vector search finds a
 candidate within the cosine-distance threshold. For most segments it
@@ -143,7 +143,7 @@ migrations/
 src/flashback/workers/extraction/
 ├── __init__.py
 ├── __main__.py             — CLI entrypoint
-├── compatibility_llm.py    — gpt-5-mini wrapper
+├── compatibility_llm.py    — gpt-5.1 wrapper
 ├── coverage.py             — Coverage Tracker
 ├── extraction_llm.py       — Sonnet wrapper
 ├── handover.py             — Handover Check
@@ -177,13 +177,13 @@ src/flashback/workers/extraction/
 Typical (no refinement candidates):
 
 * 1 × Sonnet call (extraction). 4k max tokens.
-* 0 × gpt-5-mini calls.
+* 0 × gpt-5.1 calls.
 
 When the new moment looks like an existing one (vector hit + entity
 overlap):
 
 * 1 × Sonnet call.
-* 1–3 × gpt-5-mini calls (one per surviving candidate; we stop on the
+* 1–3 × gpt-5.1 calls (one per surviving candidate; we stop on the
   first `refinement` verdict).
 
 Postgres I/O is bounded: at most 3 moments, ~10 entities, a handful of

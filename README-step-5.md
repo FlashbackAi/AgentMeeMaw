@@ -24,7 +24,7 @@ The file paths follow the repo's existing `flashback` package layout.
 
 ## LLM Layer
 
-Small calls default to OpenAI `gpt-5-mini`; big calls default to
+Small calls default to OpenAI `gpt-5.1`; big calls default to
 Anthropic `claude-sonnet-4-6`.
 
 Every component calls the same adapter:
@@ -32,7 +32,7 @@ Every component calls the same adapter:
 ```python
 await call_with_tool(
     provider="openai",
-    model="gpt-5-mini",
+    model="gpt-5.1",
     system_prompt=SYSTEM_PROMPT,
     user_message=user_block,
     tool=INTENT_TOOL,

@@ -20,7 +20,7 @@ def _detector() -> SegmentDetector:
     return SegmentDetector(
         settings=SETTINGS,
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         timeout=10,
         max_tokens=600,
     )

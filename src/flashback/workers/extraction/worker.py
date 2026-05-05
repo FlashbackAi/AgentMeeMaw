@@ -5,7 +5,7 @@ Sibling to ``flashback.workers.embedding.worker``. Differences:
 
 * Process one message at a time (no batching across segments).
 * Two LLM calls per message — extraction (Sonnet) and 0..N
-  compatibility checks (gpt-5-mini). Costs scale with refinement
+  compatibility checks (gpt-5.1). Costs scale with refinement
   candidates returned from the vector search.
 * Single Postgres transaction per segment covers persistence,
   Coverage Tracker, Handover Check, and the idempotency row.

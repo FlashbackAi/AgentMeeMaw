@@ -24,7 +24,7 @@ def _classifier() -> IntentClassifier:
     return IntentClassifier(
         settings=SETTINGS,
         provider="openai",
-        model="gpt-5-mini",
+        model="gpt-5.1",
         timeout=8,
         max_tokens=300,
     )
