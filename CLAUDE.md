@@ -131,8 +131,15 @@ Every piece of code touching the graph or queues must respect these.
    they emit. Diversity and adjacency ranking depend on it.
 10. **Cap universal-dimension questions at 1 per top-5** when ranking
     the next-question slate. Otherwise it feels like a survey.
-11. **The Segment Detector is an LLM call**, not rules. It runs every
-    turn once the buffer threshold is crossed — not "every 5 turns".
+11. **The Segment Detector is an LLM call**, not rules. It runs on a
+    fixed user-turn cadence: once every
+    `segment_detector_user_turn_cadence` user turns (default 10; 1 turn
+    = 1 user message + 1 assistant reply). The orchestrator increments
+    `signal_user_turns_since_segment_check` in Working Memory on each
+    user-turn append, and resets it to 0 after every detector
+    invocation regardless of whether a boundary fires. Single source of
+    truth is `segment_detector_user_turn_cadence` /
+    `SEGMENT_DETECTOR_USER_TURN_CADENCE`.
 12. **Session Wrap pushes the Segment Detector with `force=true`.**
     That is the single mechanism that flushes the tail of a session
     into the extraction queue.

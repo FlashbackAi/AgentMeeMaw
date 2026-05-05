@@ -16,7 +16,13 @@ log = structlog.get_logger("flashback.orchestrator")
 
 async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     """
-    Run the Segment Detector once the segment buffer threshold is met.
+    Run the Segment Detector on a fixed user-turn cadence.
+
+    Gate: skip unless ``signal_user_turns_since_segment_check`` has
+    reached ``segment_detector_user_turn_cadence`` (default 10). One
+    "user turn" = one user message + the assistant reply. The counter
+    is incremented in ``append_user_turn`` and reset to 0 here on every
+    invocation, regardless of whether a boundary fires.
 
     On boundary, the extraction queue push happens before Working Memory
     mutation so a failed send leaves the segment available for a later
@@ -37,25 +43,30 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         )
         return
 
-    segment_turns = await deps.working_memory.get_segment(str(state.session_id))
-    threshold = deps.settings.segment_detector_min_turns
-    if len(segment_turns) < threshold:
+    wm_state = await deps.working_memory.get_state(str(state.session_id))
+    cadence = deps.settings.segment_detector_user_turn_cadence
+    user_turns_since_check = wm_state.signal_user_turns_since_segment_check
+    if user_turns_since_check < cadence:
         log.info(
             "step_skipped",
             step="detect_segment",
-            reason="below_buffer_threshold",
-            segment_size=len(segment_turns),
-            threshold=threshold,
+            reason="below_user_turn_cadence",
+            user_turns_since_check=user_turns_since_check,
+            cadence=cadence,
         )
         return
 
-    wm_state = await deps.working_memory.get_state(str(state.session_id))
+    segment_turns = await deps.working_memory.get_segment(str(state.session_id))
     prior_rolling_summary = wm_state.rolling_summary or ""
 
     result = await deps.segment_detector.detect(
         segment_turns=segment_turns,
         prior_rolling_summary=prior_rolling_summary,
         force=False,
+    )
+
+    await deps.working_memory.reset_user_turns_since_segment_check(
+        str(state.session_id),
     )
 
     if not result.boundary_detected:

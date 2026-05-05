@@ -224,6 +224,33 @@ class WorkingMemory:
             str(self._ttl),
         )
 
+    async def increment_user_turns_since_segment_check(
+        self,
+        session_id: str,
+    ) -> int:
+        """Atomically increment the user-turn counter that gates the
+        Segment Detector cadence. Returns the new value.
+        """
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hincrby(s_key, "signal_user_turns_since_segment_check", 1)
+            p.expire(s_key, self._ttl)
+            results = await p.execute()
+        return int(results[0])
+
+    async def reset_user_turns_since_segment_check(
+        self,
+        session_id: str,
+    ) -> None:
+        """Reset the user-turn cadence counter to 0. Called by the
+        Segment Detector after every invocation, regardless of whether a
+        boundary fired.
+        """
+        await self.update_signals(
+            session_id,
+            signal_user_turns_since_segment_check=0,
+        )
+
     async def increment_segments_pushed(self, session_id: str) -> int:
         """Atomically increment the session's pushed-segment counter."""
         s_key = state_key(session_id)

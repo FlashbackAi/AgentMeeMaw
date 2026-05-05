@@ -70,7 +70,7 @@ class WorkingMemoryState(BaseModel):
     prior_rolling_summary: str = ""
     segments_pushed_this_session: int = 0
 
-    signal_turns_in_current_segment: int = 0
+    signal_user_turns_since_segment_check: int = 0
     signal_recent_words: str = ""
     signal_last_user_message_length: int = 0
     signal_emotional_temperature_estimate: str = ""
@@ -91,7 +91,7 @@ class WorkingMemoryState(BaseModel):
 # the HASH back, since Valkey returns everything as strings.
 _INT_FIELDS: frozenset[str] = frozenset(
     {
-        "signal_turns_in_current_segment",
+        "signal_user_turns_since_segment_check",
         "signal_last_user_message_length",
         "segments_pushed_this_session",
     }
@@ -132,7 +132,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "rolling_summary": state.rolling_summary,
         "prior_rolling_summary": state.prior_rolling_summary,
         "segments_pushed_this_session": str(state.segments_pushed_this_session),
-        "signal_turns_in_current_segment": str(state.signal_turns_in_current_segment),
+        "signal_user_turns_since_segment_check": str(state.signal_user_turns_since_segment_check),
         "signal_recent_words": state.signal_recent_words,
         "signal_last_user_message_length": str(state.signal_last_user_message_length),
         "signal_emotional_temperature_estimate": state.signal_emotional_temperature_estimate,

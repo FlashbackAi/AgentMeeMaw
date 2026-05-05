@@ -25,13 +25,22 @@ src/flashback/
 
 The package layout follows the existing `src/flashback/...` structure.
 
-## Buffer Threshold
+## User-Turn Cadence
 
-`SEGMENT_DETECTOR_MIN_TURNS` controls when the detector gets called.
-The default is `4`. A user message and assistant reply are two turns, so
-the first exchange in a session leaves the segment buffer at 2 and is
-always skipped. Once the buffer length is at or above the threshold, the
-LLM decides whether the segment is still open.
+`SEGMENT_DETECTOR_USER_TURN_CADENCE` controls how often the detector
+gets called. The default is `10`. A "user turn" is one user message
+plus the assistant reply.
+
+The orchestrator increments
+`signal_user_turns_since_segment_check` in Working Memory each time a
+user message is appended. The detector is gated on that counter — when
+it reaches the cadence value, the detector runs and the counter is
+reset to `0`, regardless of whether a boundary fires. Between runs, the
+detector is a no-op skip.
+
+Buffer length is no longer the gate. The segment buffer still grows
+across turns and is read at run time so the LLM sees the full window;
+it is only cleared when a boundary fires.
 
 ## Single LLM Call
 
@@ -89,7 +98,7 @@ LLM_SEGMENT_DETECTOR_PROVIDER=openai
 LLM_SEGMENT_DETECTOR_MODEL=gpt-5.1
 LLM_SEGMENT_DETECTOR_TIMEOUT_SECONDS=10
 LLM_SEGMENT_DETECTOR_MAX_TOKENS=600
-SEGMENT_DETECTOR_MIN_TURNS=4
+SEGMENT_DETECTOR_USER_TURN_CADENCE=10
 EXTRACTION_QUEUE_URL=...
 ```
 
