@@ -220,6 +220,9 @@ people mentioned ARE entities.
 contributor said anything about them.
 - For person entities, populate `attributes.relationship` (their relationship \
 to the SUBJECT, not to the contributor).
+- If the contributor corrects an identity, extract ONE canonical entity with \
+the corrected name and put the mistaken/prior label in `aliases`. Do not emit \
+both as separate entities.
 - For person entities with a known signature phrase or behavior, populate \
 `attributes.saying` or `attributes.mannerism`. The Coverage Tracker credits \
 the `voice` dimension when these attributes exist.

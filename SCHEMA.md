@@ -247,7 +247,53 @@ the cap.
 
 ---
 
-## 3. The `edges` table
+## 3. Review / workflow tables
+
+### 3.1 `identity_merge_suggestions`
+
+Pending user-review items for entity identity corrections. The
+Extraction Worker or identity-merge scanner may create suggestions
+automatically, but neither path merges entities. Approval/rejection is an explicit API/UI action
+(`POST /identity_merges/suggestions/{id}/approve|reject`).
+
+Typical case:
+
+```text
+source_entity: "old label for Person B"
+target_entity: "Person B"
+proposed_alias: "old label for Person B"
+status: pending
+```
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `person_id` | UUID NOT NULL FK→persons | Legacy scope |
+| `source_entity_id` | UUID NOT NULL FK→entities | Losing entity if approved |
+| `target_entity_id` | UUID NOT NULL FK→entities | Surviving entity if approved |
+| `proposed_alias` | TEXT | Label to fold into target aliases |
+| `reason` | TEXT NOT NULL | Human-readable review reason |
+| `source` | TEXT NOT NULL DEFAULT `'extraction'` | CHECK in (`'extraction'`, `'scanner'`, `'user_edit'`, `'admin'`) |
+| `status` | TEXT NOT NULL DEFAULT `'pending'` | CHECK in (`'pending'`, `'approved'`, `'rejected'`) |
+| `approved_at`, `rejected_at` | TIMESTAMPTZ | Mutually tied to status by CHECK constraints |
+| `created_at`, `updated_at` | TIMESTAMPTZ | Auto-maintained |
+
+**Constraints and indexes:**
+- `source_entity_id <> target_entity_id`
+- partial UNIQUE `(person_id, source_entity_id, target_entity_id) WHERE status='pending'`
+- `(person_id, status, created_at DESC)`
+
+**View:** `pending_identity_merge_suggestions` filters to
+`status='pending'`.
+
+Approval effects are intentionally outside this table: the approval
+handler marks the source entity `merged`, sets `merged_into`, repoints
+entity edges, updates target aliases/description, clears target
+embedding fields, and queues a fresh entity embedding job.
+
+---
+
+## 4. The `edges` table
 
 | Column | Type | Notes |
 |---|---|---|
@@ -269,7 +315,7 @@ prevents exact duplicate edges.
 - `(to_kind, to_id, edge_type, status)` — inbound
 - `(edge_type, status)` — type-wide scans
 
-### 3.1 Edge type matrix
+### 4.1 Edge type matrix
 
 App-level `validate_edge()` (in `src/db/edges.py`) enforces these
 combinations. The DB only checks `edge_type` membership.
@@ -295,7 +341,7 @@ combinations. The DB only checks `edge_type` membership.
 
 ---
 
-## 4. `moment_history`
+## 5. `moment_history`
 
 Audit trail for **user manual edits** (trigger B in the edit-design,
 see ARCHITECTURE.md §8). Auto-detected refinements via the Extraction
@@ -313,7 +359,7 @@ Worker use supersession instead, not history rows.
 
 ---
 
-## 5. Active views
+## 6. Active views
 
 Always read through these unless you have a specific reason to see
 superseded/merged/archived rows.
@@ -330,7 +376,7 @@ superseded/merged/archived rows.
 
 ---
 
-## 6. Embedding completeness invariant
+## 7. Embedding completeness invariant
 
 Every embedded table has a CHECK constraint of the form:
 
@@ -352,7 +398,7 @@ model upgrades (invariant #3).
 
 ---
 
-## 7. Common query patterns
+## 8. Common query patterns
 
 These are the read patterns the agent and Retrieval Service rely on.
 Always include `status='active'` (or use the views) and
@@ -470,7 +516,7 @@ WHERE  p.id = $1;
 
 ---
 
-## 8. Operational notes
+## 9. Operational notes
 
 ### Re-embedding on model change
 
@@ -537,7 +583,7 @@ edges_type_status_idx
 
 ---
 
-## 9. What's deliberately not here in v1
+## 10. What's deliberately not here in v1
 
 - No `entity_history`, `thread_history`, or `trait_history`. Only
   moments are user-edited heavily enough to need an audit table.

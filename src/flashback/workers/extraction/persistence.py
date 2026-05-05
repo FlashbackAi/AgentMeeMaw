@@ -34,6 +34,7 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.identity_merges.repository import create_entity_merge_suggestions
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
 
@@ -81,6 +82,7 @@ class PersistenceResult:
     trait_ids: list[str]
     question_ids: list[str]
     superseded_moment_ids: list[str]
+    merge_suggestion_ids: list[str]
     dropped_entities_count: int
 
     # Per-moment booleans surfaced to the Coverage Tracker so it doesn't
@@ -198,6 +200,12 @@ def persist_extraction(
             moment_ids=moment_ids,
         )
 
+    merge_suggestion_ids = create_entity_merge_suggestions(
+        cursor,
+        person_id=person.id,
+        target_entity_ids=entity_ids,
+    )
+
     return PersistenceResult(
         moment_ids=moment_ids,
         entity_ids=entity_ids,
@@ -205,6 +213,7 @@ def persist_extraction(
         trait_ids=trait_ids,
         question_ids=question_ids,
         superseded_moment_ids=superseded_ids,
+        merge_suggestion_ids=merge_suggestion_ids,
         dropped_entities_count=dropped_count,
         moment_signals=moment_signals,
     )

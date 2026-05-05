@@ -68,6 +68,10 @@ Runs continuously in the background.
 - The **Extraction Worker** drains the `extraction` queue and writes
   0–3 moments per segment, plus entities, explicit traits, edges, and
   inline P1 `dropped_reference` questions.
+- It may also write **pending identity merge suggestions** when a
+  contributor clarifies that two entity labels refer to the same
+  person/place/object. These are review items only; no graph merge
+  happens until user approval.
 - For every embedded row it writes, it also pushes a job onto the
   `embedding` queue.
 - For artifact-bearing rows (`persons`, `threads`, `entities`,
@@ -288,10 +292,15 @@ Per closed segment, the Worker performs:
 7. **Inline P1 `dropped_reference`** — when a named person/place/
    object is mentioned but not explored, write a question with
    `source='dropped_reference'`, `attributes.dropped_phrase` set.
-8. **Push embedding jobs** for every embedded row written or changed.
-9. **Push artifact jobs** for every newly created person / thread /
+8. **Create pending identity merge suggestions** — when the extractor
+   emits a canonical entity with an alias matching another active
+   entity name for the same person, write a pending review row. Example:
+   canonical `Person B` with alias `old label for Person B` suggests
+   merging the existing `old label for Person B` entity into `Person B`.
+9. **Push embedding jobs** for every embedded row written or changed.
+10. **Push artifact jobs** for every newly created person / thread /
    entity / moment, with the `generation_prompt` persisted alongside.
-10. **Check the Thread Detector trigger** — if
+11. **Check the Thread Detector trigger** — if
     `count(active_moments) - moments_at_last_thread_run ≥ 15` and
     total ≥ 15, enqueue a Thread Detector run.
 
@@ -542,7 +551,9 @@ combinations are valid for each `edge_type`.
   row → `status='active'`. **All edges pointing at the old row are
   repointed to the new row in the same transaction.**
 - **Merge** (entity dedup): aliases moved to surviving entity, all
-  edges repointed, losing entity → `status='merged'`.
+  edges repointed, losing entity → `status='merged'`. In production,
+  this is user-approved through `identity_merge_suggestions`; extraction
+  can propose but cannot directly merge.
 - **User edit**: in-place update + `moment_history` row capturing the
   before-state, editor, and timestamp. Edges unchanged.
 
@@ -680,10 +691,34 @@ In-place update on the canonical row, with a `moment_history` row
 capturing the previous values, editor, and timestamp. Edges unchanged.
 If the edited field is embedded, push a re-embed job.
 
-### C. User merge (entity dedup, via Node)
+### C. User-approved identity merge
 
-Aliases moved to the surviving entity. All edges repointed to it.
-Losing entity → `status='merged'`. Re-embed surviving entity.
+Identity merges are a two-step workflow:
+
+1. **Detection** — the Extraction Worker may create a pending
+   `identity_merge_suggestions` row when a newly extracted canonical
+   entity carries an alias that matches an existing active entity name.
+   Example: after a contributor says an earlier label refers to a named
+   person, extraction emits the named person as canonical and places the
+   earlier label in `aliases`; persistence proposes earlier-label →
+   canonical-name. A background/manual scanner can also search existing
+   active entities under the same subject profile using deterministic
+   labels, with embedding distance supplied as supporting context, then
+   spend a small LLM verifier call only on gated candidate pairs.
+2. **Approval** — Node/UI surfaces the suggestion out-of-band
+   (toast/review surface), not inside the memorial chat. Only
+   `POST /identity_merges/suggestions/{id}/approve` performs the merge.
+
+On approval:
+
+- aliases from the losing entity are moved to the surviving entity;
+- all inbound/outbound entity edges are repointed to the survivor;
+- losing entity → `status='merged'`, `merged_into=<survivor>`;
+- survivor's embedding fields are cleared and a fresh embedding job is
+  pushed.
+
+Rejecting a suggestion marks it `status='rejected'` and leaves the graph
+unchanged.
 
 Traits editing UX is **deferred from v1**.
 
@@ -842,7 +877,7 @@ payload. See §3.4 and §3.8.
 - Concrete buffer threshold for Segment Detector activation —
   empirically tuned.
 - Concrete generation model for stylized images and short videos.
-- Admin tooling for phase reset and merge approvals.
+- Production UI polish for merge approvals beyond the local toast.
 - Observability: structured logging across the three loops, plus
   per-loop latency/error dashboards.
 - Clustering algorithm choice for the Thread Detector (HDBSCAN vs.

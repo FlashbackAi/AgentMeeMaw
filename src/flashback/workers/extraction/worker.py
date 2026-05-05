@@ -277,6 +277,7 @@ class ExtractionWorker:
             traits_written=len(persistence_result.trait_ids),
             questions_written=len(persistence_result.question_ids),
             superseded=len(persistence_result.superseded_moment_ids),
+            merge_suggestions=len(persistence_result.merge_suggestion_ids),
             subject_guard_dropped=persistence_result.dropped_entities_count,
         )
         return persistence_result, extraction

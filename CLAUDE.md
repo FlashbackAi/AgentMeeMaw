@@ -105,7 +105,7 @@ External dependencies we **call** but do not own: the Node Backend
 
 ---
 
-## 4. The 15 invariants
+## 4. The 17 invariants
 
 Every piece of code touching the graph or queues must respect these.
 
@@ -170,6 +170,15 @@ Every piece of code touching the graph or queues must respect these.
     status flip + new row, mirroring moments / entities / threads.
     Every new active row pushes an `embedding` queue job.
     `POST /profile_facts/upsert` is the only Node-driven write path.
+17. **Identity merges require user approval.** Extraction may create a
+    pending `identity_merge_suggestions` row when an alias/correction
+    indicates two active entities may be the same. It must not directly
+    merge entities. Approval happens through
+    `POST /identity_merges/suggestions/{id}/approve`, ideally surfaced
+    by Node/UI as an out-of-band toast or review item, not inside the
+    memorial conversation. Approval repoints edges, marks the source
+    entity `merged`, clears survivor embedding fields, and queues a
+    fresh entity embedding job.
 
 ---
 
@@ -192,6 +201,9 @@ Every piece of code touching the graph or queues must respect these.
   entities of sub-type `person`.
 - **Entities** have 4 sub-types: `person`, `place`, `object`,
   `organization`, with type-specific `attributes` JSONB and `aliases`.
+- **Identity merge suggestions** live in `identity_merge_suggestions`.
+  They are pending review records, not graph mutations. Extraction can
+  propose source→target; only approval performs the merge.
 - **Questions are first-class nodes.** Their relational data lives in
   `edges` via `motivated_by`, `targets`, `answered_by`. The questions
   `attributes` JSONB only holds non-relational fields:
@@ -310,6 +322,10 @@ write them together as we go.
     (Node-driven). Supersedes the prior active row, writes a new one
     with `source='user_edit'`, pushes an `embedding` job. 409s when
     the person is at the active-fact cap.
+20. **Identity Merge review endpoint** —
+    `GET /identity_merges/suggestions`, approve/reject endpoints, and
+    merge application. Detection is automatic; mutation is
+    user-approved.
 
 ---
 
@@ -333,6 +349,18 @@ We expose an HTTP service. Node calls us; we never call Node.
   the prior active row, inserts new with `source='user_edit'`, pushes
   embedding. 409 at the per-person cap; 503 if
   `EMBEDDING_QUEUE_URL` is unset.
+- `GET /identity_merges/suggestions?person_id=...` — list pending
+  review items for entity identity corrections.
+- `POST /identity_merges/scan` — manually run the identity-merge
+  scanner for one subject profile. It gates candidate entity pairs with
+  deterministic labels, supplies embedding distance as supporting
+  context, verifies with the small LLM, and creates pending suggestions
+  only.
+- `POST /identity_merges/suggestions/{id}/approve` — apply a
+  user-approved entity merge, repoint edges, mark source `merged`,
+  update survivor aliases/description, and push re-embedding.
+- `POST /identity_merges/suggestions/{id}/reject` — mark a pending
+  suggestion rejected without changing graph entities.
 
 We do **not** auth these endpoints. Node is the auth boundary.
 

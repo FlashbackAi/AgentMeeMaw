@@ -70,10 +70,25 @@ parallel, and clears Working Memory.
 `/session/wrap` returns `metadata.segments_extracted_count`. This
 replaces the step-4 stub field `moments_extracted_estimate`.
 
+## Identity Merge Review
+
+When extraction or the identity-merge scanner detects a likely entity
+identity correction, it writes a pending `identity_merge_suggestions`
+row instead of merging automatically. The scanner gates candidates with
+deterministic labels and uses embedding distance as supporting context
+before a small LLM verifier. Node/UI should surface suggestions out-of-band, such as a toast:
+"Old label may be Person B. Merge?" Approval calls
+`POST /identity_merges/suggestions/{id}/approve`; rejection calls
+`POST /identity_merges/suggestions/{id}/reject`.
+
+Approval repoints edges, marks the losing entity `merged`, folds aliases
+into the survivor, clears the survivor embedding fields, and queues a
+fresh entity embedding job.
+
 ## What's Next
 
 Deferred production work includes streaming responses, prompt
 versioning, an eval harness, observability dashboards, weekly scheduling
 for P3/P5, artifact-generation ops with Node, deployment runbooks,
-backfill tooling for model upgrades, and human review surfaces for
-entity merges or contradiction handling.
+backfill tooling for model upgrades, production polish for merge-review
+surfaces, and human review surfaces for contradiction handling.
