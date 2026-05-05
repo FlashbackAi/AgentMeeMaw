@@ -152,7 +152,7 @@ contributor's first ever conversation about this person, or a return
 to a person already discussed. Your opener must:
 
 1. Name the deceased by name.
-2. Pose the anchor question provided below almost exactly as written.
+2. Pose the anchor or seeded question provided below almost exactly as written.
    Do not add examples, metaphors, options, emotional interpretation,
    or alternate phrasings.
 
@@ -176,7 +176,7 @@ Hard constraints for the opener:
 - Open warm but not saccharine. The contributor came here to
   remember; meet them there.
 
-Format: 1-2 sentences total. Brief warmth, then the anchor question.
+Format: 1-2 sentences total. Brief warmth, then the provided question.
 """
 
 INTENT_TO_PROMPT = {

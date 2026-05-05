@@ -39,7 +39,12 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
             row = await cur.fetchone()
     if row is None:
         raise PersonNotFound(f"person {person_id} not found")
-    name, relationship, phase, gender, profile_summary = row
+    if len(row) == 3:
+        name, relationship, phase = row
+        gender = None
+        profile_summary = None
+    else:
+        name, relationship, phase, gender, profile_summary = row
     return PersonRow(
         name=name,
         relationship=relationship,
@@ -82,15 +87,28 @@ async def select_starter_anchor(
     with timed_step(log, "select_starter_anchor"):
         if deps.phase_gate is None:
             raise PhaseGateError("phase gate is not configured")
-        state.selection = await deps.phase_gate.select_starter_question(
-            state.person_id
-        )
+        if state.person_phase == "starter":
+            state.selection = await deps.phase_gate.select_starter_question(
+                state.person_id
+            )
+        else:
+            state.selection = await deps.phase_gate.select_next_question(
+                state.person_id,
+                state.session_id,
+            )
         if state.selection.question_id is None or state.selection.question_text is None:
-            raise PhaseGateError("starter selection returned no question")
-        if state.selection.dimension is None:
+            if state.person_phase == "starter":
+                raise PhaseGateError("starter selection returned no question")
+            log.info(
+                "phase_gate.session_start_empty",
+                phase=state.selection.phase,
+                rationale=state.selection.rationale,
+            )
+            return
+        if state.person_phase == "starter" and state.selection.dimension is None:
             raise PhaseGateError("starter selection returned no dimension")
         log.info(
-            "phase_gate.starter_selected",
+            "phase_gate.session_start_selected",
             phase=state.selection.phase,
             question_id=str(state.selection.question_id),
             source=state.selection.source,
@@ -109,8 +127,10 @@ async def generate_opener(
             log.info("response_generator.skipped", reason="not_configured")
             return
         if state.selection is None or state.selection.question_text is None:
-            raise PhaseGateError("starter selection missing before opener generation")
-        if state.selection.dimension is None:
+            state.response = None
+            log.info("starter_opener.skipped", reason="no_seeded_question")
+            return
+        if state.person_phase == "starter" and state.selection.dimension is None:
             raise PhaseGateError("starter selection missing dimension")
         ctx = StarterContext(
             person_name=state.person_name,

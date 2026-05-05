@@ -54,15 +54,18 @@ def render_turn_context(ctx: TurnContext) -> str:
 
 def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
-    sections.append(
-        "\n".join(
-            [
-                f'<anchor_question dimension="{ctx.anchor_dimension}">',
-                ctx.anchor_question_text,
-                "</anchor_question>",
-            ]
+    if ctx.anchor_dimension:
+        sections.append(
+            "\n".join(
+                [
+                    f'<anchor_question dimension="{ctx.anchor_dimension}">',
+                    ctx.anchor_question_text,
+                    "</anchor_question>",
+                ]
+            )
         )
-    )
+    else:
+        sections.append(_block("seeded_question", ctx.anchor_question_text))
     if ctx.prior_session_summary and ctx.prior_session_summary.strip():
         sections.append(
             _block("prior_session_summary", ctx.prior_session_summary.strip())

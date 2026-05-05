@@ -31,7 +31,7 @@ class StarterContext(BaseModel):
     person_gender: str = "they"
     contributor_role: str | None = None
     anchor_question_text: str
-    anchor_dimension: AnchorDimension
+    anchor_dimension: AnchorDimension | None = None
     prior_session_summary: str | None = None
 
 

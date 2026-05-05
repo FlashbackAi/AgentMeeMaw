@@ -82,23 +82,35 @@ class FakePhaseGate:
 
 
 class FakeDbPool:
+    def __init__(self, *, phase: str = "starter") -> None:
+        self.phase = phase
+
     def connection(self):
-        return _AsyncContext(FakeConnection())
+        return _AsyncContext(FakeConnection(phase=self.phase))
 
 
 class FakeConnection:
+    def __init__(self, *, phase: str) -> None:
+        self.phase = phase
+
     def cursor(self):
-        return _AsyncContext(FakeCursor())
+        return _AsyncContext(FakeCursor(phase=self.phase))
 
 
 class FakeCursor:
+    def __init__(self, *, phase: str) -> None:
+        self.phase = phase
+
     async def execute(self, sql, params=None):
         self.sql = sql
 
     async def fetchone(self):
         if "FROM persons" in self.sql:
-            return ("Maya", "mother", "starter")
+            return ("Maya", "mother", self.phase, "she", None)
         raise AssertionError(f"unexpected SQL: {self.sql}")
+
+    async def fetchall(self):
+        return []
 
 
 class _AsyncContext:
@@ -145,11 +157,11 @@ def _response_generator() -> ResponseGenerator:
     )
 
 
-async def _app(fake_redis, *, classifier, phase_gate):
+async def _app(fake_redis, *, classifier, phase_gate, person_phase: str = "starter"):
     cfg = _config()
     app = create_app(cfg)
     app.state.redis = fake_redis
-    app.state.db_pool = FakeDbPool()
+    app.state.db_pool = FakeDbPool(phase=person_phase)
     app.state.working_memory = WorkingMemory(
         redis_client=fake_redis,
         ttl_seconds=cfg.working_memory_ttl_seconds,
@@ -205,6 +217,42 @@ async def test_session_start_selects_starter_and_records_question(fake_redis, mo
     assert state.last_seeded_question_id == str(STARTER_Q)
     assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == [
         str(STARTER_Q)
+    ]
+
+
+async def test_session_start_steady_selects_next_question(fake_redis, monkeypatch):
+    call = AsyncMock(return_value="Last time we talked about the porch. What did she keep on the porch?")
+    monkeypatch.setattr(generator_module, "call_text", call)
+    phase_gate = FakePhaseGate()
+    app = await _app(
+        fake_redis,
+        classifier=FixedClassifier("story"),
+        phase_gate=phase_gate,
+        person_phase="steady",
+    )
+
+    async with await _client(app) as client:
+        session_id, person_id, role_id = new_uuids()
+        resp = await client.post(
+            "/session/start",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "session_metadata": {},
+            },
+        )
+
+    assert resp.status_code == 200
+    assert phase_gate.starter_calls == 0
+    assert phase_gate.next_calls == 1
+    assert "<seeded_question>" in call.await_args.kwargs["user_message"]
+    assert "What did she keep on the porch?" in call.await_args.kwargs["user_message"]
+    state = await app.state.working_memory.get_state(session_id)
+    assert state.last_seeded_question_id == str(STEADY_Q)
+    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == [
+        str(STEADY_Q)
     ]
 
 
