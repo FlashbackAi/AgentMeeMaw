@@ -152,13 +152,20 @@ Every piece of code touching the graph or queues must respect these.
     active moments ≥ 15. Trigger:
     `count(active_moments) - moments_at_last_thread_run ≥ 15`. After
     it completes, update `moments_at_last_thread_run` on the person.
-15. **The rolling summary is owned by the Segment Detector path.** On
-    segment boundary, regenerate the rolling summary (small LLM) over
+15. **The rolling summary is owned by the Segment Detector path and
+    is strictly within-session.** Born empty at `/session/start` —
+    never seeded from a prior session. On segment boundary,
+    regenerate the rolling summary (small LLM) over
     `(prior_rolling_summary + closed_segment_turns)`, store it in
     Working Memory, and include it in the `extraction` queue payload.
-    The Extraction Worker reads it as compressed prior context when
-    generating moments. The rolling summary is always a fresh
+    The Extraction Worker reads it as compressed *in-session* context
+    when generating moments. The rolling summary is always a fresh
     compressed rewrite, not an append — never let it grow unbounded.
+    Cross-session recall lives in a separate Working Memory field,
+    `prior_session_summary` (seeded once at session start, read-only,
+    consumed only by the Response Generator). Keeping these two
+    fields distinct is what prevents extraction from re-mining
+    already-extracted moments when a new session is short.
 16. **Profile facts are open-ended but capped.** `profile_facts` rows
     are `(question, answer)` pairs surfaced on the legacy profile.
     `fact_key` is a free-form snake_case slug picked by the
