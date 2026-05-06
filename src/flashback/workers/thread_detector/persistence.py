@@ -5,26 +5,23 @@ The unit of work is one cluster. For each cluster:
   1. **Match-or-create** (read-only DB) — find the closest active thread.
   2. **Naming LLM** (only for new threads, OUTSIDE any DB transaction).
      If ``coherent`` is false, the cluster is dropped.
-  3. **Single transaction**:
+  3. **P4 LLM** (OUTSIDE any DB transaction). Generates 1–2
+     ``thread_deepen`` questions for the thread.
+  4. **Single transaction**:
        a. Insert thread row (new path) OR no-op (existing path).
        b. Insert ``evidences`` edges from each member moment to the
           thread, ``ON CONFLICT DO NOTHING`` so that retries don't fail
           on duplicates.
-  4. **P4 LLM** (OUTSIDE any DB transaction). Generates 1–2
-     ``thread_deepen`` questions for the thread.
-  5. **Single transaction** — insert the question rows + their
-     ``motivated_by`` edges back to the thread.
-  6. **Post-commit** — push thread embedding + artifact jobs (new path
+       c. Insert the question rows + their ``motivated_by`` edges back
+          to the thread.
+  5. **Post-commit** — push thread embedding + artifact jobs (new path
      only) and per-question embedding jobs.
 
 LLM calls are deliberately kept OUT of DB transactions so we never hold
-a Postgres connection open across a Sonnet round-trip. The two-stage
-transactional split is safe because of the trigger-baseline mechanic:
-``persons.moments_at_last_thread_run`` is only updated at the END of a
-run, so any failure between writes leaves the trigger sticky and the
-worker re-runs against the same baseline. Re-runs collapse to no-ops
-via the existing-thread match path (the freshly-written thread is now
-the closest match) and ``ON CONFLICT DO NOTHING`` on evidences edges.
+a Postgres connection open across a Sonnet round-trip. Once the naming
+and P4 outputs are in hand, all durable writes for the cluster land in a
+single transaction so we do not create a thread without its initial P4
+questions.
 
 Invariants honoured (CLAUDE.md §4):
 
@@ -43,6 +40,7 @@ Invariants honoured (CLAUDE.md §4):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 import structlog
 from psycopg.types.json import Json
@@ -50,8 +48,12 @@ from psycopg.types.json import Json
 from flashback.db.edges import validate_edge
 
 from .matching import fetch_thread_snapshot, match_existing_thread
-from .naming_llm import NamingLLMConfig, name_cluster
-from .p4_llm import P4LLMConfig, propose_thread_deepen_questions
+from .naming_llm import (
+    THREAD_NAMING_PROMPT_VERSION,
+    NamingLLMConfig,
+    name_cluster,
+)
+from .p4_llm import P4_PROMPT_VERSION, P4LLMConfig, propose_thread_deepen_questions
 from .schema import (
     Cluster,
     ClusterableMoment,
@@ -151,46 +153,31 @@ def process_cluster(
             )
             return outcome
 
-    # 3. Transaction A — thread + evidences.
-    with db_pool.connection() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                if match.is_match:
-                    thread_id = match.existing_thread_id  # type: ignore[assignment]
-                    outcome.matched_existing = True
-                    outcome.thread_id = thread_id
-                    log.info(
-                        "thread_detector.linking_to_existing_thread",
-                        thread_id=thread_id,
-                        distance=match.existing_thread_distance,
-                    )
-                else:
-                    assert naming is not None  # for type narrowing
-                    thread_id = _insert_thread(
-                        cur,
-                        person_id=person_id,
-                        naming=naming,
-                        confidence=cluster.confidence,
-                    )
-                    outcome.thread_id = thread_id
-                    outcome.thread_was_created = True
-
-                outcome.new_evidences_edge_count = _insert_evidences_edges(
-                    cur,
-                    moment_ids=cluster.member_moment_ids,
-                    thread_id=thread_id,
-                )
-
-    # 4. P4 LLM (outside DB transaction).
+    # 3. Resolve the thread snapshot before any write. For new threads,
+    # preallocate the UUID so P4 can reference the same id that will be
+    # inserted in the transaction below.
     if naming is not None:
+        thread_id = str(uuid4())
         thread_snapshot = ThreadSnapshot.from_naming(
-            thread_id=outcome.thread_id, naming=naming  # type: ignore[arg-type]
+            thread_id=thread_id,
+            naming=naming,
         )
     else:
-        thread_snapshot = fetch_thread_snapshot(
-            db_pool, thread_id=outcome.thread_id  # type: ignore[arg-type]
+        thread_id = match.existing_thread_id  # type: ignore[assignment]
+        outcome.matched_existing = True
+        log.info(
+            "thread_detector.linking_to_existing_thread",
+            thread_id=thread_id,
+            distance=match.existing_thread_distance,
         )
+        thread_snapshot = fetch_thread_snapshot(
+            db_pool,
+            thread_id=thread_id,
+        )
+    outcome.thread_id = thread_id
+    outcome.thread_was_created = naming is not None
 
+    # 4. P4 LLM runs before DB writes so all DB mutations below commit together.
     p4_result = propose_thread_deepen_questions(
         cfg=p4_cfg,
         settings=settings,
@@ -199,17 +186,36 @@ def process_cluster(
         member_moments=member_moments,
     )
 
-    # 5. Transaction B — questions + motivated_by edges.
+    # 5. Single transaction — thread/evidences/questions/edges.
     question_ids: list[str] = []
     with db_pool.connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
+                if naming is not None:
+                    _insert_thread(
+                        cur,
+                        thread_id=thread_id,
+                        person_id=person_id,
+                        naming=naming,
+                        confidence=cluster.confidence,
+                        llm_provider=naming_cfg.provider,
+                        llm_model=naming_cfg.model,
+                        prompt_version=THREAD_NAMING_PROMPT_VERSION,
+                    )
+                outcome.new_evidences_edge_count = _insert_evidences_edges(
+                    cur,
+                    moment_ids=cluster.member_moment_ids,
+                    thread_id=thread_id,
+                )
                 for q in p4_result.questions:
                     qid = _insert_thread_deepen_question(
                         cur,
                         person_id=person_id,
                         text=q.text,
                         themes=list(q.themes),
+                        llm_provider=p4_cfg.provider,
+                        llm_model=p4_cfg.model,
+                        prompt_version=P4_PROMPT_VERSION,
                     )
                     question_ids.append(qid)
                     _insert_validated_edge(
@@ -222,7 +228,7 @@ def process_cluster(
                     )
     outcome.questions_inserted = question_ids
 
-    # 6. Post-commit — embedding + artifact pushes.
+    # 5. Post-commit — embedding + artifact pushes.
     if outcome.thread_was_created and naming is not None:
         embedding_job_pusher(
             record_type="thread",
@@ -260,28 +266,34 @@ def process_cluster(
 def _insert_thread(
     cur,
     *,
+    thread_id: str,
     person_id: str,
     naming: NamingResult,
     confidence: float,
-) -> str:
+    llm_provider: str,
+    llm_model: str,
+    prompt_version: str,
+) -> None:
     cur.execute(
         """
         INSERT INTO threads
-              (person_id, name, description, source, confidence,
-               generation_prompt)
-        VALUES (%s,        %s,   %s,          'auto-detected', %s,
-                %s)
-        RETURNING id::text
+              (id, person_id, name, description, source, confidence,
+               generation_prompt, llm_provider, llm_model, prompt_version)
+        VALUES (%s, %s,        %s,   %s,          'auto-detected', %s,
+                %s,                %s,           %s,        %s)
         """,
         (
+            thread_id,
             person_id,
             naming.name,
             naming.description,
             confidence,
             naming.generation_prompt,
+            llm_provider,
+            llm_model,
+            prompt_version,
         ),
     )
-    return cur.fetchone()[0]
 
 
 def _insert_evidences_edges(
@@ -321,15 +333,27 @@ def _insert_thread_deepen_question(
     person_id: str,
     text: str,
     themes: list[str],
+    llm_provider: str,
+    llm_model: str,
+    prompt_version: str,
 ) -> str:
     cur.execute(
         """
         INSERT INTO questions
-              (person_id, text, source, attributes)
-        VALUES (%s,        %s,   'thread_deepen', %s)
+              (person_id, text, source, attributes,
+               llm_provider, llm_model, prompt_version)
+        VALUES (%s,        %s,   'thread_deepen', %s,
+                %s,           %s,        %s)
         RETURNING id::text
         """,
-        (person_id, text, Json({"themes": themes})),
+        (
+            person_id,
+            text,
+            Json({"themes": themes}),
+            llm_provider,
+            llm_model,
+            prompt_version,
+        ),
     )
     return cur.fetchone()[0]
 

@@ -19,11 +19,13 @@ from typing import Iterable
 import structlog
 
 from flashback.llm.interface import call_with_tool
+from flashback.llm.prompt_safety import xml_text
 
 from .prompts import NAMING_SYSTEM_PROMPT, NAMING_TOOL
 from .schema import ClusterableMoment, NamingResult
 
 log = structlog.get_logger("flashback.workers.thread_detector.naming_llm")
+THREAD_NAMING_PROMPT_VERSION = "thread_naming.v1"
 
 
 @dataclass
@@ -72,14 +74,14 @@ def _build_user_message(
     member_moments: Iterable[ClusterableMoment],
 ) -> str:
     lines: list[str] = [
-        f"<subject>{person_name}</subject>",
+        f"<subject>{xml_text(person_name)}</subject>",
         "",
         "<cluster>",
     ]
     for m in member_moments:
         lines.append(f"<moment id='{m.id}'>")
-        lines.append(f"title: {m.title}")
-        lines.append(f"narrative: {m.narrative}")
+        lines.append(f"title: {xml_text(m.title)}")
+        lines.append(f"narrative: {xml_text(m.narrative)}")
         lines.append("</moment>")
     lines.append("</cluster>")
     return "\n".join(lines)

@@ -17,11 +17,13 @@ from typing import Iterable
 import structlog
 
 from flashback.llm.interface import call_with_tool
+from flashback.llm.prompt_safety import xml_text
 
 from .prompts import P4_SYSTEM_PROMPT, P4_TOOL
 from .schema import ClusterableMoment, P4Result, ThreadSnapshot
 
 log = structlog.get_logger("flashback.workers.thread_detector.p4_llm")
+P4_PROMPT_VERSION = "thread_p4.v1"
 
 
 @dataclass
@@ -74,19 +76,19 @@ def _build_user_message(
     member_moments: Iterable[ClusterableMoment],
 ) -> str:
     lines: list[str] = [
-        f"<subject>{person_name}</subject>",
+        f"<subject>{xml_text(person_name)}</subject>",
         "",
         "<thread>",
-        f"name: {thread.name}",
-        f"description: {thread.description}",
+        f"name: {xml_text(thread.name)}",
+        f"description: {xml_text(thread.description)}",
         "</thread>",
         "",
         "<member_moments>",
     ]
     for m in member_moments:
         lines.append(f"<moment id='{m.id}'>")
-        lines.append(f"title: {m.title}")
-        lines.append(f"narrative: {m.narrative}")
+        lines.append(f"title: {xml_text(m.title)}")
+        lines.append(f"narrative: {xml_text(m.narrative)}")
         lines.append("</moment>")
     lines.append("</member_moments>")
     return "\n".join(lines)

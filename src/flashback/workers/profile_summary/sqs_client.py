@@ -26,9 +26,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from pydantic import ValidationError
+
 from flashback.queues.boto import make_sqs_client
 
 from .schema import ProfileSummaryMessage
+
+log = structlog.get_logger("flashback.workers.profile_summary.sqs_client")
 
 
 @dataclass(frozen=True)
@@ -88,7 +93,16 @@ class ProfileSummarySQSClient:
         out: list[ReceivedProfileSummaryMessage] = []
         for msg in resp.get("Messages", []) or []:
             body = msg["Body"]
-            payload = ProfileSummaryMessage.model_validate_json(body)
+            try:
+                payload = ProfileSummaryMessage.model_validate_json(body)
+            except ValidationError as exc:
+                log.error(
+                    "profile_summary.malformed_message_acking",
+                    message_id=msg.get("MessageId"),
+                    error=str(exc),
+                )
+                self.delete(msg["ReceiptHandle"])
+                continue
             out.append(
                 ReceivedProfileSummaryMessage(
                     message_id=msg["MessageId"],

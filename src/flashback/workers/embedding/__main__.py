@@ -15,12 +15,12 @@ the backfill stamps onto every enqueued job is read from
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 
 from flashback.config import Config
 from flashback.db.connection import make_pool
 from flashback.db.embedding_targets import EMBEDDING_TARGETS
+from flashback.http.logging import configure_logging
 
 from .backfill import backfill
 from .sqs_client import SQSClient
@@ -29,10 +29,7 @@ from .worker import run_forever
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
 
 
 def _build_parser() -> argparse.ArgumentParser:

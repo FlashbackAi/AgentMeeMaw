@@ -23,6 +23,7 @@ from .prompts import PROFILE_FACTS_TOOL, SYSTEM_PROMPT
 from .schema import ExtractedFact
 
 log = structlog.get_logger("flashback.profile_facts.extraction")
+PROFILE_FACTS_PROMPT_VERSION = "profile_facts.v1"
 
 
 # Per-session ceiling. The LLM tool schema also caps at 5; this is the
@@ -36,6 +37,7 @@ class FactExtractionConfig:
     model: str
     timeout: float
     max_tokens: int
+    max_facts_per_run: int = MAX_FACTS_PER_RUN
 
 
 def extract_facts(
@@ -70,7 +72,7 @@ def extract_facts(
         )
 
     extracted: list[ExtractedFact] = []
-    for item in facts_raw[:MAX_FACTS_PER_RUN]:
+    for item in facts_raw[: cfg.max_facts_per_run]:
         try:
             extracted.append(ExtractedFact.model_validate(item))
         except ValidationError as exc:

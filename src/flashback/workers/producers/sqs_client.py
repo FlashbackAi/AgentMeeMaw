@@ -6,9 +6,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from pydantic import ValidationError
+
 from flashback.queues.boto import make_sqs_client
 
 from .schema import ProducerMessage
+
+log = structlog.get_logger("flashback.workers.producers.sqs_client")
 
 
 @dataclass(frozen=True)
@@ -63,7 +68,16 @@ class ProducerSQSClient:
         out: list[ReceivedProducerMessage] = []
         for msg in resp.get("Messages", []) or []:
             body = msg["Body"]
-            payload = ProducerMessage.model_validate_json(body)
+            try:
+                payload = ProducerMessage.model_validate_json(body)
+            except ValidationError as exc:
+                log.error(
+                    "producer.malformed_message_acking",
+                    message_id=msg.get("MessageId"),
+                    error=str(exc),
+                )
+                self.delete(msg["ReceiptHandle"])
+                continue
             out.append(
                 ReceivedProducerMessage(
                     message_id=msg["MessageId"],

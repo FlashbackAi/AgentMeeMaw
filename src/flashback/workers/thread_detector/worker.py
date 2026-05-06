@@ -26,11 +26,12 @@ Failures BEFORE step 6 do not ack → SQS visibility timeout will redrive.
 
 from __future__ import annotations
 
-import logging
 import signal
 from dataclasses import dataclass
 
 import structlog
+
+from flashback.http.logging import configure_logging
 
 from .clustering import count_outliers, run_hdbscan
 from .naming_llm import NamingLLMConfig
@@ -68,6 +69,7 @@ class ThreadDetectorWorker:
     min_cluster_size: int = 3
     existing_match_distance: float = 0.4
     sqs_wait_seconds: int = 20
+    thread_detector_cadence: int = 15
 
     def run_forever(self, stop: "_StopSignal | None" = None) -> None:
         stop = stop or _StopSignal()
@@ -112,7 +114,11 @@ class ThreadDetectorWorker:
 
     def _run_for_person(self, *, person_id: str) -> list[ClusterOutcome]:
         # 1. Re-validate trigger (idempotency).
-        state = trigger_state(self.db_pool, person_id=person_id)
+        state = trigger_state(
+            self.db_pool,
+            person_id=person_id,
+            cadence=self.thread_detector_cadence,
+        )
         if not state.valid:
             log.info(
                 "thread_detector.trigger_stale",
@@ -256,7 +262,4 @@ class _StopSignal:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()

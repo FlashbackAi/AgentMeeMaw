@@ -99,6 +99,13 @@ class MomentCoverageSignal:
     has_era: bool
 
 
+@dataclass(frozen=True)
+class LLMProvenance:
+    provider: str
+    model: str
+    prompt_version: str
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -111,6 +118,7 @@ def persist_extraction(
     extraction: ExtractionResult,
     moment_decisions: list[MomentDecision],
     seeded_question_id: str | None,
+    llm_provenance: LLMProvenance | None = None,
 ) -> PersistenceResult:
     """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK."""
 
@@ -124,10 +132,16 @@ def persist_extraction(
     )
 
     entity_ids = _insert_entities(
-        cursor, person_id=person.id, entities=surviving_entities
+        cursor,
+        person_id=person.id,
+        entities=surviving_entities,
+        llm_provenance=llm_provenance,
     )
     trait_ids = _insert_traits(
-        cursor, person_id=person.id, traits=extraction.traits
+        cursor,
+        person_id=person.id,
+        traits=extraction.traits,
+        llm_provenance=llm_provenance,
     )
 
     # Map original-index -> UUID, accounting for entities that were dropped
@@ -145,7 +159,10 @@ def persist_extraction(
 
     for decision in moment_decisions:
         moment_id = _insert_moment(
-            cursor, person_id=person.id, moment=decision.moment
+            cursor,
+            person_id=person.id,
+            moment=decision.moment,
+            llm_provenance=llm_provenance,
         )
         moment_ids.append(moment_id)
 
@@ -191,6 +208,7 @@ def persist_extraction(
         cursor,
         person_id=person.id,
         dropped_references=extraction.dropped_references,
+        llm_provenance=llm_provenance,
     )
 
     if seeded_question_id is not None and moment_ids:
@@ -279,7 +297,11 @@ def _build_entity_index_map(
 
 
 def _insert_entities(
-    cursor, *, person_id: str, entities: list[ExtractedEntity]
+    cursor,
+    *,
+    person_id: str,
+    entities: list[ExtractedEntity],
+    llm_provenance: LLMProvenance | None,
 ) -> list[str]:
     ids: list[str] = []
     for e in entities:
@@ -287,9 +309,11 @@ def _insert_entities(
             """
             INSERT INTO entities
                   (person_id, kind, name, description, aliases,
-                   attributes, generation_prompt)
+                   attributes, generation_prompt,
+                   llm_provider, llm_model, prompt_version)
             VALUES (%s,        %s,   %s,   %s,          %s,
-                    %s,         %s)
+                    %s,         %s,
+                    %s,           %s,        %s)
             RETURNING id::text
             """,
             (
@@ -300,29 +324,52 @@ def _insert_entities(
                 list(e.aliases),
                 Json(e.attributes or {}),
                 e.generation_prompt,
+                llm_provenance.provider if llm_provenance else None,
+                llm_provenance.model if llm_provenance else None,
+                llm_provenance.prompt_version if llm_provenance else None,
             ),
         )
         ids.append(cursor.fetchone()[0])
     return ids
 
 
-def _insert_traits(cursor, *, person_id: str, traits) -> list[str]:
+def _insert_traits(
+    cursor,
+    *,
+    person_id: str,
+    traits,
+    llm_provenance: LLMProvenance | None,
+) -> list[str]:
     ids: list[str] = []
     for t in traits:
         cursor.execute(
             """
-            INSERT INTO traits (person_id, name, description, strength)
-            VALUES             (%s,        %s,   %s,          'mentioned_once')
+            INSERT INTO traits
+                  (person_id, name, description, strength,
+                   llm_provider, llm_model, prompt_version)
+            VALUES (%s,        %s,   %s,          'mentioned_once',
+                    %s,           %s,        %s)
             RETURNING id::text
             """,
-            (person_id, t.name, t.description),
+            (
+                person_id,
+                t.name,
+                t.description,
+                llm_provenance.provider if llm_provenance else None,
+                llm_provenance.model if llm_provenance else None,
+                llm_provenance.prompt_version if llm_provenance else None,
+            ),
         )
         ids.append(cursor.fetchone()[0])
     return ids
 
 
 def _insert_moment(
-    cursor, *, person_id: str, moment: ExtractedMoment
+    cursor,
+    *,
+    person_id: str,
+    moment: ExtractedMoment,
+    llm_provenance: LLMProvenance | None,
 ) -> str:
     time_anchor_payload: Any = None
     if moment.time_anchor is not None:
@@ -334,10 +381,12 @@ def _insert_moment(
         INSERT INTO moments
               (person_id, title, narrative, time_anchor,
                life_period_estimate, sensory_details, emotional_tone,
-               contributor_perspective, generation_prompt)
+               contributor_perspective, generation_prompt,
+               llm_provider, llm_model, prompt_version)
         VALUES (%s,        %s,    %s,        %s,
                 %s,                  %s,              %s,
-                %s,                       %s)
+                %s,                       %s,
+                %s,           %s,        %s)
         RETURNING id::text
         """,
         (
@@ -350,13 +399,20 @@ def _insert_moment(
             moment.emotional_tone,
             moment.contributor_perspective,
             moment.generation_prompt,
+            llm_provenance.provider if llm_provenance else None,
+            llm_provenance.model if llm_provenance else None,
+            llm_provenance.prompt_version if llm_provenance else None,
         ),
     )
     return cursor.fetchone()[0]
 
 
 def _insert_dropped_reference_questions(
-    cursor, *, person_id: str, dropped_references
+    cursor,
+    *,
+    person_id: str,
+    dropped_references,
+    llm_provenance: LLMProvenance | None,
 ) -> list[str]:
     ids: list[str] = []
     for dr in dropped_references:
@@ -367,11 +423,20 @@ def _insert_dropped_reference_questions(
         cursor.execute(
             """
             INSERT INTO questions
-                  (person_id, text, source, attributes)
-            VALUES (%s,        %s,   'dropped_reference', %s)
+                  (person_id, text, source, attributes,
+                   llm_provider, llm_model, prompt_version)
+            VALUES (%s,        %s,   'dropped_reference', %s,
+                    %s,           %s,        %s)
             RETURNING id::text
             """,
-            (person_id, dr.question_text, Json(attrs)),
+            (
+                person_id,
+                dr.question_text,
+                Json(attrs),
+                llm_provenance.provider if llm_provenance else None,
+                llm_provenance.model if llm_provenance else None,
+                llm_provenance.prompt_version if llm_provenance else None,
+            ),
         )
         ids.append(cursor.fetchone()[0])
     return ids
@@ -531,6 +596,7 @@ def _supersede_moment(
            SET status = 'superseded',
                superseded_by = %s
          WHERE id = %s
+           AND status = 'active'
         """,
         (new_moment_id, old_moment_id),
     )

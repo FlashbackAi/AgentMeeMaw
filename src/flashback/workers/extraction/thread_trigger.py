@@ -38,7 +38,7 @@ class ThreadTriggerStatus:
 
 
 def check_thread_detector_trigger(
-    db_pool, *, person_id: str
+    db_pool, *, person_id: str, cadence: int = 15
 ) -> ThreadTriggerStatus:
     """Read post-commit moment counts and report whether the trigger fires.
 
@@ -47,7 +47,7 @@ def check_thread_detector_trigger(
     legacy entry-point so analysis paths can observe the same state
     without producing an SQS side-effect.
     """
-    return _check(db_pool, person_id=person_id)
+    return _check(db_pool, person_id=person_id, cadence=cadence)
 
 
 def check_and_push_thread_detector_trigger(
@@ -55,6 +55,7 @@ def check_and_push_thread_detector_trigger(
     *,
     person_id: str,
     sender: ThreadDetectorJobSender,
+    cadence: int = 15,
 ) -> ThreadTriggerStatus:
     """Read counts; if the trigger fires, push to the thread_detector queue.
 
@@ -62,7 +63,7 @@ def check_and_push_thread_detector_trigger(
     whether an SQS send happened. The caller owns ack-ing the *extraction*
     message; this function does not touch SQS visibility on that side.
     """
-    status = _check(db_pool, person_id=person_id)
+    status = _check(db_pool, person_id=person_id, cadence=cadence)
     if not status.would_trigger:
         return status
 
@@ -89,7 +90,7 @@ def check_and_push_thread_detector_trigger(
     )
 
 
-def _check(db_pool, *, person_id: str) -> ThreadTriggerStatus:
+def _check(db_pool, *, person_id: str, cadence: int = 15) -> ThreadTriggerStatus:
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -109,7 +110,7 @@ def _check(db_pool, *, person_id: str) -> ThreadTriggerStatus:
 
     active_count, last_count = int(row[0]), int(row[1])
     delta = active_count - last_count
-    would_trigger = active_count >= 15 and delta >= 15
+    would_trigger = active_count >= cadence and delta >= cadence
     if would_trigger:
         log.info(
             "would_trigger_thread_detector",

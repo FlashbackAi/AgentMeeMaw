@@ -32,20 +32,21 @@ Invariants honoured (CLAUDE.md s4):
 
 from __future__ import annotations
 
-import logging
 import signal
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Protocol
 
 from psycopg import errors as psycopg_errors
+import structlog
 
 from flashback.db.embedding_targets import EMBEDDING_TARGETS, get_target
 
 from .sqs_client import EmbeddingMessage, SQSClient
 from .voyage_client import VoyageClient, VoyageError
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger("flashback.workers.embedding")
 
 
 class _PoolLike(Protocol):
@@ -130,37 +131,30 @@ def _apply_update(
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 row = cur.fetchone()
-                conn.commit()
     except psycopg_errors.Error as exc:
         log.error(
             "embedding.update_failed",
-            extra={
-                "record_type": msg.record_type,
-                "record_id": msg.record_id,
-                "error": str(exc),
-            },
+            record_type=msg.record_type,
+            record_id=msg.record_id,
+            error=str(exc),
         )
         return _DB_ERROR
 
     if row is None:
         log.info(
             "embedding.update_skipped",
-            extra={
-                "record_type": msg.record_type,
-                "record_id": msg.record_id,
-                "reason": "guard_skipped",
-            },
+            record_type=msg.record_type,
+            record_id=msg.record_id,
+            reason="guard_skipped",
         )
         return _GUARD_SKIPPED
 
     log.info(
         "embedding.row_updated",
-        extra={
-            "record_type": msg.record_type,
-            "record_id": msg.record_id,
-            "model": msg.embedding_model,
-            "version": msg.embedding_model_version,
-        },
+        record_type=msg.record_type,
+        record_id=msg.record_id,
+        model=msg.embedding_model,
+        version=msg.embedding_model_version,
     )
     return _ROW_UPDATED
 
@@ -171,6 +165,7 @@ def process_batch(
     pool: _PoolLike,
     voyage: VoyageClient,
     sqs: SQSClient,
+    transient_failure_backoff_seconds: float = 0.0,
 ) -> None:
     """
     Process one SQS receive's worth of messages.
@@ -184,7 +179,8 @@ def process_batch(
     for unknown in (m for m in messages if m.record_type not in EMBEDDING_TARGETS):
         log.error(
             "embedding.unknown_record_type",
-            extra={"record_type": unknown.record_type, "record_id": unknown.record_id},
+            record_type=unknown.record_type,
+            record_id=unknown.record_id,
         )
         sqs.delete(unknown.receipt_handle)
     messages = [m for m in messages if m.record_type in EMBEDDING_TARGETS]
@@ -199,8 +195,12 @@ def process_batch(
         except VoyageError as exc:
             log.error(
                 "embedding.voyage_failed",
-                extra={"model": model, "batch_size": len(group), "error": str(exc)},
+                model=model,
+                batch_size=len(group),
+                error=str(exc),
             )
+            if transient_failure_backoff_seconds > 0:
+                time.sleep(transient_failure_backoff_seconds)
             continue
 
         for msg, vector in zip(group, vectors, strict=True):
@@ -234,6 +234,7 @@ def run_forever(
     sqs: SQSClient,
     max_messages: int = 10,
     wait_seconds: int = 20,
+    transient_failure_backoff_seconds: float = 5.0,
     stop: _StopSignal | None = None,
 ) -> None:
     """
@@ -247,7 +248,8 @@ def run_forever(
 
     log.info(
         "embedding.worker_started",
-        extra={"max_messages": max_messages, "wait_seconds": wait_seconds},
+        max_messages=max_messages,
+        wait_seconds=wait_seconds,
     )
     while not stop.requested:
         messages = sqs.receive(
@@ -255,5 +257,11 @@ def run_forever(
         )
         if not messages:
             continue
-        process_batch(messages, pool=pool, voyage=voyage, sqs=sqs)
+        process_batch(
+            messages,
+            pool=pool,
+            voyage=voyage,
+            sqs=sqs,
+            transient_failure_backoff_seconds=transient_failure_backoff_seconds,
+        )
     log.info("embedding.worker_stopped")

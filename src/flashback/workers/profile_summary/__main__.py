@@ -67,6 +67,7 @@ def _build_fact_extraction_cfg(cfg: ProfileSummaryConfig) -> FactExtractionConfi
         model=cfg.llm_profile_facts_model,
         timeout=cfg.llm_profile_facts_timeout_seconds,
         max_tokens=cfg.llm_profile_facts_max_tokens,
+        max_facts_per_run=cfg.profile_facts_max_per_run,
     )
 
 

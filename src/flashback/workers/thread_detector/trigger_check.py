@@ -28,7 +28,9 @@ class TriggerState:
     valid: bool
 
 
-def trigger_state(db_pool, *, person_id: str) -> TriggerState:
+def trigger_state(
+    db_pool, *, person_id: str, cadence: int = 15
+) -> TriggerState:
     """Read current counts and report whether the trigger is still valid."""
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -50,7 +52,7 @@ def trigger_state(db_pool, *, person_id: str) -> TriggerState:
 
     active_count, last_count = int(row[0]), int(row[1])
     delta = active_count - last_count
-    valid = active_count >= 15 and delta >= 15
+    valid = active_count >= cadence and delta >= cadence
     return TriggerState(
         active_count=active_count,
         last_count=last_count,
@@ -84,7 +86,6 @@ def update_moments_at_last_thread_run(db_pool, *, person_id: str) -> int:
                 {"pid": person_id},
             )
             row = cur.fetchone()
-            conn.commit()
     if row is None:
         log.warning(
             "thread_detector.update_last_run_no_person", person_id=person_id

@@ -26,9 +26,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from pydantic import ValidationError
+
 from flashback.queues.boto import make_sqs_client
 
 from .schema import ExtractionMessage
+
+log = structlog.get_logger("flashback.workers.extraction.sqs_client")
 
 
 @dataclass(frozen=True)
@@ -62,7 +67,16 @@ class ExtractionSQSClient:
         out: list[ReceivedMessage] = []
         for msg in resp.get("Messages", []) or []:
             body = msg["Body"]
-            payload = ExtractionMessage.model_validate_json(body)
+            try:
+                payload = ExtractionMessage.model_validate_json(body)
+            except ValidationError as exc:
+                log.error(
+                    "extraction.malformed_message_acking",
+                    message_id=msg.get("MessageId"),
+                    error=str(exc),
+                )
+                self.delete(msg["ReceiptHandle"])
+                continue
             out.append(
                 ReceivedMessage(
                     message_id=msg["MessageId"],
@@ -77,6 +91,13 @@ class ExtractionSQSClient:
         self._get_client().delete_message(
             QueueUrl=self.queue_url,
             ReceiptHandle=receipt_handle,
+        )
+
+    def change_visibility(self, receipt_handle: str, *, timeout_seconds: int) -> None:
+        self._get_client().change_message_visibility(
+            QueueUrl=self.queue_url,
+            ReceiptHandle=receipt_handle,
+            VisibilityTimeout=timeout_seconds,
         )
 
 

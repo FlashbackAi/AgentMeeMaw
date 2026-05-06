@@ -37,6 +37,7 @@ import structlog
 from flashback.llm.errors import LLMError
 from flashback.profile_facts.extraction import (
     FactExtractionConfig,
+    PROFILE_FACTS_PROMPT_VERSION,
     extract_facts,
 )
 from flashback.profile_facts.repository import upsert_fact
@@ -218,6 +219,14 @@ def run_once(
                                 push_embedding=embedding_sender,
                                 embedding_model=embedding_model,
                                 embedding_model_version=embedding_model_version,
+                                max_active_facts_per_person=getattr(
+                                    settings,
+                                    "profile_facts_max_active_per_person",
+                                    25,
+                                ),
+                                llm_provider=fact_extraction_cfg.provider,
+                                llm_model=fact_extraction_cfg.model,
+                                prompt_version=PROFILE_FACTS_PROMPT_VERSION,
                             )
             except Exception as exc:  # noqa: BLE001
                 log.warning(

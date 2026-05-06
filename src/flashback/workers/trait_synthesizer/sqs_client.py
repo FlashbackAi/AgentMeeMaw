@@ -26,9 +26,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from pydantic import ValidationError
+
 from flashback.queues.boto import make_sqs_client
 
 from .schema import TraitSynthMessage
+
+log = structlog.get_logger("flashback.workers.trait_synthesizer.sqs_client")
 
 
 @dataclass(frozen=True)
@@ -88,7 +93,16 @@ class TraitSynthesizerSQSClient:
         out: list[ReceivedTraitSynthMessage] = []
         for msg in resp.get("Messages", []) or []:
             body = msg["Body"]
-            payload = TraitSynthMessage.model_validate_json(body)
+            try:
+                payload = TraitSynthMessage.model_validate_json(body)
+            except ValidationError as exc:
+                log.error(
+                    "trait_synthesizer.malformed_message_acking",
+                    message_id=msg.get("MessageId"),
+                    error=str(exc),
+                )
+                self.delete(msg["ReceiptHandle"])
+                continue
             out.append(
                 ReceivedTraitSynthMessage(
                     message_id=msg["MessageId"],

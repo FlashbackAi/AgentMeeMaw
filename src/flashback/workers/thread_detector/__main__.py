@@ -80,6 +80,7 @@ def _cmd_run(cfg: ThreadDetectorConfig) -> int:
         embedding_model_version=cfg.embedding_model_version,
         min_cluster_size=cfg.thread_detector_min_cluster_size,
         existing_match_distance=cfg.thread_detector_existing_match_distance,
+        thread_detector_cadence=cfg.thread_detector_cadence,
         sqs_wait_seconds=cfg.sqs_wait_seconds,
     )
     try:

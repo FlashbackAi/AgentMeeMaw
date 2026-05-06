@@ -35,6 +35,8 @@ class ProfileSummaryMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     person_id: UUID
+    session_id: UUID | None = None
+    idempotency_key: str | None = None
 
 
 # ---------------------------------------------------------------------------

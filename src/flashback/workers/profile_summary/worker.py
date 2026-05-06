@@ -28,12 +28,13 @@ are both subclasses of ``LLMError``. We catch ``LLMTimeout`` first
 
 from __future__ import annotations
 
-import logging
 import signal
+import time
 from dataclasses import dataclass
 
 import structlog
 
+from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
 from flashback.profile_facts.extraction import FactExtractionConfig
 
@@ -70,6 +71,7 @@ class ProfileSummaryWorker:
     embedding_sender: object = None
     embedding_model: str | None = None
     embedding_model_version: str | None = None
+    transient_failure_backoff_seconds: float = 5.0
 
     def run_forever(self, stop: "_StopSignal | None" = None) -> None:
         stop = stop or _StopSignal()
@@ -92,13 +94,14 @@ class ProfileSummaryWorker:
     ) -> RunResult | None:
         """Drain one message. Returns the run result for tests."""
         person_id = str(msg.payload.person_id)
+        idempotency_key = msg.payload.idempotency_key or msg.message_id
         try:
             result = run_once(
                 db_pool=self.db_pool,
                 summary_cfg=self.summary_cfg,
                 settings=self.settings,
                 person_id=person_id,
-                idempotency_key=msg.message_id,
+                idempotency_key=idempotency_key,
                 top_traits_max=self.top_traits_max,
                 top_threads_max=self.top_threads_max,
                 top_entities_max=self.top_entities_max,
@@ -114,6 +117,7 @@ class ProfileSummaryWorker:
                 person_id=person_id,
                 error=str(exc),
             )
+            time.sleep(self.transient_failure_backoff_seconds)
             return None  # don't ack; SQS redrives
         except LLMError as exc:
             # Permanent for this run — fail-soft and ack so we don't
@@ -169,7 +173,4 @@ class _StopSignal:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()

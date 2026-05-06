@@ -26,9 +26,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from pydantic import ValidationError
+
 from flashback.queues.boto import make_sqs_client
 
 from .schema import ThreadDetectorMessage
+
+log = structlog.get_logger("flashback.workers.thread_detector.sqs_client")
 
 
 @dataclass(frozen=True)
@@ -98,7 +103,16 @@ class ThreadDetectorSQSClient:
         out: list[ReceivedThreadDetectorMessage] = []
         for msg in resp.get("Messages", []) or []:
             body = msg["Body"]
-            payload = ThreadDetectorMessage.model_validate_json(body)
+            try:
+                payload = ThreadDetectorMessage.model_validate_json(body)
+            except ValidationError as exc:
+                log.error(
+                    "thread_detector.malformed_message_acking",
+                    message_id=msg.get("MessageId"),
+                    error=str(exc),
+                )
+                self.delete(msg["ReceiptHandle"])
+                continue
             out.append(
                 ReceivedThreadDetectorMessage(
                     message_id=msg["MessageId"],

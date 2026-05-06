@@ -33,29 +33,39 @@ Invariants honoured (CLAUDE.md §4):
 
 from __future__ import annotations
 
-import logging
 import signal
+import threading
+import time
 from dataclasses import dataclass
 
 import structlog
 from pydantic import ValidationError
 
 from flashback.db.edges import EdgeValidationError
-from flashback.llm.errors import LLMError
+from flashback.http.logging import configure_logging
+from flashback.llm.errors import LLMError, LLMTimeout
 
 from .compatibility_llm import (
     CompatibilityLLMConfig,
     judge_compatibility,
 )
-from .extraction_llm import ExtractionLLMConfig, run_extraction
+from .extraction_llm import (
+    EXTRACTION_PROMPT_VERSION,
+    ExtractionLLMConfig,
+    run_extraction,
+)
 from .idempotency import is_processed, mark_processed
 from .persistence import (
+    LLMProvenance,
     MomentDecision,
-    PersistenceResult,
     fetch_person,
     persist_extraction,
 )
-from .post_commit import push_artifact_jobs, push_embedding_jobs
+from .outbox import (
+    drain_extraction_outbox,
+    enqueue_extraction_fanout,
+    enqueue_thread_detector_trigger_if_due,
+)
 from .refinement import collect_entity_names_for_moment, find_refinement_candidates
 from .schema import ExtractionMessage, ExtractionResult
 from .sqs_client import (
@@ -64,7 +74,6 @@ from .sqs_client import (
     ExtractionSQSClient,
     ReceivedMessage,
 )
-from .thread_trigger import check_and_push_thread_detector_trigger
 from .voyage_query import SyncVoyageQueryEmbedder
 from .coverage import run_coverage_tracker
 from .handover import run_handover_check
@@ -100,12 +109,18 @@ class ExtractionWorker:
     refinement_distance_threshold: float = 0.35
     refinement_candidate_limit: int = 3
     sqs_wait_seconds: int = 20
+    visibility_timeout_seconds: int = 120
+    visibility_heartbeat_interval_seconds: int = 45
+    transient_failure_backoff_seconds: float = 5.0
+    outbox_drain_limit: int = 100
+    thread_detector_cadence: int = 15
 
     def run_forever(self, stop: "_StopSignal | None" = None) -> None:
         stop = stop or _StopSignal()
         stop.install()
         log.info("extraction.worker_started")
         while not stop.requested:
+            self._drain_outbox()
             messages = self.sqs.receive(wait_seconds=self.sqs_wait_seconds)
             if not messages:
                 continue
@@ -136,13 +151,28 @@ class ExtractionWorker:
                 "extraction.skipped_already_processed",
                 message_id=msg.message_id,
             )
+            self._drain_outbox(source_sqs_message_id=msg.message_id)
             self.sqs.delete(msg.receipt_handle)
             return
 
         try:
-            persistence_result, extraction = self._extract_and_persist(
-                payload=msg.payload, message_id=msg.message_id
+            with _VisibilityExtender(
+                self.sqs,
+                msg.receipt_handle,
+                timeout_seconds=self.visibility_timeout_seconds,
+                interval_seconds=self.visibility_heartbeat_interval_seconds,
+            ):
+                self._extract_and_persist(
+                    payload=msg.payload, message_id=msg.message_id
+                )
+        except LLMTimeout as exc:
+            log.warning(
+                "extraction.transient_llm_timeout_no_ack",
+                message_id=msg.message_id,
+                error=str(exc),
             )
+            time.sleep(self.transient_failure_backoff_seconds)
+            return
         except (LLMError, ValidationError, EdgeValidationError, Exception) as exc:  # noqa: BLE001
             log.error(
                 "extraction.failed",
@@ -154,52 +184,7 @@ class ExtractionWorker:
 
         # Post-commit fan-out — failures here are recoverable separately;
         # we still ack the message because the graph state is correct.
-        try:
-            push_embedding_jobs(
-                sender=self.embedding_sender,
-                extraction=extraction,
-                moment_ids=persistence_result.moment_ids,
-                surviving_entities=persistence_result.surviving_entities,
-                entity_ids=persistence_result.entity_ids,
-                trait_ids=persistence_result.trait_ids,
-                question_ids=persistence_result.question_ids,
-                embedding_model=self.embedding_model,
-                embedding_model_version=self.embedding_model_version,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "extraction.embedding_push_failed",
-                message_id=msg.message_id,
-                error=str(exc),
-            )
-
-        try:
-            push_artifact_jobs(
-                sender=self.artifact_sender,
-                person_id=str(msg.payload.person_id),
-                moments=extraction.moments,
-                moment_ids=persistence_result.moment_ids,
-                surviving_entities=persistence_result.surviving_entities,
-                entity_ids=persistence_result.entity_ids,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "extraction.artifact_push_failed",
-                message_id=msg.message_id,
-                error=str(exc),
-            )
-
-        try:
-            check_and_push_thread_detector_trigger(
-                self.db_pool,
-                person_id=str(msg.payload.person_id),
-                sender=self.thread_detector_sender,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "extraction.thread_trigger_push_failed",
-                error=str(exc),
-            )
+        self._drain_outbox(source_sqs_message_id=msg.message_id)
 
         self.sqs.delete(msg.receipt_handle)
 
@@ -214,7 +199,7 @@ class ExtractionWorker:
 
     def _extract_and_persist(
         self, *, payload: ExtractionMessage, message_id: str
-    ) -> tuple[PersistenceResult, ExtractionResult]:
+    ) -> None:
         """
         The heavy path. Returns the persistence result and the raw
         extraction result; the caller drives post-commit pushes off both.
@@ -253,6 +238,11 @@ class ExtractionWorker:
                             if payload.seeded_question_id is not None
                             else None
                         ),
+                        llm_provenance=LLMProvenance(
+                            provider=self.extraction_cfg.provider,
+                            model=self.extraction_cfg.model,
+                            prompt_version=EXTRACTION_PROMPT_VERSION,
+                        ),
                     )
                     run_coverage_tracker(
                         cur,
@@ -267,6 +257,23 @@ class ExtractionWorker:
                         session_id=str(payload.session_id),
                         moments_written=len(persistence_result.moment_ids),
                     )
+                    outbox_jobs = enqueue_extraction_fanout(
+                        cur,
+                        source_sqs_message_id=message_id,
+                        person_id=str(payload.person_id),
+                        extraction=extraction,
+                        persistence_result=persistence_result,
+                        embedding_model=self.embedding_model,
+                        embedding_model_version=self.embedding_model_version,
+                    )
+                    trigger_status = enqueue_thread_detector_trigger_if_due(
+                        cur,
+                        source_sqs_message_id=message_id,
+                        person_id=str(payload.person_id),
+                        cadence=self.thread_detector_cadence,
+                    )
+                    if trigger_status.would_trigger:
+                        outbox_jobs += 1
 
         log.info(
             "extraction.persisted",
@@ -279,8 +286,8 @@ class ExtractionWorker:
             superseded=len(persistence_result.superseded_moment_ids),
             merge_suggestions=len(persistence_result.merge_suggestion_ids),
             subject_guard_dropped=persistence_result.dropped_entities_count,
+            outbox_jobs=outbox_jobs,
         )
-        return persistence_result, extraction
 
     def _build_moment_decisions(
         self, *, extraction: ExtractionResult, person_id: str
@@ -316,6 +323,16 @@ class ExtractionWorker:
             decisions.append(decision)
         return decisions
 
+    def _drain_outbox(self, *, source_sqs_message_id: str | None = None) -> int:
+        return drain_extraction_outbox(
+            self.db_pool,
+            embedding_sender=self.embedding_sender,
+            artifact_sender=self.artifact_sender,
+            thread_detector_sender=self.thread_detector_sender,
+            source_sqs_message_id=source_sqs_message_id,
+            limit=self.outbox_drain_limit,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Stop-signal handler (mirrors the embedding worker)
@@ -338,8 +355,58 @@ class _StopSignal:
         self.requested = True
 
 
+class _VisibilityExtender:
+    """Best-effort SQS visibility heartbeat for long LLM work."""
+
+    def __init__(
+        self,
+        sqs: object,
+        receipt_handle: str,
+        *,
+        timeout_seconds: int,
+        interval_seconds: int,
+    ) -> None:
+        self._sqs = sqs
+        self._receipt_handle = receipt_handle
+        self._timeout_seconds = timeout_seconds
+        self._interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self):
+        if not hasattr(self._sqs, "change_visibility"):
+            return self
+        self._thread = threading.Thread(
+            target=self._run,
+            name="extraction-sqs-visibility-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc_info) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            try:
+                self._sqs.change_visibility(
+                    self._receipt_handle,
+                    timeout_seconds=self._timeout_seconds,
+                )
+                log.info(
+                    "extraction.visibility_extended",
+                    timeout_seconds=self._timeout_seconds,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "extraction.visibility_extend_failed",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+
+
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()

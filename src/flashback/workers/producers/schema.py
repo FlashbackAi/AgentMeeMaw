@@ -24,6 +24,8 @@ class ProducerMessage(BaseModel):
 
     person_id: UUID
     producer: ProducerTag
+    session_id: UUID | None = None
+    idempotency_key: str | None = None
 
 
 class GeneratedQuestion(BaseModel):
@@ -54,4 +56,3 @@ class ProducerLLMConfig:
     model: str
     timeout: float
     max_tokens: int
-

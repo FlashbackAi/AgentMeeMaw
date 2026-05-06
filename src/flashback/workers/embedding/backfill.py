@@ -25,15 +25,16 @@ Extraction Worker, Thread Detector, etc.) live in later steps.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Protocol
+
+import structlog
 
 from flashback.db.embedding_targets import EMBEDDING_TARGETS, EmbeddingTarget
 
 from .sqs_client import SQSClient
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger("flashback.workers.embedding.backfill")
 
 
 class _PoolLike(Protocol):
@@ -103,7 +104,8 @@ def backfill(
             if source_text is None or source_text == "":
                 log.warning(
                     "backfill.skipped_empty_source",
-                    extra={"record_type": record_type, "record_id": record_id},
+                    record_type=record_type,
+                    record_id=record_id,
                 )
                 continue
             if dry_run:
@@ -122,12 +124,10 @@ def backfill(
         ))
         log.info(
             "backfill.scanned",
-            extra={
-                "record_type": record_type,
-                "found": len(rows),
-                "enqueued": enqueued,
-                "dry_run": dry_run,
-            },
+            record_type=record_type,
+            found=len(rows),
+            enqueued=enqueued,
+            dry_run=dry_run,
         )
 
     return results

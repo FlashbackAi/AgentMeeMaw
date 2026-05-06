@@ -84,6 +84,10 @@ def upsert_fact(
     push_embedding: _EmbeddingPusher,
     embedding_model: str,
     embedding_model_version: str,
+    max_active_facts_per_person: int = MAX_ACTIVE_FACTS_PER_PERSON,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    prompt_version: str | None = None,
 ) -> UpsertResult:
     """Write or supersede a single fact for one person.
 
@@ -121,13 +125,13 @@ def upsert_fact(
     else:
         # 2. New key. Enforce cap.
         active_count = count_active_facts(cursor, person_id=person_id)
-        if active_count >= MAX_ACTIVE_FACTS_PER_PERSON:
+        if active_count >= max_active_facts_per_person:
             log.info(
                 "profile_facts.upsert_rejected_cap",
                 person_id=person_id,
                 fact_key=fact_key,
                 active_count=active_count,
-                cap=MAX_ACTIVE_FACTS_PER_PERSON,
+                cap=max_active_facts_per_person,
             )
             return UpsertResult(
                 fact_id=uuid4(),  # placeholder; never written
@@ -157,6 +161,9 @@ def upsert_fact(
             "question_text": question_text,
             "answer_text": answer_text,
             "source": source,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "prompt_version": prompt_version,
         },
     )
 
@@ -208,6 +215,10 @@ async def upsert_fact_async(
     push_embedding: _EmbeddingPusher,
     embedding_model: str,
     embedding_model_version: str,
+    max_active_facts_per_person: int = MAX_ACTIVE_FACTS_PER_PERSON,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    prompt_version: str | None = None,
 ) -> UpsertResult:
     """Async mirror of :func:`upsert_fact` for the FastAPI edit endpoint.
 
@@ -238,13 +249,13 @@ async def upsert_fact_async(
             )
     else:
         active_count = await count_active_facts_async(cursor, person_id=person_id)
-        if active_count >= MAX_ACTIVE_FACTS_PER_PERSON:
+        if active_count >= max_active_facts_per_person:
             log.info(
                 "profile_facts.upsert_rejected_cap",
                 person_id=person_id,
                 fact_key=fact_key,
                 active_count=active_count,
-                cap=MAX_ACTIVE_FACTS_PER_PERSON,
+                cap=max_active_facts_per_person,
             )
             return UpsertResult(
                 fact_id=uuid4(),
@@ -272,6 +283,9 @@ async def upsert_fact_async(
             "question_text": question_text,
             "answer_text": answer_text,
             "source": source,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "prompt_version": prompt_version,
         },
     )
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import signal
+import time
 from dataclasses import dataclass
 
 import structlog
 
+from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
 
 from .runner import RunResult, run_once
@@ -27,6 +28,7 @@ class ProducerWorker:
     embedding_model: str
     embedding_model_version: str
     sqs_wait_seconds: int = 20
+    transient_failure_backoff_seconds: float = 5.0
 
     def run_forever(self, stop: "_StopSignal | None" = None) -> None:
         stop = stop or _StopSignal()
@@ -46,6 +48,7 @@ class ProducerWorker:
     def process_message(self, msg: ReceivedProducerMessage) -> RunResult | None:
         producer = msg.payload.producer
         person_id = msg.payload.person_id
+        idempotency_key = msg.payload.idempotency_key or msg.message_id
         try:
             if producer not in self.allowed_producers:
                 raise ValueError(
@@ -58,7 +61,7 @@ class ProducerWorker:
                     settings=self.settings,
                     producer_tag=producer,
                     person_id=person_id,
-                    idempotency_key=msg.message_id,
+                    idempotency_key=idempotency_key,
                     embedding_model=self.embedding_model,
                     embedding_model_version=self.embedding_model_version,
                 )
@@ -71,6 +74,7 @@ class ProducerWorker:
                 producer=producer,
                 error=str(exc),
             )
+            time.sleep(self.transient_failure_backoff_seconds)
             return None
         except LLMError as exc:
             log.error(
@@ -121,8 +125,4 @@ class _StopSignal:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-
+    configure_logging()
