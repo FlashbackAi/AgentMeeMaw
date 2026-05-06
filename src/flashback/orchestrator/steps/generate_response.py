@@ -42,6 +42,7 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
             intent=state.effective_intent,
             emotional_temperature=state.effective_temperature,
             rolling_summary=wm_state.rolling_summary,
+            prior_session_summary=wm_state.prior_session_summary,
             recent_turns=[
                 Turn(
                     role=turn.role,

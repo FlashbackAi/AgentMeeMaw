@@ -37,7 +37,11 @@ def install_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkingMemoryError)
     async def _wm_missing(_: Request, exc: WorkingMemoryError):
-        return _json_error(status.HTTP_409_CONFLICT, str(exc))
+        log.warning("working memory backend error", error_type=type(exc).__name__)
+        return _json_error(
+            status.HTTP_409_CONFLICT,
+            "working memory is unavailable for this session",
+        )
 
     @app.exception_handler(InvalidSessionIdError)
     async def _invalid_session(_: Request, exc: InvalidSessionIdError):
@@ -63,4 +67,12 @@ def install_exception_handlers(app: FastAPI) -> None:
                 "error": "service_unavailable",
                 "detail": "phase gate selection failed",
             },
+        )
+
+    @app.exception_handler(Exception)
+    async def _unexpected_error(_: Request, exc: Exception):
+        log.exception("unhandled request error", error_type=type(exc).__name__)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "internal_server_error", "detail": "internal error"},
         )

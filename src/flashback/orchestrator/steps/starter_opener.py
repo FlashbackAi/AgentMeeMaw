@@ -161,7 +161,7 @@ async def init_working_memory(
             person_id=str(state.person_id),
             role_id=str(state.role_id),
             started_at=state.started_at,
-            seed_rolling_summary=str(seed_summary),
+            seed_prior_session_summary=str(seed_summary),
         )
 
 

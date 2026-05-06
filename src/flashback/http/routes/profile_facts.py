@@ -85,6 +85,9 @@ async def upsert(
                     push_embedding=sender.send,
                     embedding_model=cfg.embedding_model,
                     embedding_model_version=cfg.embedding_model_version,
+                    max_active_facts_per_person=getattr(
+                        cfg, "profile_facts_max_active_per_person", 25
+                    ),
                 )
 
     if result.cap_reached:

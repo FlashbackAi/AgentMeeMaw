@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
+from redis.asyncio import Redis
 
 from flashback.config import HttpConfig
 from flashback.http.auth import require_service_token
-from flashback.http.deps import get_db_pool, get_http_config
+from flashback.http.deps import (
+    get_db_pool,
+    get_http_config,
+    get_identity_merge_verifier,
+    get_redis,
+)
+from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.identity_merges import (
     IdentityMergeActionResponse,
     IdentityMergeScanRequest,
@@ -23,7 +30,6 @@ from flashback.identity_merges import (
     reject_merge_async,
     scan_identity_merge_suggestions_async,
 )
-from flashback.llm.interface import Provider
 from flashback.workers.extraction.sqs_client import EmbeddingJobSender
 
 router = APIRouter(
@@ -51,16 +57,9 @@ async def list_suggestions(
 @router.post("/scan", response_model=IdentityMergeScanResponse)
 async def scan_suggestions(
     request: IdentityMergeScanRequest,
+    verifier: IdentityMergeVerifier = Depends(get_identity_merge_verifier),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
-    cfg: HttpConfig = Depends(get_http_config),
 ) -> IdentityMergeScanResponse:
-    verifier = IdentityMergeVerifier(
-        settings=cfg,
-        provider=cast(Provider, cfg.llm_small_provider),
-        model=cfg.llm_small_model,
-        timeout=cfg.llm_intent_timeout_seconds,
-        max_tokens=cfg.llm_intent_max_tokens,
-    )
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -85,8 +84,29 @@ async def scan_suggestions(
 )
 async def approve_suggestion(
     suggestion_id: UUID,
+    idempotency_key: str | None = Depends(idempotency_key_header),
+    redis: Redis = Depends(get_redis),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
     cfg: HttpConfig = Depends(get_http_config),
+) -> IdentityMergeActionResponse:
+    return await run_idempotent(
+        redis,
+        scope=f"identity_merge_approve:{suggestion_id}",
+        key=idempotency_key,
+        response_model=IdentityMergeActionResponse,
+        operation=lambda: _approve_suggestion_once(
+            suggestion_id=suggestion_id,
+            db_pool=db_pool,
+            cfg=cfg,
+        ),
+    )
+
+
+async def _approve_suggestion_once(
+    *,
+    suggestion_id: UUID,
+    db_pool: AsyncConnectionPool,
+    cfg: HttpConfig,
 ) -> IdentityMergeActionResponse:
     if not cfg.embedding_queue_url:
         raise HTTPException(

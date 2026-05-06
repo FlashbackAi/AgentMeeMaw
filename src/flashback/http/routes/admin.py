@@ -12,11 +12,14 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 
-from flashback.http.auth import require_service_token
+from flashback.http.auth import require_admin_service_token, require_service_token
 from flashback.http.deps import get_db_pool
 from flashback.http.models import ResetPhaseRequest, ResetPhaseResponse
 
-router = APIRouter(prefix="/admin", dependencies=[Depends(require_service_token)])
+router = APIRouter(
+    prefix="/admin",
+    dependencies=[Depends(require_service_token), Depends(require_admin_service_token)],
+)
 log = structlog.get_logger("flashback.http.admin")
 
 # CTE captures the pre-state in the same statement as the UPDATE so
@@ -51,7 +54,6 @@ async def reset_phase(
         async with conn.cursor() as cur:
             await cur.execute(_RESET_PHASE_SQL, (pid, pid))
             row = await cur.fetchone()
-        await conn.commit()
 
     if row is None:
         raise HTTPException(

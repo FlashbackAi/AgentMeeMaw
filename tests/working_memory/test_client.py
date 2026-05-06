@@ -53,12 +53,13 @@ class TestInitialize:
         transcript = await wm.get_transcript(SESSION_ID)
         assert len(transcript) == 1
 
-    async def test_seed_rolling_summary(self, wm: WorkingMemory):
+    async def test_seed_prior_session_summary(self, wm: WorkingMemory):
         await wm.initialize(
-            SESSION_ID, PERSON_ID, ROLE_ID, _now(), seed_rolling_summary="prev"
+            SESSION_ID, PERSON_ID, ROLE_ID, _now(), seed_prior_session_summary="prev"
         )
         state = await wm.get_state(SESSION_ID)
-        assert state.rolling_summary == "prev"
+        assert state.prior_session_summary == "prev"
+        assert state.rolling_summary == ""
         assert state.prior_rolling_summary == ""
 
     async def test_exists_after_initialize(self, wm: WorkingMemory):
@@ -150,9 +151,8 @@ class TestResetSegment:
 
 class TestUpdateRollingSummary:
     async def test_promotes_current_to_prior(self, wm: WorkingMemory):
-        await wm.initialize(
-            SESSION_ID, PERSON_ID, ROLE_ID, _now(), seed_rolling_summary="v1"
-        )
+        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.update_rolling_summary(SESSION_ID, "v1")
         await wm.update_rolling_summary(SESSION_ID, "v2")
         state = await wm.get_state(SESSION_ID)
         assert state.rolling_summary == "v2"

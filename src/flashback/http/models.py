@@ -48,7 +48,7 @@ class TurnRequest(BaseModel):
     session_id: UUID
     person_id: UUID
     role_id: UUID
-    message: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=8000)
 
 
 class TurnMetadata(BaseModel):

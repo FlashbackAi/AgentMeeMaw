@@ -194,6 +194,8 @@ async def list_suggestions_async(
           JOIN entities tgt ON tgt.id = s.target_entity_id
          WHERE s.person_id = %s
            AND s.status = %s
+           AND src.status = 'active'
+           AND tgt.status = 'active'
          ORDER BY s.created_at DESC
         """,
         (person_id, status),

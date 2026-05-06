@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+from flashback.llm.prompt_safety import xml_text
 from flashback.response_generator.schema import StarterContext, TurnContext
 
 
 def render_turn_context(ctx: TurnContext) -> str:
     sections: list[str] = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
 
+    if ctx.prior_session_summary.strip():
+        sections.append(
+            _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
+        )
+
     if ctx.rolling_summary.strip():
         sections.append(_block("rolling_summary", ctx.rolling_summary.strip()))
 
     if ctx.recent_turns:
-        lines = [f"{turn.role}: {turn.content}" for turn in ctx.recent_turns]
+        lines = [f"{turn.role}: {xml_text(turn.content)}" for turn in ctx.recent_turns]
         sections.append(_block("recent_turns", "\n".join(lines)))
 
     sections.append(
@@ -26,19 +32,23 @@ def render_turn_context(ctx: TurnContext) -> str:
             similarity = ""
             if moment.similarity_score is not None:
                 similarity = f"  (similarity: {moment.similarity_score:.2f})"
-            lines.append(f"- {moment.title}: {moment.narrative}{similarity}")
+            lines.append(
+                f"- {xml_text(moment.title)}: {xml_text(moment.narrative)}{similarity}"
+            )
         retrieval_sections.append(_block("moments", "\n".join(lines)))
 
     if ctx.related_entities:
         lines = []
         for entity in ctx.related_entities:
             description = entity.description or ""
-            lines.append(f"- {entity.kind} {entity.name}: {description}".rstrip())
+            lines.append(
+                f"- {entity.kind} {xml_text(entity.name)}: {xml_text(description)}".rstrip()
+            )
         retrieval_sections.append(_block("entities", "\n".join(lines)))
 
     if ctx.related_threads:
         lines = [
-            f"- {thread.name}: {thread.description}"
+            f"- {xml_text(thread.name)}: {xml_text(thread.description)}"
             for thread in ctx.related_threads
         ]
         retrieval_sections.append(_block("threads", "\n".join(lines)))
@@ -47,7 +57,7 @@ def render_turn_context(ctx: TurnContext) -> str:
         sections.append(_block("retrieved_context", "\n".join(retrieval_sections)))
 
     if ctx.seeded_question_text:
-        sections.append(_block("seeded_question", ctx.seeded_question_text))
+        sections.append(_block("seeded_question", xml_text(ctx.seeded_question_text)))
 
     return "\n\n".join(sections)
 
@@ -59,16 +69,16 @@ def render_starter_context(ctx: StarterContext) -> str:
             "\n".join(
                 [
                     f'<anchor_question dimension="{ctx.anchor_dimension}">',
-                    ctx.anchor_question_text,
+                    xml_text(ctx.anchor_question_text),
                     "</anchor_question>",
                 ]
             )
         )
     else:
-        sections.append(_block("seeded_question", ctx.anchor_question_text))
+        sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     if ctx.prior_session_summary and ctx.prior_session_summary.strip():
         sections.append(
-            _block("prior_session_summary", ctx.prior_session_summary.strip())
+            _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
         )
     return "\n\n".join(sections)
 
@@ -81,9 +91,9 @@ _PRONOUN_MAP = {
 
 
 def _render_subject(name: str, relationship: str | None, gender: str = "they") -> str:
-    lines = ["<subject>", f"Name: {name}"]
+    lines = ["<subject>", f"Name: {xml_text(name)}"]
     if relationship:
-        lines.append(f"Relationship to contributor: {relationship}")
+        lines.append(f"Relationship to contributor: {xml_text(relationship)}")
     pronouns = _PRONOUN_MAP.get(gender, "they/them/theirs")
     lines.append(f"Pronouns: {pronouns}")
     lines.append("</subject>")

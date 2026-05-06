@@ -38,12 +38,16 @@ def make_pool(
     *,
     min_size: int = 1,
     max_size: int = 4,
+    max_lifetime: float = 1800,
+    max_idle: float = 600,
 ) -> ConnectionPool:
     """Build a psycopg pool with pgvector type registration on every connection."""
     return ConnectionPool(
         conninfo=database_url,
         min_size=min_size,
         max_size=max_size,
+        max_lifetime=max_lifetime,
+        max_idle=max_idle,
         configure=_configure_connection,
         open=True,
     )
@@ -54,6 +58,8 @@ def make_async_pool(
     *,
     min_size: int = 1,
     max_size: int = 4,
+    max_lifetime: float = 1800,
+    max_idle: float = 600,
 ) -> AsyncConnectionPool:
     """
     Build an async psycopg pool for the HTTP service.
@@ -68,6 +74,8 @@ def make_async_pool(
         conninfo=database_url,
         min_size=min_size,
         max_size=max_size,
+        max_lifetime=max_lifetime,
+        max_idle=max_idle,
         configure=_configure_async_connection,
         open=False,
     )

@@ -32,9 +32,20 @@ class AsyncSQSClient:
 
         return await asyncio.to_thread(self._send_sync, queue_url, body)
 
+    async def get_queue_attributes(self, queue_url: str) -> dict[str, Any]:
+        """Return a small attribute snapshot for health checks."""
+        return await asyncio.to_thread(self._get_queue_attributes_sync, queue_url)
+
     def _send_sync(self, queue_url: str, body: dict) -> str:
         resp = self._sqs.send_message(
             QueueUrl=queue_url,
             MessageBody=json.dumps(body),
         )
         return str(resp["MessageId"])
+
+    def _get_queue_attributes_sync(self, queue_url: str) -> dict[str, Any]:
+        resp = self._sqs.get_queue_attributes(
+            QueueUrl=queue_url,
+            AttributeNames=["QueueArn"],
+        )
+        return dict(resp.get("Attributes", {}))

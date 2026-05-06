@@ -46,6 +46,7 @@ class TurnContext(BaseModel):
     intent: Intent
     emotional_temperature: Temperature
     rolling_summary: str = ""
+    prior_session_summary: str = ""
     recent_turns: list[Turn] = Field(default_factory=list)
     related_moments: list[MomentResult] = Field(default_factory=list)
     related_entities: list[EntityResult] = Field(default_factory=list)

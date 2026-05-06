@@ -89,10 +89,18 @@ class WorkingMemory:
         person_id: str,
         role_id: str,
         started_at: datetime,
-        seed_rolling_summary: str = "",
+        seed_prior_session_summary: str = "",
     ) -> None:
         """
         Create WM for a new session.
+
+        ``seed_prior_session_summary`` is read-only cross-session context
+        (Node-supplied previous-session summary, or a continuity
+        snapshot built from the canonical graph). It lives in
+        ``prior_session_summary`` and is consumed only by the response
+        generator. ``rolling_summary`` is born empty so the segment
+        detector and extraction worker never see content from a prior
+        session as in-session context.
 
         Idempotent: calling twice with the same args is safe. We do NOT
         wipe an existing session — Node never re-issues the same
@@ -111,7 +119,7 @@ class WorkingMemory:
             person_id=person_id,
             role_id=role_id,
             started_at=started_at,
-            rolling_summary=seed_rolling_summary,
+            prior_session_summary=seed_prior_session_summary,
         )
         mapping = serialise_state_for_init(state)
         async with self._redis.pipeline(transaction=True) as p:

@@ -16,11 +16,15 @@ as the identity that must match.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from flashback.env import load_dotenv_local
 
 load_dotenv_local()
+
+
+APP_VERSION = "0.3.0"
+SENTINEL_VALUES = {"changeme", "change-me", "replace-me", "test"}
 
 
 class ConfigError(RuntimeError):
@@ -34,6 +38,10 @@ def _required(name: str) -> str:
             f"Required environment variable {name!r} is not set. "
             f"See .env.example for the full list."
         )
+    if name.endswith(("API_KEY", "SECRET")) and value.strip().lower() in SENTINEL_VALUES:
+        raise ConfigError(
+            f"Required environment variable {name!r} is still set to a placeholder."
+        )
     return value
 
 
@@ -44,11 +52,11 @@ def _env_bool(name: str, *, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Config:
-    database_url: str
+    database_url: str = field(repr=False)
     embedding_queue_url: str
-    voyage_api_key: str
+    voyage_api_key: str = field(repr=False)
     embedding_model: str
     embedding_model_version: str
     aws_region: str
@@ -76,7 +84,7 @@ class Config:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ExtractionConfig:
     """
     Configuration for the Extraction Worker (step 11).
@@ -95,7 +103,7 @@ class ExtractionConfig:
       pushes embedding jobs with these values.
     """
 
-    database_url: str
+    database_url: str = field(repr=False)
     aws_region: str
 
     extraction_queue_url: str
@@ -103,12 +111,16 @@ class ExtractionConfig:
     artifact_queue_url: str
     thread_detector_queue_url: str
 
-    voyage_api_key: str
+    voyage_api_key: str = field(repr=False)
     embedding_model: str
     embedding_model_version: str
 
-    openai_api_key: str
-    anthropic_api_key: str
+    openai_api_key: str = field(repr=False)
+    anthropic_api_key: str = field(repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
 
     llm_extraction_provider: str
     llm_extraction_model: str
@@ -123,6 +135,8 @@ class ExtractionConfig:
     extraction_refinement_distance_threshold: float
     extraction_refinement_candidate_limit: int
     extraction_voyage_query_timeout_seconds: float
+
+    thread_detector_cadence: int
 
     sqs_wait_seconds: int
     db_pool_min_size: int
@@ -148,6 +162,18 @@ class ExtractionConfig:
             ),
             openai_api_key=_required("OPENAI_API_KEY"),
             anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_extraction_provider=os.environ.get(
                 "LLM_EXTRACTION_PROVIDER", big_provider
             ),
@@ -181,13 +207,16 @@ class ExtractionConfig:
             extraction_voyage_query_timeout_seconds=float(
                 os.environ.get("EXTRACTION_VOYAGE_QUERY_TIMEOUT_SECONDS", "5")
             ),
+            thread_detector_cadence=int(
+                os.environ.get("THREAD_DETECTOR_CADENCE", "15")
+            ),
             sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HttpConfig:
     """
     Configuration for the FastAPI agent service (step 4).
@@ -199,18 +228,23 @@ class HttpConfig:
     contributor edits a fact.
     """
 
-    database_url: str
-    valkey_url: str
-    service_token: str
+    database_url: str = field(repr=False)
+    valkey_url: str = field(repr=False)
+    service_token: str = field(repr=False)
     http_host: str
     http_port: int
     working_memory_ttl_seconds: int
     working_memory_transcript_limit: int
     db_pool_min_size: int
     db_pool_max_size: int
+    admin_service_token: str = field(default="", repr=False)
     service_token_auth_disabled: bool = False
-    openai_api_key: str = ""
-    anthropic_api_key: str = ""
+    openai_api_key: str = field(default="", repr=False)
+    anthropic_api_key: str = field(default="", repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
     llm_small_provider: str = "openai"
     llm_small_model: str = "gpt-5.1"
     llm_big_provider: str = "anthropic"
@@ -243,16 +277,38 @@ class HttpConfig:
     retrieval_query_embed_timeout_seconds: float = 2.0
     retrieval_default_limit: int = 10
     retrieval_max_limit: int = 50
+    max_request_body_bytes: int = 262144
+    turn_rate_limit_per_minute: int = 60
+    trusted_hosts: tuple[str, ...] = ("*",)
 
     @classmethod
     def from_env(cls) -> "HttpConfig":
         llm_small_model = os.environ.get("LLM_SMALL_MODEL", "gpt-5.1")
         llm_big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
+        service_token = _required("SERVICE_TOKEN")
+        auth_disabled = _env_bool("SERVICE_TOKEN_AUTH_DISABLED")
+        if not auth_disabled and service_token.strip().lower() in SENTINEL_VALUES:
+            raise ConfigError(
+                "Required environment variable 'SERVICE_TOKEN' is still set to a placeholder."
+            )
+        if auth_disabled:
+            admin_service_token = os.environ.get("ADMIN_SERVICE_TOKEN", service_token)
+        else:
+            admin_service_token = _required("ADMIN_SERVICE_TOKEN")
+            if admin_service_token.strip().lower() in SENTINEL_VALUES:
+                raise ConfigError(
+                    "Required environment variable 'ADMIN_SERVICE_TOKEN' is still set to a placeholder."
+                )
+            if admin_service_token == service_token:
+                raise ConfigError(
+                    "ADMIN_SERVICE_TOKEN must be distinct from SERVICE_TOKEN."
+                )
         return cls(
             database_url=_required("DATABASE_URL"),
             valkey_url=_required("VALKEY_URL"),
-            service_token=_required("SERVICE_TOKEN"),
-            service_token_auth_disabled=_env_bool("SERVICE_TOKEN_AUTH_DISABLED"),
+            service_token=service_token,
+            admin_service_token=admin_service_token,
+            service_token_auth_disabled=auth_disabled,
             http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("HTTP_PORT", "8000")),
             working_memory_ttl_seconds=int(
@@ -265,6 +321,18 @@ class HttpConfig:
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
             openai_api_key=_required("OPENAI_API_KEY"),
             anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_small_provider=os.environ.get("LLM_SMALL_PROVIDER", "openai"),
             llm_small_model=llm_small_model,
             llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
@@ -333,10 +401,22 @@ class HttpConfig:
                 os.environ.get("RETRIEVAL_DEFAULT_LIMIT", "10")
             ),
             retrieval_max_limit=int(os.environ.get("RETRIEVAL_MAX_LIMIT", "50")),
+            max_request_body_bytes=int(
+                os.environ.get("MAX_REQUEST_BODY_BYTES", "262144")
+            ),
+            turn_rate_limit_per_minute=int(
+                os.environ.get("TURN_RATE_LIMIT_PER_MINUTE", "60")
+            ),
+            trusted_hosts=tuple(
+                host.strip()
+                for host in os.environ.get("TRUSTED_HOSTS", "*").split(",")
+                if host.strip()
+            )
+            or ("*",),
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TraitSynthesizerConfig:
     """
     Configuration for the Trait Synthesizer worker (step 13).
@@ -351,7 +431,7 @@ class TraitSynthesizerConfig:
     ``trait_synthesizer_queue_url`` may be empty.
     """
 
-    database_url: str
+    database_url: str = field(repr=False)
     aws_region: str
 
     trait_synthesizer_queue_url: str
@@ -360,8 +440,12 @@ class TraitSynthesizerConfig:
     embedding_model: str
     embedding_model_version: str
 
-    openai_api_key: str
-    anthropic_api_key: str
+    openai_api_key: str = field(repr=False)
+    anthropic_api_key: str = field(repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
 
     llm_trait_synth_provider: str
     llm_trait_synth_model: str
@@ -392,6 +476,18 @@ class TraitSynthesizerConfig:
             ),
             openai_api_key=_required("OPENAI_API_KEY"),
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_trait_synth_provider=os.environ.get(
                 "LLM_TRAIT_SYNTH_PROVIDER", small_provider
             ),
@@ -410,7 +506,7 @@ class TraitSynthesizerConfig:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ProfileSummaryConfig:
     """
     Configuration for the Profile Summary Generator worker (step 14).
@@ -437,14 +533,18 @@ class ProfileSummaryConfig:
       ``EMBEDDING_QUEUE_URL`` plus the embedding model identity.
     """
 
-    database_url: str
+    database_url: str = field(repr=False)
     aws_region: str
 
     profile_summary_queue_url: str
     embedding_queue_url: str
 
-    openai_api_key: str
-    anthropic_api_key: str
+    openai_api_key: str = field(repr=False)
+    anthropic_api_key: str = field(repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
 
     llm_profile_summary_provider: str
     llm_profile_summary_model: str
@@ -458,6 +558,8 @@ class ProfileSummaryConfig:
     llm_profile_facts_model: str
     llm_profile_facts_timeout_seconds: float
     llm_profile_facts_max_tokens: int
+    profile_facts_max_per_run: int
+    profile_facts_max_active_per_person: int
 
     embedding_model: str
     embedding_model_version: str
@@ -493,6 +595,18 @@ class ProfileSummaryConfig:
             embedding_queue_url=embedding_queue_url,
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
             anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_profile_summary_provider=os.environ.get(
                 "LLM_PROFILE_SUMMARY_PROVIDER", big_provider
             ),
@@ -517,6 +631,12 @@ class ProfileSummaryConfig:
             llm_profile_facts_max_tokens=int(
                 os.environ.get("LLM_PROFILE_FACTS_MAX_TOKENS", "800")
             ),
+            profile_facts_max_per_run=int(
+                os.environ.get("PROFILE_FACTS_MAX_PER_RUN", "5")
+            ),
+            profile_facts_max_active_per_person=int(
+                os.environ.get("PROFILE_FACTS_MAX_ACTIVE_PER_PERSON", "25")
+            ),
             embedding_model=os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
             embedding_model_version=os.environ.get(
                 "EMBEDDING_MODEL_VERSION", "2025-01-07"
@@ -536,7 +656,7 @@ class ProfileSummaryConfig:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ProducerConfig:
     """
     Configuration for Question Producers P2/P3/P5 (step 15).
@@ -549,7 +669,7 @@ class ProducerConfig:
     after commit.
     """
 
-    database_url: str
+    database_url: str = field(repr=False)
     aws_region: str
 
     producers_per_session_queue_url: str
@@ -559,8 +679,12 @@ class ProducerConfig:
     embedding_model: str
     embedding_model_version: str
 
-    openai_api_key: str
-    anthropic_api_key: str
+    openai_api_key: str = field(repr=False)
+    anthropic_api_key: str = field(repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
 
     llm_producer_provider: str
     llm_producer_model: str
@@ -607,6 +731,18 @@ class ProducerConfig:
             ),
             openai_api_key=_required("OPENAI_API_KEY"),
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_producer_provider=os.environ.get(
                 "LLM_PRODUCER_PROVIDER", small_provider
             ),
@@ -640,7 +776,7 @@ class ProducerConfig:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ThreadDetectorConfig:
     """
     Configuration for the Thread Detector worker (step 12).
@@ -652,7 +788,7 @@ class ThreadDetectorConfig:
     Two LLM calls per cluster (naming + P4) — both Sonnet by default.
     """
 
-    database_url: str
+    database_url: str = field(repr=False)
     aws_region: str
 
     thread_detector_queue_url: str
@@ -662,8 +798,12 @@ class ThreadDetectorConfig:
     embedding_model: str
     embedding_model_version: str
 
-    anthropic_api_key: str
-    openai_api_key: str
+    anthropic_api_key: str = field(repr=False)
+    openai_api_key: str = field(repr=False)
+    llm_provider_user_id: str = "flashback-service"
+    llm_provider_store_enabled: bool = False
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_open_seconds: float = 30.0
 
     llm_thread_naming_provider: str
     llm_thread_naming_model: str
@@ -677,6 +817,7 @@ class ThreadDetectorConfig:
 
     thread_detector_min_cluster_size: int
     thread_detector_existing_match_distance: float
+    thread_detector_cadence: int
 
     sqs_wait_seconds: int
     db_pool_min_size: int
@@ -698,6 +839,18 @@ class ThreadDetectorConfig:
             ),
             anthropic_api_key=_required("ANTHROPIC_API_KEY"),
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+            llm_provider_user_id=os.environ.get(
+                "LLM_PROVIDER_USER_ID", "flashback-service"
+            ),
+            llm_provider_store_enabled=_env_bool(
+                "LLM_PROVIDER_STORE_ENABLED", default=False
+            ),
+            llm_circuit_breaker_failure_threshold=int(
+                os.environ.get("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+            ),
+            llm_circuit_breaker_open_seconds=float(
+                os.environ.get("LLM_CIRCUIT_BREAKER_OPEN_SECONDS", "30")
+            ),
             llm_thread_naming_provider=os.environ.get(
                 "LLM_THREAD_NAMING_PROVIDER", big_provider
             ),
@@ -721,6 +874,9 @@ class ThreadDetectorConfig:
             ),
             thread_detector_existing_match_distance=float(
                 os.environ.get("THREAD_DETECTOR_EXISTING_MATCH_DISTANCE", "0.4")
+            ),
+            thread_detector_cadence=int(
+                os.environ.get("THREAD_DETECTOR_CADENCE", "15")
             ),
             sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),

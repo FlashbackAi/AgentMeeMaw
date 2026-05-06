@@ -152,11 +152,22 @@ Per-session ephemeral state. Keys scoped by `session_id`. Holds:
 - **Full session transcript** (truncated to last ~30 turns).
 - **Current segment buffer** — turns since last segment boundary.
 - **Rolling summary** — compressed long-term context across all
-  prior segments in this session (and, on session start, seeded from
-  the prior session's summary). Owned by the Segment Detector path:
-  on segment boundary, regenerated as a fresh compressed rewrite
-  over `(prior_rolling_summary + closed_segment_turns)`. Never
-  appended.
+  prior segments **in this session only**. Born empty at
+  `/session/start`; never seeded from prior sessions. Owned by the
+  Segment Detector path: on segment boundary, regenerated as a fresh
+  compressed rewrite over `(prior_rolling_summary +
+  closed_segment_turns)`. Never appended. Sent to the extraction
+  queue payload — the Extraction Worker reads it as in-session
+  context.
+- **Prior session summary** — read-only cross-session context,
+  seeded once at `/session/start` from `session_metadata.
+  prior_session_summary` (or, when Node omits it, a continuity
+  snapshot built from the canonical graph). Consumed only by the
+  Response Generator so the agent can recall "last time we talked
+  about X." **Never sent to the segment detector or extraction
+  queue.** This split prevents previously-extracted moments from
+  leaking back into extraction as if they were new in-session
+  signal.
 - **Signals** for the Segment Detector and Phase Gate:
   1. `turns_in_current_segment`
   2. `recent_words` (sliding window)
