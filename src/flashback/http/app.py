@@ -31,6 +31,7 @@ from flashback.http.logging import (
 from flashback.http.routes.admin import router as admin_router
 from flashback.http.routes.health import router as health_router
 from flashback.http.routes.identity_merges import router as identity_merges_router
+from flashback.http.routes.nodes import router as nodes_router
 from flashback.http.routes.profile_facts import router as profile_facts_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.turn import router as turn_router
@@ -220,6 +221,7 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(profile_facts_router)
     app.include_router(identity_merges_router)
+    app.include_router(nodes_router)
 
     return app
 

@@ -266,6 +266,11 @@ class HttpConfig:
     profile_summary_queue_url: str = ""
     producers_per_session_queue_url: str = ""
     embedding_queue_url: str = ""
+    artifact_queue_url: str = ""
+    llm_node_edit_provider: str = "anthropic"
+    llm_node_edit_model: str = "claude-sonnet-4-6"
+    llm_node_edit_timeout_seconds: float = 30.0
+    llm_node_edit_max_tokens: int = 3000
     llm_session_summary_provider: str = "anthropic"
     llm_session_summary_model: str = "claude-sonnet-4-6"
     llm_session_summary_timeout_seconds: float = 12.0
@@ -374,6 +379,20 @@ class HttpConfig:
                 "PRODUCERS_PER_SESSION_QUEUE_URL"
             ),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
+            artifact_queue_url=os.environ.get("ARTIFACT_QUEUE_URL", ""),
+            llm_node_edit_provider=os.environ.get(
+                "LLM_NODE_EDIT_PROVIDER",
+                os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            ),
+            llm_node_edit_model=os.environ.get(
+                "LLM_NODE_EDIT_MODEL", llm_big_model
+            ),
+            llm_node_edit_timeout_seconds=float(
+                os.environ.get("LLM_NODE_EDIT_TIMEOUT_SECONDS", "30")
+            ),
+            llm_node_edit_max_tokens=int(
+                os.environ.get("LLM_NODE_EDIT_MAX_TOKENS", "3000")
+            ),
             llm_session_summary_provider=os.environ.get(
                 "LLM_SESSION_SUMMARY_PROVIDER",
                 os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
