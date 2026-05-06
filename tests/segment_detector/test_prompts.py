@@ -54,3 +54,10 @@ def test_normal_prompt_closes_when_agent_pivots_after_switch():
     assert "do not wait for the contributor to answer the new prompt" in (
         SYSTEM_PROMPT_NORMAL
     )
+
+
+def test_system_prompts_preserve_actor_attribution():
+    for prompt in (SYSTEM_PROMPT_NORMAL, SYSTEM_PROMPT_FORCE):
+        assert "Preserve actor attribution" in prompt
+        assert "Never change an action's" in prompt
+        assert "Keep distinct events" in prompt

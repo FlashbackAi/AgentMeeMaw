@@ -17,6 +17,7 @@ import pytest
 from flashback.workers.extraction.prompts import (
     COMPATIBILITY_TOOL,
     ENTITY_KINDS,
+    EXTRACTION_SYSTEM_PROMPT,
     EXTRACTION_TOOL,
 )
 
@@ -82,3 +83,9 @@ def test_extraction_tool_max_three_moments_three_dropped_references() -> None:
 def test_compatibility_verdict_enum() -> None:
     enum = COMPATIBILITY_TOOL.input_schema["properties"]["verdict"]["enum"]
     assert sorted(enum) == ["contradiction", "independent", "refinement"]
+
+
+def test_extraction_prompt_preserves_actor_attribution() -> None:
+    assert "Preserve actor attribution" in EXTRACTION_SYSTEM_PROMPT
+    assert "CLOSED SEGMENT is the source of truth" in EXTRACTION_SYSTEM_PROMPT
+    assert "do not transfer" in EXTRACTION_SYSTEM_PROMPT

@@ -26,6 +26,12 @@ CRITICAL CONSTRAINTS:
 - DO NOT use platitudes. Just name what came up.
 - DO NOT repeat the rolling summary verbatim. Compress it
   further.
+- Preserve actor attribution. When multiple people appear in the
+  same event or in adjacent events, use explicit names instead of
+  pronouns for who did what. Never change an action's actor while
+  compressing.
+- Keep separate events separate if merging them would make the actor,
+  location, or outcome ambiguous.
 
 Examples of good output:
 - "the summers at the lake cabin and your grandfather's old red

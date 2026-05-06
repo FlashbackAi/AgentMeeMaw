@@ -77,6 +77,12 @@ segment turns, and it will seed the next segment's evaluation.
   Do not lose information from prior summary.
 - Use the past tense; this is what HAS been discussed.
 - Mention named people, places, and time periods explicitly.
+- Preserve actor attribution: when several people appear in the same
+  event or nearby events, write the names for who did what instead of
+  relying on "he," "she," "they," or "you." Never change an action's
+  actor while compressing.
+- Keep distinct events in distinct clauses or sentences if combining
+  them would blur who did what, where, or with whom.
 - Do NOT include the agent's questions or commentary; only what the
   contributor shared.
 - This is a fresh rewrite, not an append. Synthesize, do not
@@ -105,6 +111,12 @@ ROLLING SUMMARY:
   Do not lose information.
 - Use the past tense.
 - Mention named people, places, and time periods explicitly.
+- Preserve actor attribution: when several people appear in the same
+  event or nearby events, write the names for who did what instead of
+  relying on "he," "she," "they," or "you." Never change an action's
+  actor while compressing.
+- Keep distinct events in distinct clauses or sentences if combining
+  them would blur who did what, where, or with whom.
 - Do NOT include the agent's questions; only what the contributor
   shared.
 - This is a fresh rewrite, not an append.

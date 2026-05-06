@@ -58,6 +58,12 @@ CONTENT RULES:
   as a teacher."
 - Mention 2-3 key entities where they fit — close family, the
   house they lived in, a hobby they were known for.
+- Preserve actor attribution. If several people appear in an event,
+  use explicit names for who did what instead of relying on pronouns
+  like "he," "she," "they," or "you." Never shift an action from the
+  subject to the contributor or another entity while summarizing.
+- Keep distinct events separate when combining them would blur the
+  actor, location, relationship, or outcome.
 - DO NOT enumerate the inputs ("his traits include X, Y, and
   Z"). Compose them into prose that reads naturally.
 - DO NOT invent details. If a thread is named "the motorcycle

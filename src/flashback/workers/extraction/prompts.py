@@ -214,6 +214,12 @@ CRITICAL RULES:
 to miss material than to pollute the graph.
 - Use the contributor's own words for narrative when reasonable — paraphrase \
 only when needed for coherence.
+- Preserve actor attribution. The CLOSED SEGMENT is the source of truth for \
+who did what; the PRIOR rolling summary is context only. When several people \
+appear in the same or adjacent events, use explicit names and do not transfer \
+an action, illness, relationship, quote, or feeling from one person to another.
+- Keep separate events separate if merging them would blur the actor, place, \
+relationship, or outcome.
 - The subject of the legacy is NEVER an entity. They live in `persons`. Other \
 people mentioned ARE entities.
 - For places, populate `attributes.region` / `attributes.kind` if the \

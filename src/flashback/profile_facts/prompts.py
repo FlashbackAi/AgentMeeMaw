@@ -69,6 +69,12 @@ GROUNDING — the most important rule:
   grounded if a trait or entity description says "police officer."
   "Strict police-officer father, instilling discipline" is NOT
   grounded — "instilling discipline" is your interpretation.
+- Preserve actor attribution. Only emit a fact when the source material
+  clearly says the fact is about the deceased person. Do not move an
+  action, relationship, illness, quote, or feeling from a contributor
+  or other entity onto the deceased person while shortening the answer.
+- If multiple people appear in the same source sentence and it is not
+  clear who did what, OMIT the fact.
 - Do NOT add evaluative adjectives the source did not use.
   Banned moves: "devoted", "quietly warm", "naturally", "deeply",
   "instilling X", "anchor of the family", "the heart of...".
