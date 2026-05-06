@@ -7,6 +7,7 @@ from typing import Any
 from flashback.intent_classifier.prompts import INTENT_TOOL, SYSTEM_PROMPT
 from flashback.intent_classifier.schema import IntentResult
 from flashback.llm.interface import Provider, call_with_tool
+from flashback.llm.prompt_safety import xml_text
 from flashback.working_memory import Turn
 
 
@@ -54,12 +55,12 @@ class IntentClassifier:
         """Render transcript and signal context into a compact prompt block."""
         lines: list[str] = ["<turns>"]
         for turn in turns:
-            lines.append(f"{turn.role}: {turn.content}")
+            lines.append(f"{turn.role}: {xml_text(turn.content)}")
         lines.extend(["</turns>", "<signals>"])
         for key in sorted(signals):
             if not key.startswith("signal_"):
                 continue
             display_key = key.removeprefix("signal_")
-            lines.append(f"{display_key}: {signals[key]}")
+            lines.append(f"{display_key}: {xml_text(signals[key])}")
         lines.append("</signals>")
         return "\n".join(lines)

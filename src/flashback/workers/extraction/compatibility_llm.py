@@ -15,19 +15,17 @@ import asyncio
 from dataclasses import dataclass
 
 import structlog
+from pydantic import BaseModel, ConfigDict, ValidationError
 
+from flashback.llm.errors import LLMMalformedResponse
 from flashback.llm.interface import call_with_tool
+from flashback.llm.prompt_safety import xml_text
 
 from .prompts import COMPATIBILITY_SYSTEM_PROMPT, COMPATIBILITY_TOOL
 from .refinement import RefinementCandidate
 from .schema import CompatibilityVerdict, ExtractedMoment
 
 log = structlog.get_logger("flashback.workers.extraction.compatibility_llm")
-
-_VALID_VERDICTS: frozenset[str] = frozenset(
-    {"refinement", "contradiction", "independent"}
-)
-
 
 @dataclass
 class CompatibilityLLMConfig:
@@ -39,6 +37,13 @@ class CompatibilityLLMConfig:
 
 @dataclass(frozen=True)
 class CompatibilityResponse:
+    verdict: CompatibilityVerdict
+    reasoning: str
+
+
+class _CompatibilityToolArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     verdict: CompatibilityVerdict
     reasoning: str
 
@@ -64,21 +69,21 @@ def judge_compatibility(
             settings=settings,
         )
     )
-    verdict = args.get("verdict")
-    reasoning = args.get("reasoning", "")
-    if verdict not in _VALID_VERDICTS:
-        from flashback.llm.errors import LLMMalformedResponse
-
+    try:
+        parsed = _CompatibilityToolArgs.model_validate(args)
+    except ValidationError as exc:
         raise LLMMalformedResponse(
-            f"compatibility verdict not in enum: {verdict!r}"
-        )
+            f"compatibility response failed schema validation: {exc}"
+        ) from exc
+    verdict = parsed.verdict
+    reasoning = parsed.reasoning
     log.info(
         "compatibility.verdict",
         verdict=verdict,
         candidate_id=candidate.id,
         distance=candidate.distance,
     )
-    return CompatibilityResponse(verdict=verdict, reasoning=reasoning)  # type: ignore[arg-type]
+    return CompatibilityResponse(verdict=verdict, reasoning=reasoning)
 
 
 def _build_user_message(
@@ -87,13 +92,13 @@ def _build_user_message(
     return "\n".join(
         [
             "<new_moment>",
-            f"title: {new_moment.title}",
-            f"narrative: {new_moment.narrative}",
+            f"title: {xml_text(new_moment.title)}",
+            f"narrative: {xml_text(new_moment.narrative)}",
             "</new_moment>",
             "",
             "<existing_moment>",
-            f"title: {candidate.title}",
-            f"narrative: {candidate.narrative}",
+            f"title: {xml_text(candidate.title)}",
+            f"narrative: {xml_text(candidate.narrative)}",
             f"vector_distance: {candidate.distance:.4f}",
             "</existing_moment>",
         ]

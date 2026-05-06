@@ -56,7 +56,13 @@ async def test_call_text_anthropic_translates_wire_format(monkeypatch):
     kwargs = client.messages.create.await_args.kwargs
     assert kwargs == {
         "model": "claude-sonnet-4-6",
-        "system": "system",
+        "system": [
+            {
+                "type": "text",
+                "text": "system",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         "messages": [{"role": "user", "content": "user"}],
         "max_tokens": 123,
         "timeout": 4.5,

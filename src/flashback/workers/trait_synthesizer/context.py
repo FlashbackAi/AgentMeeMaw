@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from flashback.llm.prompt_safety import xml_text
+
 from .schema import (
     ExistingTraitView,
     ThreadView,
@@ -54,7 +56,7 @@ def render_user_message(ctx: TraitSynthContext) -> str:
     """
     lines: list[str] = []
     lines.append("<subject>")
-    lines.append(f"Name: {ctx.person_name}")
+    lines.append(f"Name: {xml_text(ctx.person_name)}")
     lines.append("</subject>")
     lines.append("")
     lines.append("<existing_traits>")
@@ -62,9 +64,9 @@ def render_user_message(ctx: TraitSynthContext) -> str:
         lines.append("(none)")
     else:
         for trait in ctx.existing_traits:
-            description = trait.description or ""
+            description = xml_text(trait.description or "")
             lines.append(
-                f"- [trait_id={trait.id}] {trait.name} "
+                f"- [trait_id={trait.id}] {xml_text(trait.name)} "
                 f"(strength={trait.strength}) — {description} "
                 f"(currently exemplified by {trait.moment_count} moments)"
             )
@@ -76,8 +78,8 @@ def render_user_message(ctx: TraitSynthContext) -> str:
     else:
         for thread in ctx.threads:
             lines.append(
-                f"- [thread_id={thread.id}] {thread.name}: "
-                f"{thread.description} ({thread.moment_count} moments)"
+                f"- [thread_id={thread.id}] {xml_text(thread.name)}: "
+                f"{xml_text(thread.description)} ({thread.moment_count} moments)"
             )
     lines.append("</threads>")
     return "\n".join(lines)

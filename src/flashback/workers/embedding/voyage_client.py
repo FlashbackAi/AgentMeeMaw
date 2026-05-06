@@ -27,6 +27,9 @@ class VoyageError(RuntimeError):
     """Raised when the Voyage API call fails or returns malformed output."""
 
 
+EXPECTED_EMBEDDING_DIM = 1024
+
+
 class _VoyageLike(Protocol):
     def embed(
         self, texts: list[str], model: str, input_type: str | None = None
@@ -71,4 +74,11 @@ class VoyageClient:
                 f"Voyage returned {len(embeddings) if embeddings is not None else 'no'} "
                 f"embeddings for {len(texts)} inputs"
             )
-        return [list(vec) for vec in embeddings]
+        vectors = [list(vec) for vec in embeddings]
+        for index, vector in enumerate(vectors):
+            if len(vector) != EXPECTED_EMBEDDING_DIM:
+                raise VoyageError(
+                    f"Voyage returned dim={len(vector)} for input {index}; "
+                    f"expected {EXPECTED_EMBEDDING_DIM}"
+                )
+        return vectors

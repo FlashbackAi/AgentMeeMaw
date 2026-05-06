@@ -26,6 +26,7 @@ import structlog
 import voyageai
 
 log = structlog.get_logger("flashback.workers.extraction.voyage_query")
+EXPECTED_EMBEDDING_DIM = 1024
 
 
 class _VoyageLike(Protocol):
@@ -71,4 +72,12 @@ class SyncVoyageQueryEmbedder:
         if not embeddings:
             log.warning("voyage_query_embedding.empty_response")
             return None
-        return list(embeddings[0])
+        vector = list(embeddings[0])
+        if len(vector) != EXPECTED_EMBEDDING_DIM:
+            log.warning(
+                "voyage_query_embedding.bad_dimension",
+                dim=len(vector),
+                expected=EXPECTED_EMBEDDING_DIM,
+            )
+            return None
+        return vector

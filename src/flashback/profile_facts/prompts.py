@@ -54,18 +54,43 @@ the above (e.g. `signature_dish`, `instruments_played`,
 `military_service`, `languages_spoken`). Use snake_case.
 
 CONFIDENCE:
-- `high`: directly stated in a trait, thread, or entity description.
-- `medium`: implied by the material but not stated outright.
-- `low`: a guess from one weak signal. AVOID emitting low confidence
-  facts unless asked. The runner discards them.
+- `high`: the answer is stated almost verbatim in a trait label,
+  thread title/description, or entity description. You should be
+  able to point at the exact phrase you reused.
+- `medium`: the answer paraphrases something stated in the
+  material — same meaning, different words.
+- `low`: synthesis, inference, or interpretation across multiple
+  pieces of material. AVOID emitting low confidence facts. The
+  runner discards them.
 
-QUALITY RULES:
-- An `answer_text` is 1-15 words. "Farmer", "Born in Kerala, 1942",
-  "Quiet, devoted, the family's anchor". Not a sentence; not a
-  paragraph.
-- If you cannot fill a fact crisply, OMIT it. Empty is fine.
-- Do NOT invent details. Every fact must be grounded in the
-  provided material.
+GROUNDING — the most important rule:
+- An answer is GROUNDED when its key nouns and adjectives appear
+  (or near-appear) in the source material. "Police officer" is
+  grounded if a trait or entity description says "police officer."
+  "Strict police-officer father, instilling discipline" is NOT
+  grounded — "instilling discipline" is your interpretation.
+- Do NOT add evaluative adjectives the source did not use.
+  Banned moves: "devoted", "quietly warm", "naturally", "deeply",
+  "instilling X", "anchor of the family", "the heart of...".
+  These are editorial flourishes, not facts.
+- Do NOT synthesize a personality summary by stitching multiple
+  traits together. If three traits exist, write a fact that names
+  them plainly ("Reserved, warm, disciplined"), not a prose blend.
+- If the source uses a specific word, prefer that exact word over
+  a synonym.
+- When in doubt, OMIT the fact rather than reach.
+
+ANSWER LENGTH:
+- 1-8 words is the target. "Farmer." "Born in Kerala, 1942."
+  "Reserved, warm, disciplined." Beyond 8 words you are almost
+  certainly editorializing — re-read the rule above.
+- Never write a sentence with a verb phrase that interprets cause
+  or effect ("instilling discipline", "shaping his character",
+  "leading him to..."). Those are inferences.
+
+OTHER QUALITY RULES:
+- If you cannot fill a fact crisply and grounded, OMIT it. Empty
+  output is acceptable.
 - Do NOT include facts about the contributor — only about the
   deceased.
 - Do NOT speak as the deceased.

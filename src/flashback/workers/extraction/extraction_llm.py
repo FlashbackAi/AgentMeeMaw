@@ -20,11 +20,13 @@ from typing import Iterable
 import structlog
 
 from flashback.llm.interface import call_with_tool
+from flashback.llm.prompt_safety import tagged, xml_text
 
 from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TOOL
 from .schema import ExtractionResult, SegmentTurn
 
 log = structlog.get_logger("flashback.workers.extraction.extraction_llm")
+EXTRACTION_PROMPT_VERSION = "extraction.v1"
 
 
 @dataclass
@@ -99,15 +101,15 @@ def _build_user_message(
         else ""
     )
     lines: list[str] = [
-        f"<subject>{subject_name}{rel}</subject>",
+        tagged("subject", f"{subject_name}{rel}"),
         "",
         "<prior_rolling_summary>",
-        prior_rolling_summary or "",
+        xml_text(prior_rolling_summary or ""),
         "</prior_rolling_summary>",
         "",
         "<closed_segment>",
     ]
     for turn in segment_turns:
-        lines.append(f"{turn.role}: {turn.content}")
+        lines.append(f"{turn.role}: {xml_text(turn.content)}")
     lines.append("</closed_segment>")
     return "\n".join(lines)

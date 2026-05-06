@@ -72,7 +72,13 @@ async def test_call_with_tool_anthropic_translates_wire_format(monkeypatch):
     assert result == {"intent": "story"}
     client.messages.create.assert_awaited_once_with(
         model="claude-sonnet-4-6",
-        system="system",
+        system=[
+            {
+                "type": "text",
+                "text": "system",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         messages=[{"role": "user", "content": "user"}],
         tools=[
             {

@@ -9,6 +9,7 @@ import structlog
 import voyageai
 
 log = structlog.get_logger("flashback.retrieval.voyage")
+EXPECTED_EMBEDDING_DIM = 1024
 
 
 class _VoyageLike(Protocol):
@@ -67,4 +68,9 @@ class VoyageQueryEmbedder:
             model=self._model,
             input_type="query",
         )
-        return list(result.embeddings[0])
+        vector = list(result.embeddings[0])
+        if len(vector) != EXPECTED_EMBEDDING_DIM:
+            raise ValueError(
+                f"Voyage returned dim={len(vector)}; expected {EXPECTED_EMBEDDING_DIM}"
+            )
+        return vector

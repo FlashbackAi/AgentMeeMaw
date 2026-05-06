@@ -5,6 +5,7 @@ from __future__ import annotations
 import structlog
 
 from flashback.llm.interface import Provider, call_with_tool
+from flashback.llm.prompt_safety import xml_text
 from flashback.segment_detector.prompts import (
     SEGMENT_DETECTOR_TOOL,
     SYSTEM_PROMPT_FORCE,
@@ -85,12 +86,12 @@ class SegmentDetector:
 
         lines: list[str] = [
             "<prior_rolling_summary>",
-            prior_rolling_summary or "",
+            xml_text(prior_rolling_summary or ""),
             "</prior_rolling_summary>",
             "",
             "<current_segment>",
         ]
         for turn in segment_turns:
-            lines.append(f"{turn.role}: {turn.content}")
+            lines.append(f"{turn.role}: {xml_text(turn.content)}")
         lines.append("</current_segment>")
         return "\n".join(lines)
