@@ -65,11 +65,13 @@ class ThreadDetectorJobSender:
         person_id: str,
         active_count_at_trigger: int,
         last_count_at_trigger: int,
+        contributor_display_name: str = "",
     ) -> str:
         payload = {
             "person_id": person_id,
             "active_count_at_trigger": active_count_at_trigger,
             "last_count_at_trigger": last_count_at_trigger,
+            "contributor_display_name": contributor_display_name or "",
         }
         resp = self._get_client().send_message(
             QueueUrl=self.queue_url,

@@ -31,6 +31,15 @@ You are given:
 - The list of THREADS — emergent narrative arcs across moments —
   with name, description, and the count of moments contributing
   to each.
+- The contributor's display name (in `<contributor_display_name>`),
+  which may be empty.
+
+You may use the contributor's display name for natural attribution
+in trait descriptions ("Sarah recalls his patience with the kids").
+Do not force it; omit when phrasing reads better without it. When
+the tag is empty, fall back to neutral attribution ("the
+contributor", or simply omit). Never write a placeholder like
+"<contributor>".
 
 Your job has TWO parts, both expressed via the
 `synthesize_traits` tool call:

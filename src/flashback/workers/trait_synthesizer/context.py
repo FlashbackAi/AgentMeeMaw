@@ -31,7 +31,12 @@ from .schema import (
 # ---------------------------------------------------------------------------
 
 
-def build_context(db_pool, *, person_id: str) -> TraitSynthContext:
+def build_context(
+    db_pool,
+    *,
+    person_id: str,
+    contributor_display_name: str = "",
+) -> TraitSynthContext:
     """Read everything the synthesizer LLM needs for one person."""
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -44,6 +49,7 @@ def build_context(db_pool, *, person_id: str) -> TraitSynthContext:
         person_name=person_name,
         existing_traits=existing_traits,
         threads=threads,
+        contributor_display_name=(contributor_display_name or "").strip(),
     )
 
 
@@ -58,6 +64,11 @@ def render_user_message(ctx: TraitSynthContext) -> str:
     lines.append("<subject>")
     lines.append(f"Name: {xml_text(ctx.person_name)}")
     lines.append("</subject>")
+    lines.append("")
+    lines.append(
+        f"<contributor_display_name>{xml_text(ctx.contributor_display_name)}"
+        f"</contributor_display_name>"
+    )
     lines.append("")
     lines.append("<existing_traits>")
     if not ctx.existing_traits:

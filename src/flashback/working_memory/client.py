@@ -90,6 +90,7 @@ class WorkingMemory:
         role_id: str,
         started_at: datetime,
         seed_prior_session_summary: str = "",
+        contributor_display_name: str = "",
     ) -> None:
         """
         Create WM for a new session.
@@ -101,6 +102,13 @@ class WorkingMemory:
         generator. ``rolling_summary`` is born empty so the segment
         detector and extraction worker never see content from a prior
         session as in-session context.
+
+        ``contributor_display_name`` is the contributor's display name
+        passed by Node on every ``/session/start``. It is read-only,
+        stored only for archive-side workers (extraction, trait
+        synthesizer, profile summary, thread detector) so they can
+        attribute naturally. It is **never** exposed to the response
+        generator or opener — the chat surface stays neutral.
 
         Idempotent: calling twice with the same args is safe. We do NOT
         wipe an existing session — Node never re-issues the same
@@ -120,6 +128,7 @@ class WorkingMemory:
             role_id=role_id,
             started_at=started_at,
             prior_session_summary=seed_prior_session_summary,
+            contributor_display_name=contributor_display_name,
         )
         mapping = serialise_state_for_init(state)
         async with self._redis.pipeline(transaction=True) as p:
@@ -210,6 +219,23 @@ class WorkingMemory:
                 "did /session/start succeed?"
             )
         return parse_state_hash(raw)
+
+    async def get_contributor_display_name(self, session_id: str) -> str:
+        """Read the contributor's display name from working memory.
+
+        Returns the stored value, or empty string when the field was
+        never set (Node omitted ``contributor_display_name`` on
+        ``/session/start``). Archive-side workers consume this for
+        natural attribution; an empty string means fall back to neutral.
+        """
+        raw = await self._redis.hget(
+            state_key(session_id), "contributor_display_name"
+        )
+        if raw is None:
+            return ""
+        if isinstance(raw, bytes):
+            return raw.decode("utf-8")
+        return str(raw)
 
     async def update_rolling_summary(
         self,

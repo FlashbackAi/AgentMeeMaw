@@ -92,9 +92,13 @@ class ThreadDetectorWorker:
     ) -> list[ClusterOutcome]:
         """Drain one message. Returns the per-cluster outcomes for tests."""
         person_id = str(msg.payload.person_id)
+        contributor_display_name = msg.payload.contributor_display_name or ""
 
         try:
-            outcomes = self._run_for_person(person_id=person_id)
+            outcomes = self._run_for_person(
+                person_id=person_id,
+                contributor_display_name=contributor_display_name,
+            )
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "thread_detector.run_failed",
@@ -112,7 +116,12 @@ class ThreadDetectorWorker:
     # Internals
     # ------------------------------------------------------------------
 
-    def _run_for_person(self, *, person_id: str) -> list[ClusterOutcome]:
+    def _run_for_person(
+        self,
+        *,
+        person_id: str,
+        contributor_display_name: str = "",
+    ) -> list[ClusterOutcome]:
         # 1. Re-validate trigger (idempotency).
         state = trigger_state(
             self.db_pool,
@@ -182,6 +191,7 @@ class ThreadDetectorWorker:
                     moment_lookup=moment_lookup,
                     person_id=person_id,
                     person_name=person_name,
+                    contributor_display_name=contributor_display_name,
                 )
             except Exception as exc:  # noqa: BLE001
                 log.error(
@@ -213,6 +223,7 @@ class ThreadDetectorWorker:
         moment_lookup: dict[str, ClusterableMoment],
         person_id: str,
         person_name: str,
+        contributor_display_name: str = "",
     ) -> ClusterOutcome:
         member_moments = [
             moment_lookup[mid] for mid in cluster.member_moment_ids
@@ -231,6 +242,7 @@ class ThreadDetectorWorker:
             distance_threshold=self.existing_match_distance,
             embedding_job_pusher=self._push_embedding_job,
             artifact_job_pusher=self._push_artifact_job,
+            contributor_display_name=contributor_display_name,
         )
 
     def _push_embedding_job(self, **kwargs) -> None:

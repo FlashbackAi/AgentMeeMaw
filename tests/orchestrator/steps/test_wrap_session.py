@@ -23,6 +23,7 @@ class FakeWorkingMemory:
         segment_turns=None,
         rolling_summary="Old summary.",
         clear_raises: Exception | None = None,
+        contributor_display_name: str = "",
     ) -> None:
         self.segment_turns = list(segment_turns or [])
         self.clear_raises = clear_raises
@@ -30,6 +31,7 @@ class FakeWorkingMemory:
             rolling_summary=rolling_summary,
             last_seeded_question_id="",
             segments_pushed_this_session=0,
+            contributor_display_name=contributor_display_name,
         )
         self.updated_summary = None
         self.reset_calls = 0
@@ -41,6 +43,9 @@ class FakeWorkingMemory:
 
     async def get_segment(self, session_id: str):
         return self.segment_turns
+
+    async def get_contributor_display_name(self, session_id: str) -> str:
+        return self.state.contributor_display_name
 
     async def update_rolling_summary(self, session_id: str, new_summary: str):
         self.updated_summary = new_summary
@@ -304,6 +309,33 @@ async def test_all_queue_failures_degrade(monkeypatch):
         "push_profile_summary",
         "push_producers",
     }.issubset(state.failures)
+
+
+async def test_contributor_display_name_propagates_to_all_queues(monkeypatch):
+    """Each archive-side queue push carries the contributor's display
+    name from working memory."""
+    _patch_person(monkeypatch)
+    state = _state()
+    trait = FakeQueue("trait")
+    profile = FakeQueue("profile")
+    extraction_queue = FakeExtractionQueue()
+
+    await wrap_module.wrap_session(
+        state,
+        _deps(
+            wm=FakeWorkingMemory(
+                segment_turns=SAMPLE_SEGMENT,
+                contributor_display_name="Sarah",
+            ),
+            extraction_queue=extraction_queue,
+            trait=trait,
+            profile=profile,
+        ),
+    )
+
+    assert extraction_queue.calls[0]["contributor_display_name"] == "Sarah"
+    assert trait.calls[0]["contributor_display_name"] == "Sarah"
+    assert profile.calls[0]["contributor_display_name"] == "Sarah"
 
 
 async def test_clear_failure_degrades(monkeypatch):

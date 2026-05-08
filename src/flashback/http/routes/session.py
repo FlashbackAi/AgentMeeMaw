@@ -40,12 +40,17 @@ async def session_start(
 
     started_at = datetime.now(timezone.utc)
     seed_summary = body.session_metadata.get("prior_session_summary", "") or ""
+    contributor_name = (body.contributor_display_name or "").strip()
+
+    metadata_with_name = dict(body.session_metadata)
+    if contributor_name:
+        metadata_with_name["contributor_display_name"] = contributor_name
 
     result = await orch.handle_session_start(
         session_id=body.session_id,
         person_id=body.person_id,
         role_id=body.role_id,
-        session_metadata=body.session_metadata,
+        session_metadata=metadata_with_name,
     )
 
     if not getattr(orch, "owns_working_memory", False):
@@ -55,6 +60,7 @@ async def session_start(
             role_id=str(body.role_id),
             started_at=started_at,
             seed_prior_session_summary=seed_summary,
+            contributor_display_name=contributor_name,
         )
         await wm.append_turn(
             session_id=str(body.session_id),

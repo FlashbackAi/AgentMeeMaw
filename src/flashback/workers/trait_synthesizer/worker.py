@@ -98,6 +98,9 @@ class TraitSynthesizerWorker:
                 idempotency_key=idempotency_key,
                 embedding_model=self.embedding_model,
                 embedding_model_version=self.embedding_model_version,
+                contributor_display_name=(
+                    msg.payload.contributor_display_name or ""
+                ),
             )
         except LLMTimeout as exc:
             log.warning(

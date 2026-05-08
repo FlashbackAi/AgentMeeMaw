@@ -160,6 +160,56 @@ async def test_call_with_tool_openai_uses_none_reasoning_for_gpt_5_1(monkeypatch
     assert kwargs["reasoning_effort"] == "none"
 
 
+async def test_openai_omits_metadata_when_store_is_disabled(monkeypatch):
+    client = _openai_client(return_value=_openai_response())
+    monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
+    settings = SimpleNamespace(
+        openai_api_key="openai-key",
+        llm_provider_store_enabled=False,
+        llm_provider_user_id="flashback-service",
+    )
+
+    await interface.call_with_tool(
+        provider="openai",
+        model="gpt-5.1",
+        system_prompt="system",
+        user_message="user",
+        tool=TOOL,
+        max_tokens=123,
+        timeout=4.5,
+        settings=settings,
+    )
+
+    kwargs = client.chat.completions.create.await_args.kwargs
+    assert kwargs["store"] is False
+    assert "metadata" not in kwargs
+
+
+async def test_openai_includes_metadata_when_store_is_enabled(monkeypatch):
+    client = _openai_client(return_value=_openai_response())
+    monkeypatch.setattr(interface, "get_openai_client", lambda settings: client)
+    settings = SimpleNamespace(
+        openai_api_key="openai-key",
+        llm_provider_store_enabled=True,
+        llm_provider_user_id="flashback-service",
+    )
+
+    await interface.call_with_tool(
+        provider="openai",
+        model="gpt-5.1",
+        system_prompt="system",
+        user_message="user",
+        tool=TOOL,
+        max_tokens=123,
+        timeout=4.5,
+        settings=settings,
+    )
+
+    kwargs = client.chat.completions.create.await_args.kwargs
+    assert kwargs["store"] is True
+    assert kwargs["metadata"] == {"user_id": "flashback-service"}
+
+
 async def test_anthropic_timeout_maps_to_llm_timeout(monkeypatch):
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     client = _anthropic_client(side_effect=anthropic.APITimeoutError(request=request))

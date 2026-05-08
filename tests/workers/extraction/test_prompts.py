@@ -89,3 +89,10 @@ def test_extraction_prompt_preserves_actor_attribution() -> None:
     assert "Preserve actor attribution" in EXTRACTION_SYSTEM_PROMPT
     assert "CLOSED SEGMENT is the source of truth" in EXTRACTION_SYSTEM_PROMPT
     assert "do not transfer" in EXTRACTION_SYSTEM_PROMPT
+
+
+def test_extraction_prompt_mentions_contributor_display_name() -> None:
+    """Archive-side prompt should describe how to use the contributor's
+    display name for natural attribution and how to fall back when empty."""
+    assert "<contributor_display_name>" in EXTRACTION_SYSTEM_PROMPT
+    assert "neutral attribution" in EXTRACTION_SYSTEM_PROMPT

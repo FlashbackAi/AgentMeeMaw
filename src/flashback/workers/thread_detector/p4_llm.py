@@ -41,12 +41,14 @@ def propose_thread_deepen_questions(
     person_name: str,
     thread: ThreadSnapshot,
     member_moments: Iterable[ClusterableMoment],
+    contributor_display_name: str = "",
 ) -> P4Result:
     """Run the P4 LLM for one thread. Returns a typed result."""
     user_message = _build_user_message(
         person_name=person_name,
         thread=thread,
         member_moments=member_moments,
+        contributor_display_name=contributor_display_name,
     )
     args = asyncio.run(
         call_with_tool(
@@ -74,9 +76,12 @@ def _build_user_message(
     person_name: str,
     thread: ThreadSnapshot,
     member_moments: Iterable[ClusterableMoment],
+    contributor_display_name: str = "",
 ) -> str:
     lines: list[str] = [
         f"<subject>{xml_text(person_name)}</subject>",
+        f"<contributor_display_name>{xml_text(contributor_display_name or '')}"
+        f"</contributor_display_name>",
         "",
         "<thread>",
         f"name: {xml_text(thread.name)}",

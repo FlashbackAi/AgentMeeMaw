@@ -14,11 +14,18 @@ class TraitSynthesizerQueueProducer:
         self._sqs = sqs_client
         self._url = queue_url
 
-    async def push(self, *, person_id: UUID, session_id: UUID) -> str:
+    async def push(
+        self,
+        *,
+        person_id: UUID,
+        session_id: UUID,
+        contributor_display_name: str = "",
+    ) -> str:
         payload = {
             "person_id": str(person_id),
             "session_id": str(session_id),
             "idempotency_key": str(session_id),
             "triggered_by": "session_wrap",
+            "contributor_display_name": contributor_display_name or "",
         }
         return await self._sqs.send_message(self._url, payload)

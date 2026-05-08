@@ -24,12 +24,21 @@ first when they open the legacy.
 You are given:
 - The deceased person's name and their relationship to the
   contributor.
+- The contributor's display name (in
+  `<contributor_display_name>`), which may be empty.
 - The top traits attributed to them (with strength).
 - The key narrative threads in their legacy.
 - The most-mentioned entities (people, places, things) in the
   legacy.
 - The time period of their life (year range or life-period
   labels).
+
+You may use the contributor's display name for natural attribution
+in the prose ("Sarah remembers his patience", "John, Sarah's
+father, was a carpenter"). Do not force it; omit when phrasing
+reads better without it. When the tag is empty, fall back to
+neutral attribution ("the contributor", or simply omit). Never
+write a placeholder like "<contributor>".
 
 Your job: produce a 150-300 word prose summary that captures who
 this person was, drawing only from the provided material.

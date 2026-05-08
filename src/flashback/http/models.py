@@ -21,6 +21,7 @@ class SessionStartRequest(BaseModel):
     session_id: UUID
     person_id: UUID
     role_id: UUID
+    contributor_display_name: str | None = None
     session_metadata: dict = Field(default_factory=dict)
 
 

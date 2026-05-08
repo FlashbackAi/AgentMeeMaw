@@ -39,6 +39,7 @@ class TraitSynthMessage(BaseModel):
     person_id: UUID
     session_id: UUID | None = None
     idempotency_key: str | None = None
+    contributor_display_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -141,3 +142,4 @@ class TraitSynthContext:
     person_name: str
     existing_traits: list[ExistingTraitView]
     threads: list[ThreadView]
+    contributor_display_name: str = ""

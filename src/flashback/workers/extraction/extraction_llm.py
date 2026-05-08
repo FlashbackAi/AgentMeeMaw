@@ -45,6 +45,7 @@ def run_extraction(
     subject_relationship: str | None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
+    contributor_display_name: str = "",
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -57,6 +58,7 @@ def run_extraction(
         subject_relationship=subject_relationship,
         prior_rolling_summary=prior_rolling_summary,
         segment_turns=segment_turns,
+        contributor_display_name=contributor_display_name,
     )
 
     args = asyncio.run(
@@ -88,6 +90,7 @@ def _build_user_message(
     subject_relationship: str | None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
+    contributor_display_name: str = "",
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -102,13 +105,19 @@ def _build_user_message(
     )
     lines: list[str] = [
         tagged("subject", f"{subject_name}{rel}"),
-        "",
-        "<prior_rolling_summary>",
-        xml_text(prior_rolling_summary or ""),
-        "</prior_rolling_summary>",
-        "",
-        "<closed_segment>",
     ]
+    contributor_name = (contributor_display_name or "").strip()
+    lines.append(tagged("contributor_display_name", contributor_name))
+    lines.extend(
+        [
+            "",
+            "<prior_rolling_summary>",
+            xml_text(prior_rolling_summary or ""),
+            "</prior_rolling_summary>",
+            "",
+            "<closed_segment>",
+        ]
+    )
     for turn in segment_turns:
         lines.append(f"{turn.role}: {xml_text(turn.content)}")
     lines.append("</closed_segment>")

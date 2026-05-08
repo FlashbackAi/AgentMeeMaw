@@ -132,6 +132,7 @@ async def _force_close_segment(
             rolling_summary=result.rolling_summary or "",
             prior_rolling_summary=prior_rolling_summary,
             seeded_question_id=seeded_question_id,
+            contributor_display_name=wm_state.contributor_display_name or "",
         )
     except Exception as exc:
         log.warning(
@@ -176,10 +177,12 @@ async def _push_trait_synthesizer(
     if deps.trait_synthesizer_queue is None:
         log.info("trait_synthesizer_push_skipped", reason="not_configured")
         return
+    contributor_name = await _read_contributor_display_name(state, deps)
     try:
         msg_id = await deps.trait_synthesizer_queue.push(
             person_id=state.person_id,
             session_id=state.session_id,
+            contributor_display_name=contributor_name,
         )
     except Exception as exc:
         raise QueueSendError(str(exc)) from exc
@@ -194,15 +197,35 @@ async def _push_profile_summary(
     if deps.profile_summary_queue is None:
         log.info("profile_summary_push_skipped", reason="not_configured")
         return
+    contributor_name = await _read_contributor_display_name(state, deps)
     try:
         msg_id = await deps.profile_summary_queue.push(
             person_id=state.person_id,
             session_id=state.session_id,
+            contributor_display_name=contributor_name,
         )
     except Exception as exc:
         raise QueueSendError(str(exc)) from exc
     state.profile_summary_pushed = True
     log.info("profile_summary_pushed", sqs_message_id=msg_id)
+
+
+async def _read_contributor_display_name(
+    state: SessionWrapState,
+    deps: OrchestratorDeps,
+) -> str:
+    """Read contributor display name from working memory; "" if missing.
+
+    Working memory still exists at this point in the wrap sequence
+    (cleared only after the fan-out gather). A failed read or missing
+    field falls back to neutral attribution.
+    """
+    try:
+        return await deps.working_memory.get_contributor_display_name(
+            str(state.session_id)
+        )
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 async def _push_producers_per_session(

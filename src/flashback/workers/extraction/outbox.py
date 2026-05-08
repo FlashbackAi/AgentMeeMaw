@@ -75,6 +75,7 @@ def enqueue_thread_detector_trigger_if_due(
     source_sqs_message_id: str,
     person_id: str,
     cadence: int = 15,
+    contributor_display_name: str = "",
 ) -> ThreadTriggerStatus:
     """Check the thread detector cadence in-transaction and enqueue if due."""
     cursor.execute(
@@ -110,6 +111,7 @@ def enqueue_thread_detector_trigger_if_due(
                         "person_id": person_id,
                         "active_count_at_trigger": active_count,
                         "last_count_at_trigger": last_count,
+                        "contributor_display_name": contributor_display_name or "",
                     }
                 ),
             ),

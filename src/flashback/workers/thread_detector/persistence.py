@@ -104,6 +104,7 @@ def process_cluster(
     distance_threshold: float,
     embedding_job_pusher,
     artifact_job_pusher,
+    contributor_display_name: str = "",
 ) -> ClusterOutcome:
     """Persist one cluster end-to-end. Returns a :class:`ClusterOutcome`.
 
@@ -135,6 +136,7 @@ def process_cluster(
             settings=settings,
             person_name=person_name,
             member_moments=member_moments,
+            contributor_display_name=contributor_display_name,
         )
         if not naming.coherent:
             outcome.incoherent = True
@@ -184,6 +186,7 @@ def process_cluster(
         person_name=person_name,
         thread=thread_snapshot,
         member_moments=member_moments,
+        contributor_display_name=contributor_display_name,
     )
 
     # 5. Single transaction — thread/evidences/questions/edges.

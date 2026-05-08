@@ -45,6 +45,7 @@ def build_context(
     top_traits_max: int,
     top_threads_max: int,
     top_entities_max: int,
+    contributor_display_name: str = "",
 ) -> ProfileSummaryContext:
     """Read everything the summary LLM needs for one person."""
     with db_pool.connection() as conn:
@@ -70,6 +71,7 @@ def build_context(
         threads=threads,
         entities=entities,
         time_period=time_period,
+        contributor_display_name=(contributor_display_name or "").strip(),
     )
 
 
@@ -86,6 +88,11 @@ def render_context(ctx: ProfileSummaryContext) -> str:
     if ctx.relationship:
         lines.append(f"Relationship to contributor: {ctx.relationship}")
     lines.append("</subject>")
+
+    lines.append(
+        f"<contributor_display_name>{ctx.contributor_display_name}"
+        f"</contributor_display_name>"
+    )
 
     tp_block = _render_time_period(ctx)
     if tp_block:

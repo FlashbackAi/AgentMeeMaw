@@ -42,10 +42,13 @@ def name_cluster(
     settings,
     person_name: str,
     member_moments: Iterable[ClusterableMoment],
+    contributor_display_name: str = "",
 ) -> NamingResult:
     """Run the naming LLM for one cluster. Returns a typed result."""
     user_message = _build_user_message(
-        person_name=person_name, member_moments=member_moments
+        person_name=person_name,
+        member_moments=member_moments,
+        contributor_display_name=contributor_display_name,
     )
     args = asyncio.run(
         call_with_tool(
@@ -72,9 +75,12 @@ def _build_user_message(
     *,
     person_name: str,
     member_moments: Iterable[ClusterableMoment],
+    contributor_display_name: str = "",
 ) -> str:
     lines: list[str] = [
         f"<subject>{xml_text(person_name)}</subject>",
+        f"<contributor_display_name>{xml_text(contributor_display_name or '')}"
+        f"</contributor_display_name>",
         "",
         "<cluster>",
     ]

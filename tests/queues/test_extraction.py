@@ -44,7 +44,25 @@ async def test_extraction_push_uses_architecture_payload_shape():
         "rolling_summary": "New summary.",
         "prior_rolling_summary": "Old summary.",
         "seeded_question_id": str(question_id),
+        "contributor_display_name": "",
     }
+
+
+async def test_extraction_push_carries_contributor_display_name():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=None,
+        contributor_display_name="Sarah",
+    )
+
+    assert sqs.body["contributor_display_name"] == "Sarah"
 
 
 async def test_extraction_push_serializes_missing_seeded_question_as_null():

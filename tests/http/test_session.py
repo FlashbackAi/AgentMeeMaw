@@ -71,6 +71,48 @@ class TestSessionStart:
         assert resp.status_code == 404
         assert person_id in resp.json()["detail"]
 
+    async def test_stores_contributor_display_name(
+        self, client, fake_redis, fake_orchestrator: FakeOrchestrator
+    ):
+        session_id, person_id, role_id = new_uuids()
+        resp = await client.post(
+            "/session/start",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "contributor_display_name": "Sarah",
+                "session_metadata": {},
+            },
+        )
+        assert resp.status_code == 200
+
+        stored = await fake_redis.hget(
+            state_key(session_id), "contributor_display_name"
+        )
+        assert stored == b"Sarah"
+
+    async def test_contributor_display_name_optional(
+        self, client, fake_redis, fake_orchestrator: FakeOrchestrator
+    ):
+        session_id, person_id, role_id = new_uuids()
+        resp = await client.post(
+            "/session/start",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "session_metadata": {},
+            },
+        )
+        assert resp.status_code == 200
+        stored = await fake_redis.hget(
+            state_key(session_id), "contributor_display_name"
+        )
+        assert stored == b""
+
     async def test_seeds_rolling_summary_from_metadata(
         self, client, fake_redis, fake_orchestrator: FakeOrchestrator
     ):

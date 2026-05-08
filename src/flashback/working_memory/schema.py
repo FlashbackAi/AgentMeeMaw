@@ -69,6 +69,7 @@ class WorkingMemoryState(BaseModel):
     rolling_summary: str = ""
     prior_rolling_summary: str = ""
     prior_session_summary: str = ""
+    contributor_display_name: str = ""
     segments_pushed_this_session: int = 0
 
     signal_user_turns_since_segment_check: int = 0
@@ -133,6 +134,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "rolling_summary": state.rolling_summary,
         "prior_rolling_summary": state.prior_rolling_summary,
         "prior_session_summary": state.prior_session_summary,
+        "contributor_display_name": state.contributor_display_name,
         "segments_pushed_this_session": str(state.segments_pushed_this_session),
         "signal_user_turns_since_segment_check": str(state.signal_user_turns_since_segment_check),
         "signal_recent_words": state.signal_recent_words,

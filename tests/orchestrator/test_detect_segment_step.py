@@ -23,12 +23,14 @@ class FakeWorkingMemory:
         rolling_summary: str = "Old summary.",
         seeded_question_id: str = "",
         user_turns_since_segment_check: int = 4,
+        contributor_display_name: str = "",
     ) -> None:
         self.segment_turns = list(segment_turns or [])
         self.state = SimpleNamespace(
             rolling_summary=rolling_summary,
             last_seeded_question_id=seeded_question_id,
             signal_user_turns_since_segment_check=user_turns_since_segment_check,
+            contributor_display_name=contributor_display_name,
         )
         self.updated_summary = None
         self.reset_calls = 0

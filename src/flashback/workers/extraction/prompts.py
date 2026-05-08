@@ -188,8 +188,16 @@ Your job is to extract structured memory data from this segment.
 
 Input shape:
 - The subject's name and relationship to the contributor.
+- The contributor's display name (may be empty).
 - The PRIOR rolling summary (compressed history of earlier segments).
 - The CLOSED SEGMENT (the conversation turns to extract from).
+
+The contributor's display name (in `<contributor_display_name>`) may be \
+used for natural attribution in moment narratives and entity descriptions \
+("Sarah recalls...", "John, Sarah's father, was a carpenter"). Do not force \
+it; omit when phrasing reads better without it. When the tag is empty, fall \
+back to neutral attribution ("the contributor", or simply omit). Never use \
+a placeholder like "<contributor>".
 
 Extract the following, in this order of priority:
 

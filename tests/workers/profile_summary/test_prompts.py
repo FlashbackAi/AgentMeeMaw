@@ -45,3 +45,10 @@ def test_system_prompt_preserves_actor_attribution() -> None:
     """Summaries must not swap who did what when several people appear."""
     assert "Preserve actor attribution" in SYSTEM_PROMPT
     assert "Never shift an action" in SYSTEM_PROMPT
+
+
+def test_system_prompt_mentions_contributor_display_name() -> None:
+    """Archive-side prompt should describe how to use the contributor's
+    display name for natural attribution and how to fall back when empty."""
+    assert "<contributor_display_name>" in SYSTEM_PROMPT
+    assert "neutral attribution" in SYSTEM_PROMPT

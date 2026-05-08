@@ -36,3 +36,17 @@ def test_base_system_prompt_is_in_every_intent_prompt():
     for prompt in prompts.INTENT_TO_PROMPT.values():
         assert prompts.BASE_SYSTEM_PROMPT in prompt
     assert prompts.BASE_SYSTEM_PROMPT in prompts.STARTER_OPENER_PROMPT
+
+
+def test_no_contributor_display_name_in_chat_prompts():
+    """The contributor's display name is archive-side only.
+    Response generator and opener prompts must stay neutral —
+    no `<contributor_display_name>` tag, no instructions to address
+    the contributor by name. The chat surface stays neutral by design.
+    """
+    chat_prompts = list(prompts.INTENT_TO_PROMPT.values()) + [
+        prompts.STARTER_OPENER_PROMPT
+    ]
+    for p in chat_prompts:
+        assert "<contributor_display_name>" not in p
+        assert "contributor's display name" not in p.lower()

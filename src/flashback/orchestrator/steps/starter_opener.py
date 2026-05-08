@@ -156,12 +156,16 @@ async def init_working_memory(
 ) -> None:
     with timed_step(log, "init_working_memory"):
         seed_summary = state.session_metadata.get("prior_session_summary", "") or ""
+        contributor_display_name = (
+            state.session_metadata.get("contributor_display_name", "") or ""
+        )
         await deps.working_memory.initialize(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
             role_id=str(state.role_id),
             started_at=state.started_at,
             seed_prior_session_summary=str(seed_summary),
+            contributor_display_name=str(contributor_display_name).strip(),
         )
 
 

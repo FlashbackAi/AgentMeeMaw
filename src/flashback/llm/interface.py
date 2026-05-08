@@ -389,10 +389,11 @@ def _anthropic_request_kwargs(settings) -> dict:
 
 def _openai_request_kwargs(settings) -> dict:
     kwargs: dict = {}
+    store_enabled = _provider_store_enabled(settings)
     if hasattr(settings, "llm_provider_store_enabled"):
-        kwargs["store"] = _provider_store_enabled(settings)
+        kwargs["store"] = store_enabled
     user_id = _provider_user_id(settings)
-    if user_id:
+    if store_enabled and user_id:
         kwargs["metadata"] = {"user_id": user_id}
     return kwargs
 

@@ -371,7 +371,10 @@ We expose an HTTP service. Node calls us; we never call Node.
 
 We do **not** auth these endpoints. Node is the auth boundary.
 
-Detailed request/response shapes live in `API.md` (written at step 4).
+Detailed request/response shapes live in `API.md`. Node-side
+integration notes (auth, transport, async timing, what Node consumes
+from the artifact queue, what Node may and may not write to Postgres)
+live in `NODE_INTEGRATION.md`.
 
 ---
 
@@ -386,7 +389,7 @@ Detailed request/response shapes live in `API.md` (written at step 4).
   Generator, Segment Detector, Extraction Worker, Trait Synthesizer,
   Thread Detector, the Producers.
 - **Docs we maintain:** `CLAUDE.md` (this), `ARCHITECTURE.md`,
-  `SCHEMA.md`, `QUESTION_BANK.md`, `API.md`.
+  `SCHEMA.md`, `QUESTION_BANK.md`, `API.md`, `NODE_INTEGRATION.md`.
 - **No staging store in v1.** Extraction writes direct to canonical.
 - **Rolling summary lives in Working Memory** and is regenerated at
   every segment boundary by the Segment Detector path. It is the

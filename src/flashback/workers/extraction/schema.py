@@ -199,3 +199,4 @@ class ExtractionMessage(BaseModel):
     rolling_summary: str = ""
     prior_rolling_summary: str = ""
     seeded_question_id: UUID | None = None
+    contributor_display_name: str = ""

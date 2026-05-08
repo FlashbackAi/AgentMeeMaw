@@ -94,6 +94,53 @@ def test_llm_timeout_propagates(
         )
 
 
+def test_contributor_display_name_in_user_message(
+    monkeypatch, stub_extraction_cfg, stub_settings
+) -> None:
+    payload = sample_extractions.empty_extraction()
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return payload
+
+    monkeypatch.setattr(ext_llm_mod, "call_with_tool", _impl)
+    run_extraction(
+        cfg=stub_extraction_cfg,
+        settings=stub_settings,
+        subject_name="Dad",
+        subject_relationship=None,
+        prior_rolling_summary="",
+        segment_turns=SEGMENT_TURNS,
+        contributor_display_name="Sarah",
+    )
+    user_message = captured["user_message"]
+    assert "<contributor_display_name>Sarah</contributor_display_name>" in user_message
+
+
+def test_contributor_display_name_empty_renders_empty_tag(
+    monkeypatch, stub_extraction_cfg, stub_settings
+) -> None:
+    payload = sample_extractions.empty_extraction()
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return payload
+
+    monkeypatch.setattr(ext_llm_mod, "call_with_tool", _impl)
+    run_extraction(
+        cfg=stub_extraction_cfg,
+        settings=stub_settings,
+        subject_name="Dad",
+        subject_relationship=None,
+        prior_rolling_summary="",
+        segment_turns=SEGMENT_TURNS,
+    )
+    user_message = captured["user_message"]
+    assert "<contributor_display_name></contributor_display_name>" in user_message
+
+
 def test_validation_error_on_missing_themes(
     monkeypatch, stub_extraction_cfg, stub_settings
 ) -> None:

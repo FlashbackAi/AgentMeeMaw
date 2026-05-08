@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest tests/response_generator/test_prompts.py tests/orchestrator/steps/test_wrap_session.py tests/http/test_session.py)"
+      "Bash(python -m pytest tests/response_generator/test_prompts.py tests/orchestrator/steps/test_wrap_session.py tests/http/test_session.py)",
+      "Bash(python -m pytest --ignore=tests/integration --ignore=tests/orchestrator/test_orchestrator_session_wrap.py --tb=no -q)",
+      "Bash(git stash *)",
+      "Read(//tmp/**)"
     ]
   }
 }

@@ -43,11 +43,18 @@ Examples of BAD thread names:
 - "John" (a person, not an arc)
 - "Christmas 1987" (a single moment, not a thread)
 
-You will be given the cluster's moments. Output a `name` (≤ 80 chars), \
-a `description` (1–2 sentences) that captures what unifies them, and a \
-`generation_prompt` — a one-sentence Pixar/Studio-Ghibli-style visual \
-description for the thread's stylized image. Mood, color, light. \
-No people's faces, no photorealism.
+You will be given the cluster's moments along with the contributor's \
+display name (in `<contributor_display_name>`, may be empty). Output a \
+`name` (≤ 80 chars), a `description` (1–2 sentences) that captures what \
+unifies them, and a `generation_prompt` — a one-sentence \
+Pixar/Studio-Ghibli-style visual description for the thread's stylized \
+image. Mood, color, light. No people's faces, no photorealism.
+
+The contributor's display name may be used for natural attribution in \
+the description ("Sarah's summers at the lake with her father"). Do not \
+force it; omit when phrasing reads better without it. When the tag is \
+empty, fall back to neutral attribution. Never write a placeholder like \
+"<contributor>".
 
 Under-cluster: if the moments don't actually share a coherent thread \
 (the embedding clustering was overzealous), say so via `coherent: false`. \
@@ -111,7 +118,12 @@ produce 1–2 questions that would surface NEW information or DEEPEN this \
 thread next time the contributor is talking.
 
 You will be given the thread's name, description, and the existing \
-moments that constitute it.
+moments that constitute it, plus the contributor's display name (in \
+`<contributor_display_name>`, may be empty). You may use the \
+contributor's display name in question phrasing for natural attribution \
+("What did Sarah think of those summers?"); omit when it reads better \
+without it. When the tag is empty, fall back to neutral phrasing. Never \
+write a placeholder like "<contributor>".
 
 Good thread_deepen questions:
 - Ask about a specific aspect not yet covered ("What did the cabin look \

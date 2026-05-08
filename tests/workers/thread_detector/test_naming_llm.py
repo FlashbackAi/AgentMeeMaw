@@ -77,6 +77,51 @@ def test_incoherent_returns_coherent_false(
     assert result.description is None
 
 
+def test_contributor_display_name_in_user_message(
+    monkeypatch, stub_naming_cfg, stub_settings
+):
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return {"coherent": False, "reasoning": "noisy"}
+
+    monkeypatch.setattr(naming_mod, "call_with_tool", _impl)
+    name_cluster(
+        cfg=stub_naming_cfg,
+        settings=stub_settings,
+        person_name="Dad",
+        member_moments=_moments(),
+        contributor_display_name="Sarah",
+    )
+    assert (
+        "<contributor_display_name>Sarah</contributor_display_name>"
+        in captured["user_message"]
+    )
+
+
+def test_contributor_display_name_empty_renders_empty_tag(
+    monkeypatch, stub_naming_cfg, stub_settings
+):
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return {"coherent": False, "reasoning": "noisy"}
+
+    monkeypatch.setattr(naming_mod, "call_with_tool", _impl)
+    name_cluster(
+        cfg=stub_naming_cfg,
+        settings=stub_settings,
+        person_name="Dad",
+        member_moments=_moments(),
+    )
+    assert (
+        "<contributor_display_name></contributor_display_name>"
+        in captured["user_message"]
+    )
+
+
 def test_llm_timeout_propagates(monkeypatch, stub_naming_cfg, stub_settings):
     monkeypatch.setattr(
         naming_mod, "call_with_tool", _stub(exc=LLMTimeout("slow"))

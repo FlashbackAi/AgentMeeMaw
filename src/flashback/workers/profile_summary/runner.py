@@ -100,6 +100,7 @@ def run_once(
     embedding_sender=None,
     embedding_model: str | None = None,
     embedding_model_version: str | None = None,
+    contributor_display_name: str = "",
 ) -> RunResult:
     """Generate the profile summary + extract profile facts for one person.
 
@@ -126,6 +127,7 @@ def run_once(
         top_traits_max=top_traits_max,
         top_threads_max=top_threads_max,
         top_entities_max=top_entities_max,
+        contributor_display_name=contributor_display_name,
     )
 
     # 3. Empty-legacy short-circuit.

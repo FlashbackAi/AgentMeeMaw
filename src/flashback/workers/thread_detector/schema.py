@@ -43,6 +43,7 @@ class ThreadDetectorMessage(BaseModel):
     person_id: UUID
     active_count_at_trigger: int
     last_count_at_trigger: int
+    contributor_display_name: str = ""
 
 
 # ---------------------------------------------------------------------------

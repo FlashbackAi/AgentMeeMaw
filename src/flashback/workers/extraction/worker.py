@@ -217,6 +217,7 @@ class ExtractionWorker:
             subject_relationship=None,
             prior_rolling_summary=payload.prior_rolling_summary,
             segment_turns=payload.segment_turns,
+            contributor_display_name=payload.contributor_display_name or "",
         )
 
         # 3. Refinement detection (vector search + per-candidate compat call).
@@ -271,6 +272,9 @@ class ExtractionWorker:
                         source_sqs_message_id=message_id,
                         person_id=str(payload.person_id),
                         cadence=self.thread_detector_cadence,
+                        contributor_display_name=(
+                            payload.contributor_display_name or ""
+                        ),
                     )
                     if trigger_status.would_trigger:
                         outbox_jobs += 1

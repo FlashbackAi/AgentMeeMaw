@@ -78,3 +78,10 @@ def test_system_prompt_mentions_keep_default_and_subject_guard() -> None:
     assert "DEFAULT" in SYSTEM_PROMPT
     assert "SUBJECT" in SYSTEM_PROMPT
     assert "synthesize_traits" in SYSTEM_PROMPT
+
+
+def test_system_prompt_mentions_contributor_display_name() -> None:
+    """Archive-side prompt should describe how to use the contributor's
+    display name for natural attribution and how to fall back when empty."""
+    assert "<contributor_display_name>" in SYSTEM_PROMPT
+    assert "neutral attribution" in SYSTEM_PROMPT

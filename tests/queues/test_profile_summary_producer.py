@@ -36,7 +36,19 @@ async def test_push_payload_shape_and_message_id():
         "session_id": str(session_id),
         "idempotency_key": str(session_id),
         "triggered_by": "session_wrap",
+        "contributor_display_name": "",
     }
+
+
+async def test_push_carries_contributor_display_name():
+    sqs = CapturingSQS()
+    producer = ProfileSummaryQueueProducer(sqs, "profile-url")
+    await producer.push(
+        person_id=uuid4(),
+        session_id=uuid4(),
+        contributor_display_name="Sarah",
+    )
+    assert sqs.body["contributor_display_name"] == "Sarah"
 
 
 async def test_push_propagates_sqs_errors():

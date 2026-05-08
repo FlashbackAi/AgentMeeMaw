@@ -74,6 +74,7 @@ def run_once(
     idempotency_key: str,
     embedding_model: str,
     embedding_model_version: str,
+    contributor_display_name: str = "",
 ) -> RunResult:
     """Synthesize traits for a single person, end to end."""
     # 1. Idempotency check.
@@ -88,7 +89,11 @@ def run_once(
                 return RunResult.skip()
 
     # 2. Context.
-    context = build_context(db_pool, person_id=person_id)
+    context = build_context(
+        db_pool,
+        person_id=person_id,
+        contributor_display_name=contributor_display_name,
+    )
 
     # 3. LLM call (may raise LLMTimeout / LLMError).
     synth_result: TraitSynthesisResult = synthesize(

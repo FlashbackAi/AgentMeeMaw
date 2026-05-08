@@ -62,6 +62,24 @@ class TestInitialize:
         assert state.rolling_summary == ""
         assert state.prior_rolling_summary == ""
 
+    async def test_stores_contributor_display_name(self, wm: WorkingMemory):
+        await wm.initialize(
+            SESSION_ID,
+            PERSON_ID,
+            ROLE_ID,
+            _now(),
+            contributor_display_name="Sarah",
+        )
+        state = await wm.get_state(SESSION_ID)
+        assert state.contributor_display_name == "Sarah"
+        assert await wm.get_contributor_display_name(SESSION_ID) == "Sarah"
+
+    async def test_contributor_display_name_defaults_empty(
+        self, wm: WorkingMemory
+    ):
+        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        assert await wm.get_contributor_display_name(SESSION_ID) == ""
+
     async def test_exists_after_initialize(self, wm: WorkingMemory):
         assert not await wm.exists(SESSION_ID)
         await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())

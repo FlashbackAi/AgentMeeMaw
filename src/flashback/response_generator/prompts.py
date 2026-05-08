@@ -1,4 +1,12 @@
-"""System prompts for Flashback response generation."""
+"""System prompts for Flashback response generation.
+
+NOTE: do not thread the contributor's display name into these prompts
+or the opener. The chat surface stays neutral by design — over-using
+the contributor's name in grief conversation feels artificial. The
+contributor's display name is archive-side only (extraction worker,
+trait synthesizer, profile summary, thread detector). See CLAUDE.md
+and the contributor_display_name section in API.md / NODE_INTEGRATION.md.
+"""
 
 BASE_SYSTEM_PROMPT = """\
 You are Flashback, a memorial conversation agent helping someone
