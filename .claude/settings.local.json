@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/response_generator/test_prompts.py tests/orchestrator/steps/test_wrap_session.py tests/http/test_session.py)"
+    ]
+  }
+}
