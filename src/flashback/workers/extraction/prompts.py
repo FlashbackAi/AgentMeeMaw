@@ -239,19 +239,41 @@ persisted. Do not emit them.
 extract it as a MOMENT and connect via `exemplifies_trait_indexes` to a \
 pattern trait. Do NOT also emit the incident itself as a separate trait — \
 the trait names the pattern, the moment IS the evidence.
-- DESCRIPTIONS ARE ABOUT THE SUBJECT, NOT THE SPEAKER. A trait lives on \
-the deceased's legacy — describe THEIR observed property, never who \
-reported it. The general contributor-name rule does NOT apply inside \
-trait descriptions: do NOT write "Described as kind by Priya" or \
-"Described as kind by the contributor" or any variant that names the \
-speech act. Keep the contributor entirely OUT of the trait description. \
+- THE CONTRIBUTOR NEVER APPEARS IN A TRAIT DESCRIPTION — in ANY role. \
+A trait lives on the deceased's legacy and describes the SUBJECT's \
+observed property. The contributor must not appear as speaker, narrator, \
+witness, observer, listener, OR participant. The general \
+contributor-name rule (used elsewhere in extraction) does NOT apply \
+inside trait descriptions. Banned patterns include but are not limited \
+to:
+    (a) speaker attribution — "Described as kind by the contributor", \
+"Described as kind by Priya", any "by <X>" tail
+    (b) meta-narration — "the contributor noted...", "they noted...", \
+"Priya recalls...", "according to the contributor...", any phrasing \
+that names the act of describing rather than the property itself
+    (c) contributor knowledge framing — "Despite the contributor not \
+knowing much about his home life...", "the contributor wasn't sure, \
+but...", "even though Priya rarely saw him at work..."
+    (d) contributor as participant — "Chitanya would come to the \
+contributor when stuck", "explained things to the contributor", \
+"called Priya every Sunday". When the relationship between the subject \
+and contributor IS part of the evidence, abstract it: "drew on close \
+friends when stuck", "explained things at the listener's pace", "kept \
+in touch with the people closest to him".
+
 Examples:
     Bad:  "Described as kind by the contributor."
-    Bad:  "Described as kind by Priya."
+    Bad:  "The contributor noted Chitanya was talented."
+    Bad:  "Despite the contributor not knowing much about his home \
+life, they noted he looked out for people at home."
+    Bad:  "When stuck on a problem, Chitanya would come to the \
+contributor rather than struggle alone."
     Good: "Came across as kind from the first meeting — made time for \
 a stranger's laptop questions without seeming bothered."
-    Good: "Patient with people who didn't know what they didn't know — \
-explained things at their pace, not his."
+    Good: "Looked out for people at home — even the parts of his life \
+others rarely saw."
+    Good: "Drew on close friends when stuck on a problem rather than \
+struggle alone, trusting the people around him."
 - Name = short label (1-4 words), e.g., "Kind", "Patient explainer". \
 Description = 1-2 sentences in observed-behavior voice that name the \
 PROPERTY and a concrete behavior that shows it. No speaker attribution.
@@ -386,11 +408,17 @@ one cohesive 1-2 sentence description that preserves the strongest concrete \
 behavior from each.
 
 Hard rules:
-- DESCRIBE THE SUBJECT'S OBSERVED PROPERTY. The merged description lives on \
-the subject's legacy page. Never name the speaker. Never write "described as \
-X by the contributor", "described as X by <name>", "Sarah noted...", or any \
-phrasing that names the speech act. Strip such language from the inputs if \
-present.
+- THE CONTRIBUTOR NEVER APPEARS in the merged description, in ANY role: not \
+as speaker, narrator, witness, observer, listener, or participant. Strip \
+such framings from the inputs if present. Banned patterns include speaker \
+attribution ("described as X by the contributor", "described as X by \
+<name>"), meta-narration ("the contributor noted...", "they noted...", \
+"<name> recalls..."), contributor-knowledge framings ("despite the \
+contributor not knowing...", "even though <name> rarely saw..."), and \
+contributor-as-participant ("came to the contributor when stuck", \
+"explained things to <name>"). When the contributor is structurally part \
+of the evidence, abstract them into a neutral group noun: "close friends", \
+"those around him", "people he trusted", "the listener".
 - 1-2 sentences total. Concise, behavior-focused, present-tense recall.
 - Preserve the strongest concrete behavior from EACH input. If one input is \
 behavior-grounded and the other is bare adjective filler, weight the \
