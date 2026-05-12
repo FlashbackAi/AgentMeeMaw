@@ -6,10 +6,11 @@ section. Uses pydantic v2 syntax (``model_config = ConfigDict(...)``).
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # --- /session/start --------------------------------------------------------
@@ -105,6 +106,47 @@ class ResetPhaseResponse(BaseModel):
     person_id: UUID
     previous_phase: Literal["starter", "steady"]
     previous_locked_at: str | None = None
+
+
+# --- /persons --------------------------------------------------------------
+
+
+class PersonCreateRequest(BaseModel):
+    """Body for ``POST /persons``.
+
+    Node calls this once during onboarding, after the contributor has
+    supplied the deceased's display name, their own relationship to
+    them, and their contributor display name. DOB / DOD are deliberately
+    not accepted (CLAUDE.md s1).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    relationship: str = Field(min_length=1, max_length=80)
+    contributor_display_name: str = Field(min_length=1, max_length=64)
+
+    @field_validator(
+        "name",
+        "relationship",
+        "contributor_display_name",
+        mode="before",
+    )
+    @classmethod
+    def _strip(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class PersonCreateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    name: str
+    relationship: str
+    phase: Literal["starter", "steady"]
+    created_at: datetime
 
 
 # --- /health ---------------------------------------------------------------

@@ -255,8 +255,10 @@ in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
   questions, 5 dimensions × 2–3 phrasings, `source='starter_anchor'`,
   `attributes.dimension` set). Not a runtime component.
 - **Anchor selection in starter phase:** lowest-coverage dimension;
-  tiebreaker `sensory > voice > place > relation > era`. **First turn
-  of a new legacy is always `sensory`.**
+  tiebreaker `era > relation > place > voice > sensory` (cold → warm,
+  so sensory is asked last once we've earned the intimacy). **First
+  turn of a new legacy is always `era`** — the work/life-period
+  opener is the lowest-friction cold start.
 - **First-turn opener** is LLM-generated under tight constraints —
   must (a) name the deceased, (b) name the Flashback role, (c) ask the
   chosen anchor. Not templated.

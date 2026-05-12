@@ -10,12 +10,31 @@ from psycopg_pool import AsyncConnectionPool
 from flashback.phase_gate.queries import (
     HAS_ACTIVE_MOMENTS,
     READ_COVERAGE_STATE,
-    READ_PERSON_NAME,
+    READ_PERSON_NAME_AND_GENDER,
     SELECT_ANY_STARTER_FOR_DIMENSION,
     SELECT_UNANSWERED_STARTER,
 )
 from flashback.phase_gate.ranking import TIEBREAKER_DIMENSIONS
 from flashback.phase_gate.schema import Dimension, PhaseGateError, SelectionResult
+
+_PRONOUNS: dict[str, dict[str, str]] = {
+    "male":   {"they": "he",   "them": "him",  "their": "his"},
+    "female": {"they": "she",  "them": "her",  "their": "her"},
+}
+_DEFAULT_PRONOUNS = {"they": "they", "them": "them", "their": "their"}
+
+
+def _pronouns_for(gender: str | None) -> dict[str, str]:
+    if gender is None:
+        return _DEFAULT_PRONOUNS
+    return _PRONOUNS.get(gender.strip().lower(), _DEFAULT_PRONOUNS)
+
+
+def _render(text: str, name: str, pronouns: dict[str, str]) -> str:
+    out = text.replace("{name}", name)
+    for placeholder, value in pronouns.items():
+        out = out.replace("{" + placeholder + "}", value)
+    return out
 
 
 class StarterSelector:
@@ -44,7 +63,8 @@ class StarterSelector:
             )
 
         question_id, text = row
-        rendered_text = text.replace("{name}", await self._read_name(person_id))
+        name, gender = await self._read_name_and_gender(person_id)
+        rendered_text = _render(text, name, _pronouns_for(gender))
         filter_note = "unanswered template" if answered_filter_used else "fallback"
         return SelectionResult(
             phase="starter",
@@ -55,14 +75,20 @@ class StarterSelector:
             rationale=f"starter {filter_note}; selected {dimension}",
         )
 
-    async def _read_name(self, person_id: UUID) -> str:
+    async def _read_name_and_gender(
+        self, person_id: UUID
+    ) -> tuple[str, str | None]:
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(READ_PERSON_NAME, {"person_id": person_id})
+                await cur.execute(
+                    READ_PERSON_NAME_AND_GENDER, {"person_id": person_id}
+                )
                 row = await cur.fetchone()
         if row is None:
             raise PhaseGateError(f"person {person_id} not found")
-        return str(row[0])
+        name = str(row[0])
+        gender = None if row[1] is None else str(row[1])
+        return name, gender
 
     async def _choose_dimension(self, person_id: UUID) -> Dimension:
         async with self._pool.connection() as conn:
@@ -79,7 +105,7 @@ class StarterSelector:
         if coverage_row is None:
             raise PhaseGateError(f"person {person_id} not found")
         if not has_moments and not _has_any_coverage(coverage_row[0]):
-            return "relation"
+            return "era"
         return _lowest_coverage_dimension(coverage_row[0])
 
     async def _fetch_template(

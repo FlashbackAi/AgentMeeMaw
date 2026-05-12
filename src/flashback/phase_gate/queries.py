@@ -8,8 +8,8 @@ FROM persons
 WHERE id = %(person_id)s
 """
 
-READ_PERSON_NAME = """
-SELECT name
+READ_PERSON_NAME_AND_GENDER = """
+SELECT name, gender
 FROM persons
 WHERE id = %(person_id)s
 """

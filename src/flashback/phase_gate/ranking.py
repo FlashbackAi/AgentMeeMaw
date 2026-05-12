@@ -12,8 +12,8 @@ SOURCE_PRIORITY: tuple[str, ...] = (
     "universal_dimension",
 )
 TIEBREAKER_DIMENSIONS: tuple[str, ...] = (
-    "relation",
     "era",
+    "relation",
     "place",
     "voice",
     "sensory",
