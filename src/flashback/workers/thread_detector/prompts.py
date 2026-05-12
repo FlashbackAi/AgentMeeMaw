@@ -50,10 +50,13 @@ unifies them, and a `generation_prompt` — a one-sentence \
 Pixar/Studio-Ghibli-style visual description for the thread's stylized \
 image. Mood, color, light. No people's faces, no photorealism.
 
-The contributor's display name may be used for natural attribution in \
-the description ("Sarah's summers at the lake with her father"). Do not \
-force it; omit when phrasing reads better without it. When the tag is \
-empty, fall back to neutral attribution. Never write a placeholder like \
+When `<contributor_display_name>` is non-empty, USE that name for any \
+first-person attribution to the contributor in the description ("Sarah's \
+summers at the lake with her father"). Do NOT write "the contributor" or \
+"the contributor's" when a name is provided — use the name, or restructure \
+into impersonal voice if that reads better than any explicit attribution. \
+The phrase "the contributor" is reserved for the empty-tag case; only then \
+fall back to neutral attribution. Never write a placeholder like \
 "<contributor>".
 
 Under-cluster: if the moments don't actually share a coherent thread \
@@ -119,11 +122,13 @@ thread next time the contributor is talking.
 
 You will be given the thread's name, description, and the existing \
 moments that constitute it, plus the contributor's display name (in \
-`<contributor_display_name>`, may be empty). You may use the \
-contributor's display name in question phrasing for natural attribution \
-("What did Sarah think of those summers?"); omit when it reads better \
-without it. When the tag is empty, fall back to neutral phrasing. Never \
-write a placeholder like "<contributor>".
+`<contributor_display_name>`, may be empty). When the tag is non-empty, \
+USE that name in question phrasing for any direct attribution to the \
+contributor ("What did Sarah think of those summers?"). Do NOT write \
+"the contributor" when a name is provided — use the name, or restructure \
+the question to avoid attribution. The phrase "the contributor" is \
+reserved for the empty-tag case; only then fall back to neutral phrasing. \
+Never write a placeholder like "<contributor>".
 
 Good thread_deepen questions:
 - Ask about a specific aspect not yet covered ("What did the cabin look \

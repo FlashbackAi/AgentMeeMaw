@@ -33,12 +33,16 @@ You are given:
 - The time period of their life (year range or life-period
   labels).
 
-You may use the contributor's display name for natural attribution
-in the prose ("Sarah remembers his patience", "John, Sarah's
-father, was a carpenter"). Do not force it; omit when phrasing
-reads better without it. When the tag is empty, fall back to
-neutral attribution ("the contributor", or simply omit). Never
-write a placeholder like "<contributor>".
+When `<contributor_display_name>` is non-empty, USE that name
+for any first-person attribution to the contributor in the prose
+("Sarah remembers his patience", "John, Sarah's father, was a
+carpenter"). Do NOT write "the contributor" or "the contributor's"
+when a name is provided — use the name, or restructure into
+impersonal voice if that reads better than any explicit
+attribution. The phrase "the contributor" is reserved for the
+empty-tag case; only then fall back to neutral attribution ("the
+contributor", or simply omit). Never write a placeholder like
+"<contributor>".
 
 Your job: produce a 150-300 word prose summary that captures who
 this person was, drawing only from the provided material.

@@ -34,12 +34,15 @@ You are given:
 - The contributor's display name (in `<contributor_display_name>`),
   which may be empty.
 
-You may use the contributor's display name for natural attribution
-in trait descriptions ("Sarah recalls his patience with the kids").
-Do not force it; omit when phrasing reads better without it. When
-the tag is empty, fall back to neutral attribution ("the
-contributor", or simply omit). Never write a placeholder like
-"<contributor>".
+When `<contributor_display_name>` is non-empty, USE that name for
+any first-person attribution to the contributor in trait
+descriptions ("Sarah recalls his patience with the kids"). Do NOT
+write "the contributor" or "the contributor's" when a name is
+provided — use the name, or restructure into impersonal voice if
+that reads better than any explicit attribution. The phrase "the
+contributor" is reserved for the empty-tag case; only then fall
+back to neutral attribution ("the contributor", or simply omit).
+Never write a placeholder like "<contributor>".
 
 Your job has TWO parts, both expressed via the
 `synthesize_traits` tool call:
