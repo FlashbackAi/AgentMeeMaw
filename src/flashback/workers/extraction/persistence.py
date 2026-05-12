@@ -106,6 +106,38 @@ class LLMProvenance:
     prompt_version: str
 
 
+@dataclass(frozen=True)
+class TraitMergeResolution:
+    """Pre-computed cross-session dedup resolution for a single trait.
+
+    Set by the worker (outside the transaction) when an active trait
+    with the same case-insensitive name already exists for this person.
+    The worker has called the merge LLM and already replaced
+    ``extraction.traits[i].description`` with the merged description,
+    so outbox/embedding code reads the right text by default. Here we
+    only need to flag that this index must UPDATE the existing row
+    rather than INSERT a new one. Persistence:
+
+      * UPDATEs the existing row's ``description`` to the (now-merged)
+        value on the trait
+      * NULLs ``description_embedding`` + ``embedding_model`` +
+        ``embedding_model_version`` so the embedding worker re-embeds
+        on the merged description
+      * Returns ``existing_trait_id`` at this index so moment
+        ``exemplifies`` edges resolve to the existing trait rather
+        than a duplicate row
+    """
+
+    existing_trait_id: str
+
+
+@dataclass(frozen=True)
+class ExistingTraitRow:
+    id: str
+    name: str
+    description: str | None
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -119,12 +151,20 @@ def persist_extraction(
     moment_decisions: list[MomentDecision],
     seeded_question_id: str | None,
     llm_provenance: LLMProvenance | None = None,
+    trait_merge_resolutions: list[TraitMergeResolution | None] | None = None,
 ) -> PersistenceResult:
     """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK."""
 
     if len(moment_decisions) != len(extraction.moments):
         raise ValueError(
             "moment_decisions length must match extraction.moments length"
+        )
+    if (
+        trait_merge_resolutions is not None
+        and len(trait_merge_resolutions) != len(extraction.traits)
+    ):
+        raise ValueError(
+            "trait_merge_resolutions length must match extraction.traits length"
         )
 
     surviving_entities, dropped_count = _apply_subject_guard(
@@ -142,6 +182,7 @@ def persist_extraction(
         person_id=person.id,
         traits=extraction.traits,
         llm_provenance=llm_provenance,
+        merge_resolutions=trait_merge_resolutions,
     )
 
     # Map original-index -> UUID, accounting for entities that were dropped
@@ -333,15 +374,92 @@ def _insert_entities(
     return ids
 
 
+def find_existing_active_traits_by_name(
+    cursor,
+    *,
+    person_id: str,
+    names: list[str],
+) -> dict[str, ExistingTraitRow]:
+    """Return active traits whose case-insensitive name is in ``names``.
+
+    Keyed by ``lower(name)`` so callers can match without re-lowercasing.
+    Empty input → empty result. Used by the worker (outside the
+    transaction) to decide which extracted traits should merge into an
+    existing row vs insert a new one. See invariant #18.
+    """
+    if not names:
+        return {}
+    lowered = list({n.strip().lower() for n in names if n and n.strip()})
+    if not lowered:
+        return {}
+    cursor.execute(
+        """
+        SELECT id::text, name, description
+          FROM active_traits
+         WHERE person_id = %s
+           AND lower(name) = ANY(%s)
+        """,
+        (person_id, lowered),
+    )
+    out: dict[str, ExistingTraitRow] = {}
+    for row in cursor.fetchall():
+        out[row[1].strip().lower()] = ExistingTraitRow(
+            id=row[0], name=row[1], description=row[2]
+        )
+    return out
+
+
 def _insert_traits(
     cursor,
     *,
     person_id: str,
     traits,
     llm_provenance: LLMProvenance | None,
+    merge_resolutions: list["TraitMergeResolution | None"] | None = None,
 ) -> list[str]:
+    """Insert new traits or UPDATE existing rows for cross-session merges.
+
+    When ``merge_resolutions[i]`` is set, that trait already exists for
+    this person; we UPDATE its description, NULL its embedding fields
+    (the embedding worker re-embeds on the merged description), and
+    return the existing id at position ``i``. When the resolution is
+    ``None``, INSERT a fresh row as usual. The returned list has the
+    same length and order as ``traits``.
+    """
+    if merge_resolutions is not None and len(merge_resolutions) != len(traits):
+        raise ValueError(
+            "merge_resolutions length must match traits length"
+        )
     ids: list[str] = []
-    for t in traits:
+    for i, t in enumerate(traits):
+        resolution = (
+            merge_resolutions[i] if merge_resolutions is not None else None
+        )
+        if resolution is not None:
+            cursor.execute(
+                """
+                UPDATE traits
+                   SET description             = %s,
+                       description_embedding   = NULL,
+                       embedding_model         = NULL,
+                       embedding_model_version = NULL
+                 WHERE id = %s
+                   AND person_id = %s
+                   AND status = 'active'
+                """,
+                (
+                    t.description,
+                    resolution.existing_trait_id,
+                    person_id,
+                ),
+            )
+            ids.append(resolution.existing_trait_id)
+            log.info(
+                "extraction.trait_merged",
+                trait_id=resolution.existing_trait_id,
+                name=t.name,
+            )
+            continue
         cursor.execute(
             """
             INSERT INTO traits

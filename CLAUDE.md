@@ -105,7 +105,7 @@ External dependencies we **call** but do not own: the Node Backend
 
 ---
 
-## 4. The 17 invariants
+## 4. The 18 invariants
 
 Every piece of code touching the graph or queues must respect these.
 
@@ -186,6 +186,41 @@ Every piece of code touching the graph or queues must respect these.
     memorial conversation. Approval repoints edges, marks the source
     entity `merged`, clears survivor embedding fields, and queues a
     fresh entity embedding job.
+18. **Traits are anchored, deduped, and behavior-described.** Three
+    rules, applied in order by the Extraction Worker:
+
+    a. **Exemplifier required.** A trait is a stable pattern, not a bare
+       adjective and not a single incident. The extraction prompt
+       instructs the LLM to skip candidates without behavioral anchoring
+       and to connect each surviving trait via
+       `exemplifies_trait_indexes` on a moment. As a backstop,
+       `drop_orphan_traits` runs on the LLM output before persistence:
+       any trait not referenced by a moment's
+       `exemplifies_trait_indexes` is dropped, and surviving traits'
+       indexes are remapped so moment edges still resolve.
+
+    b. **Cross-session merge.** Before persistence, the worker matches
+       each surviving trait against `active_traits` by
+       case-insensitive `name` (per `person_id`). On match,
+       `merge_trait_description` (small LLM) blends the existing and
+       new descriptions into a 1-2 sentence behavior-focused
+       description; persistence then UPDATEs the existing row
+       (description + NULL embedding fields) and routes
+       `exemplifies` edges to the existing trait id — never a
+       duplicate insert. An `embedding` job is pushed for the
+       merged description so the embedding worker re-embeds.
+
+    c. **Descriptions are about the subject, not the speaker.** Trait
+       descriptions live on the deceased's legacy and must describe
+       the SUBJECT's observed property in behavioral terms. The
+       contributor is excluded entirely from trait descriptions. The
+       general contributor-name attribution rule (used elsewhere in
+       extraction) does NOT apply inside trait descriptions: both
+       "Described as kind by the contributor" and "Described as kind
+       by Priya" are forbidden. A good description names the property
+       and a concrete behavior that shows it ("Came across as kind
+       from the first meeting — made time for a stranger's laptop
+       questions without seeming bothered").
 
 ---
 

@@ -117,10 +117,18 @@ EXTRACTION_TOOL = ToolSpec(
             "traits": {
                 "type": "array",
                 "description": (
-                    "Traits of the SUBJECT (the deceased), explicitly mentioned "
-                    "in this segment. Strength is always 'mentioned_once' here "
-                    "— the Trait Synthesizer upgrades later."
+                    "Traits of the SUBJECT, each anchored to a specific "
+                    "recalled behavior or recurring pattern in this segment. "
+                    "EVERY trait MUST be referenced by at least one moment "
+                    "via `exemplifies_trait_indexes` — orphan traits are "
+                    "dropped by the worker and never persisted. Skip bare "
+                    "adjectives that have no accompanying behavioral "
+                    "evidence. Never extract a single recalled incident as "
+                    "a trait (extract it as a moment and link). 0-2 typical, "
+                    "max 3. Strength is always 'mentioned_once'; the Trait "
+                    "Synthesizer upgrades later."
                 ),
+                "maxItems": 3,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -192,12 +200,15 @@ Input shape:
 - The PRIOR rolling summary (compressed history of earlier segments).
 - The CLOSED SEGMENT (the conversation turns to extract from).
 
-The contributor's display name (in `<contributor_display_name>`) may be \
-used for natural attribution in moment narratives and entity descriptions \
-("Sarah recalls...", "John, Sarah's father, was a carpenter"). Do not force \
-it; omit when phrasing reads better without it. When the tag is empty, fall \
-back to neutral attribution ("the contributor", or simply omit). Never use \
-a placeholder like "<contributor>".
+When `<contributor_display_name>` is non-empty, USE that name for any \
+first-person attribution to the contributor in moment narratives and \
+entity descriptions ("Sarah recalls...", "John, Sarah's father, was a \
+carpenter"). Do NOT write "the contributor" or "the contributor's" when \
+a name is provided — use the name, or restructure into impersonal voice \
+(passive, descriptive) if that reads better than any explicit attribution. \
+The phrase "the contributor" is reserved for the empty-tag case; only \
+then fall back to neutral attribution ("the contributor", or simply omit). \
+Never write a placeholder like "<contributor>".
 
 Extract the following, in this order of priority:
 
@@ -211,8 +222,40 @@ contains that many distinct episodes.
 via `kind`. NEVER include the subject themselves as an entity. The subject is \
 in `persons`, not `entities`. Other people mentioned ARE entities.
 
-3. TRAITS — character properties of the SUBJECT, explicitly stated or strongly \
-implied in the contributor's words. Strength is always 'mentioned_once' here.
+3. TRAITS — STABLE character properties of the SUBJECT, anchored to behavior \
+in this segment. A trait is a pattern ("patient explainer", "quick to laugh"), \
+not a single event and not a bare adjective. Under-extract — drop on doubt.
+
+Strict trait rules:
+- REQUIRE behavioral anchoring. Drop any candidate trait unless this segment \
+contains a specific recalled behavior or recurring pattern that exemplifies \
+it. Bare adjectives in a list ("strong, handsome, kind") with NO accompanying \
+instance are NOT yet traits. Drop them; a later session will earn them.
+- REQUIRE an exemplifying MOMENT in this same extraction. Every trait you \
+emit MUST be referenced by ≥1 moment via `exemplifies_trait_indexes`. Orphan \
+traits (no exemplifying moment index) are dropped by the worker and never \
+persisted. Do not emit them.
+- ONE INCIDENT IS NOT A TRAIT. If a single recalled scene shows a property, \
+extract it as a MOMENT and connect via `exemplifies_trait_indexes` to a \
+pattern trait. Do NOT also emit the incident itself as a separate trait — \
+the trait names the pattern, the moment IS the evidence.
+- DESCRIPTIONS ARE ABOUT THE SUBJECT, NOT THE SPEAKER. A trait lives on \
+the deceased's legacy — describe THEIR observed property, never who \
+reported it. The general contributor-name rule does NOT apply inside \
+trait descriptions: do NOT write "Described as kind by Priya" or \
+"Described as kind by the contributor" or any variant that names the \
+speech act. Keep the contributor entirely OUT of the trait description. \
+Examples:
+    Bad:  "Described as kind by the contributor."
+    Bad:  "Described as kind by Priya."
+    Good: "Came across as kind from the first meeting — made time for \
+a stranger's laptop questions without seeming bothered."
+    Good: "Patient with people who didn't know what they didn't know — \
+explained things at their pace, not his."
+- Name = short label (1-4 words), e.g., "Kind", "Patient explainer". \
+Description = 1-2 sentences in observed-behavior voice that name the \
+PROPERTY and a concrete behavior that shows it. No speaker attribution.
+- Strength is always 'mentioned_once' here.
 
 4. DROPPED_REFERENCES — named entities the contributor mentioned in passing \
 but did not explore. Generate a question that would open them up next time.
@@ -302,4 +345,72 @@ When in doubt, prefer `independent`. False refinements lose information; \
 false contradictions are noise.
 
 Respond ONLY by calling the `judge_compatibility` tool.\
+"""
+
+
+# ---------------------------------------------------------------------------
+# Trait-description merge tool (small LLM)
+# ---------------------------------------------------------------------------
+
+
+TRAIT_MERGE_TOOL = ToolSpec(
+    name="merge_trait_description",
+    description=(
+        "Merge an existing trait description with newly-observed behavior "
+        "from this segment into one cohesive 1-2 sentence description, "
+        "in observed-behavior voice. No speaker attribution."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "merged_description": {
+                "type": "string",
+                "description": (
+                    "The merged trait description. 1-2 sentences. Names "
+                    "the property and concrete behaviors that show it. "
+                    "No speaker attribution ('Described as X by Y' / "
+                    "'the contributor noted...' are forbidden)."
+                ),
+            },
+        },
+        "required": ["merged_description"],
+        "additionalProperties": False,
+    },
+)
+
+
+TRAIT_MERGE_SYSTEM_PROMPT = """\
+You are merging two descriptions of the SAME trait of a deceased person on \
+their memorial legacy. Both describe the same property; you fold them into \
+one cohesive 1-2 sentence description that preserves the strongest concrete \
+behavior from each.
+
+Hard rules:
+- DESCRIBE THE SUBJECT'S OBSERVED PROPERTY. The merged description lives on \
+the subject's legacy page. Never name the speaker. Never write "described as \
+X by the contributor", "described as X by <name>", "Sarah noted...", or any \
+phrasing that names the speech act. Strip such language from the inputs if \
+present.
+- 1-2 sentences total. Concise, behavior-focused, present-tense recall.
+- Preserve the strongest concrete behavior from EACH input. If one input is \
+behavior-grounded and the other is bare adjective filler, weight the \
+behavior-grounded side.
+- Do NOT invent details. Use only what is in the inputs.
+- Match the trait NAME — the merged description must describe THAT property, \
+not drift to an adjacent one.
+
+Examples:
+  Trait: Kind
+  Existing: "Made room for a stranger's laptop questions without seeming bothered."
+  New:      "Covered a colleague's surgery costs quietly when no one asked."
+  Merged:   "Made room for people who needed help — from a stranger's laptop \
+questions to a colleague's surgery costs he quietly covered."
+
+  Trait: Patient
+  Existing: "Described as patient by the contributor."          # bad input — strip the meta-commentary
+  New:      "Explained the same recipe to his daughter three times without sighing."
+  Merged:   "Explained the same recipe three times without sighing — patient \
+with people who needed the long version."
+
+Respond ONLY by calling the `merge_trait_description` tool.\
 """

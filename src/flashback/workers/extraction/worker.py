@@ -58,7 +58,9 @@ from .idempotency import is_processed, mark_processed
 from .persistence import (
     LLMProvenance,
     MomentDecision,
+    TraitMergeResolution,
     fetch_person,
+    find_existing_active_traits_by_name,
     persist_extraction,
 )
 from .outbox import (
@@ -67,7 +69,8 @@ from .outbox import (
     enqueue_thread_detector_trigger_if_due,
 )
 from .refinement import collect_entity_names_for_moment, find_refinement_candidates
-from .schema import ExtractionMessage, ExtractionResult
+from .schema import ExtractionMessage, ExtractionResult, drop_orphan_traits
+from .trait_merge_llm import TraitMergeLLMConfig, merge_trait_description
 from .sqs_client import (
     ArtifactJobSender,
     EmbeddingJobSender,
@@ -103,6 +106,7 @@ class ExtractionWorker:
     voyage: SyncVoyageQueryEmbedder
     extraction_cfg: ExtractionLLMConfig
     compatibility_cfg: CompatibilityLLMConfig
+    trait_merge_cfg: TraitMergeLLMConfig
     settings: object
     embedding_model: str
     embedding_model_version: str
@@ -220,6 +224,27 @@ class ExtractionWorker:
             contributor_display_name=payload.contributor_display_name or "",
         )
 
+        # 2b. Invariant #18: drop orphan traits with no exemplifying moment
+        # in this segment. The prompt instructs the LLM to skip them; this
+        # is the backstop.
+        extraction, orphan_traits_dropped = drop_orphan_traits(extraction)
+        if orphan_traits_dropped:
+            log.info(
+                "extraction.orphan_traits_dropped",
+                count=orphan_traits_dropped,
+            )
+
+        # 2c. Invariant #18 (cross-session merge): if any extracted trait
+        # matches an active trait by case-insensitive name for this person,
+        # route the new evidence into the existing row instead of inserting
+        # a duplicate. The merge LLM blends the existing and new
+        # descriptions; persistence then UPDATEs and re-embeds.
+        extraction, trait_merge_resolutions = self._resolve_trait_merges(
+            extraction=extraction,
+            person_id=str(payload.person_id),
+            subject_name=person.name,
+        )
+
         # 3. Refinement detection (vector search + per-candidate compat call).
         decisions = self._build_moment_decisions(
             extraction=extraction, person_id=str(payload.person_id)
@@ -244,6 +269,7 @@ class ExtractionWorker:
                             model=self.extraction_cfg.model,
                             prompt_version=EXTRACTION_PROMPT_VERSION,
                         ),
+                        trait_merge_resolutions=trait_merge_resolutions,
                     )
                     run_coverage_tracker(
                         cur,
@@ -291,6 +317,90 @@ class ExtractionWorker:
             merge_suggestions=len(persistence_result.merge_suggestion_ids),
             subject_guard_dropped=persistence_result.dropped_entities_count,
             outbox_jobs=outbox_jobs,
+        )
+
+    def _resolve_trait_merges(
+        self,
+        *,
+        extraction: ExtractionResult,
+        person_id: str,
+        subject_name: str,
+    ) -> tuple[ExtractionResult, list[TraitMergeResolution | None]]:
+        """Detect cross-session trait dedup matches and merge descriptions.
+
+        For each extracted trait whose case-insensitive name already exists
+        as an active trait for this person, call the small merge LLM to
+        produce a cohesive description from the existing row and the new
+        extraction. Returns a new :class:`ExtractionResult` whose matched
+        traits carry the merged description, plus a per-index list of
+        :class:`TraitMergeResolution` (``None`` for unmatched indexes).
+        Runs outside the transaction so the slow LLM call doesn't hold
+        locks.
+        """
+        if not extraction.traits:
+            return extraction, []
+
+        names = [t.name for t in extraction.traits]
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                existing_by_name = find_existing_active_traits_by_name(
+                    cur, person_id=person_id, names=names
+                )
+
+        if not existing_by_name:
+            return extraction, [None] * len(extraction.traits)
+
+        resolutions: list[TraitMergeResolution | None] = []
+        new_traits = list(extraction.traits)
+        merges_run = 0
+        for i, trait in enumerate(extraction.traits):
+            match = existing_by_name.get(trait.name.strip().lower())
+            if match is None:
+                resolutions.append(None)
+                continue
+            existing_desc = match.description or ""
+            new_desc = trait.description or ""
+            if not new_desc:
+                # Nothing new to merge — keep the existing description and
+                # just route edges to the existing row.
+                resolutions.append(
+                    TraitMergeResolution(existing_trait_id=match.id)
+                )
+                new_traits[i] = trait.model_copy(
+                    update={"description": existing_desc or None}
+                )
+                continue
+            if not existing_desc:
+                # Existing row has no description yet — adopt the new one
+                # verbatim without an LLM call.
+                merged_desc = new_desc
+            else:
+                merged_desc = merge_trait_description(
+                    cfg=self.trait_merge_cfg,
+                    settings=self.settings,
+                    subject_name=subject_name,
+                    trait_name=trait.name,
+                    existing_description=existing_desc,
+                    new_description=new_desc,
+                )
+                merges_run += 1
+            new_traits[i] = trait.model_copy(
+                update={"description": merged_desc}
+            )
+            resolutions.append(
+                TraitMergeResolution(existing_trait_id=match.id)
+            )
+
+        if merges_run or any(r is not None for r in resolutions):
+            log.info(
+                "extraction.trait_merge_resolved",
+                merges_run=merges_run,
+                matched=sum(1 for r in resolutions if r is not None),
+                total=len(extraction.traits),
+            )
+        return (
+            extraction.model_copy(update={"traits": new_traits}),
+            resolutions,
         )
 
     def _build_moment_decisions(

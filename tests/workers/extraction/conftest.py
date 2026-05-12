@@ -20,6 +20,7 @@ from flashback.workers.extraction.compatibility_llm import (
     CompatibilityResponse,
 )
 from flashback.workers.extraction.extraction_llm import ExtractionLLMConfig
+from flashback.workers.extraction.trait_merge_llm import TraitMergeLLMConfig
 from flashback.workers.extraction.refinement import RefinementCandidate
 from flashback.workers.extraction.schema import ExtractionMessage
 from flashback.workers.extraction.sqs_client import (
@@ -190,6 +191,16 @@ def stub_extraction_cfg() -> ExtractionLLMConfig:
 @pytest.fixture
 def stub_compat_cfg() -> CompatibilityLLMConfig:
     return CompatibilityLLMConfig(
+        provider="openai",
+        model="gpt-5.1",
+        timeout=5.0,
+        max_tokens=200,
+    )
+
+
+@pytest.fixture
+def stub_trait_merge_cfg() -> TraitMergeLLMConfig:
+    return TraitMergeLLMConfig(
         provider="openai",
         model="gpt-5.1",
         timeout=5.0,

@@ -132,6 +132,11 @@ class ExtractionConfig:
     llm_compatibility_timeout_seconds: float
     llm_compatibility_max_tokens: int
 
+    llm_trait_merge_provider: str
+    llm_trait_merge_model: str
+    llm_trait_merge_timeout_seconds: float
+    llm_trait_merge_max_tokens: int
+
     extraction_refinement_distance_threshold: float
     extraction_refinement_candidate_limit: int
     extraction_voyage_query_timeout_seconds: float
@@ -197,6 +202,18 @@ class ExtractionConfig:
             ),
             llm_compatibility_max_tokens=int(
                 os.environ.get("LLM_COMPATIBILITY_MAX_TOKENS", "800")
+            ),
+            llm_trait_merge_provider=os.environ.get(
+                "LLM_TRAIT_MERGE_PROVIDER", small_provider
+            ),
+            llm_trait_merge_model=os.environ.get(
+                "LLM_TRAIT_MERGE_MODEL", small_model
+            ),
+            llm_trait_merge_timeout_seconds=float(
+                os.environ.get("LLM_TRAIT_MERGE_TIMEOUT_SECONDS", "8")
+            ),
+            llm_trait_merge_max_tokens=int(
+                os.environ.get("LLM_TRAIT_MERGE_MAX_TOKENS", "500")
             ),
             extraction_refinement_distance_threshold=float(
                 os.environ.get("EXTRACTION_REFINEMENT_DISTANCE_THRESHOLD", "0.35")

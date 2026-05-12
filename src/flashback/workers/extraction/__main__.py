@@ -20,6 +20,7 @@ from flashback.db.connection import make_pool
 
 from .compatibility_llm import CompatibilityLLMConfig
 from .extraction_llm import ExtractionLLMConfig
+from .trait_merge_llm import TraitMergeLLMConfig
 from .sqs_client import (
     ArtifactJobSender,
     EmbeddingJobSender,
@@ -86,6 +87,12 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
             model=cfg.llm_compatibility_model,
             timeout=cfg.llm_compatibility_timeout_seconds,
             max_tokens=cfg.llm_compatibility_max_tokens,
+        ),
+        trait_merge_cfg=TraitMergeLLMConfig(
+            provider=cfg.llm_trait_merge_provider,
+            model=cfg.llm_trait_merge_model,
+            timeout=cfg.llm_trait_merge_timeout_seconds,
+            max_tokens=cfg.llm_trait_merge_max_tokens,
         ),
         settings=cfg,
         embedding_model=cfg.embedding_model,

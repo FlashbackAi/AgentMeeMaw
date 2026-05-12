@@ -168,6 +168,57 @@ class ExtractionResult(BaseModel):
         return self
 
 
+def drop_orphan_traits(
+    result: "ExtractionResult",
+) -> tuple["ExtractionResult", int]:
+    """Drop traits not referenced by any moment via ``exemplifies_trait_indexes``.
+
+    Backstops invariant #18: a trait must be exemplified by ≥1 moment in
+    the same extraction. The LLM is instructed to comply via the prompt;
+    this filter catches drift. Returns the filtered result plus the count
+    of traits dropped.
+
+    Moment ``exemplifies_trait_indexes`` are remapped to the surviving
+    traits' new positions. Out-of-range indexes (defense against malformed
+    LLM output) are discarded silently.
+    """
+    if not result.traits:
+        return result, 0
+
+    referenced: set[int] = set()
+    for moment in result.moments:
+        for idx in moment.exemplifies_trait_indexes:
+            if 0 <= idx < len(result.traits):
+                referenced.add(idx)
+
+    if len(referenced) == len(result.traits):
+        return result, 0
+
+    remap: dict[int, int] = {}
+    new_traits: list[ExtractedTrait] = []
+    for old_idx, trait in enumerate(result.traits):
+        if old_idx in referenced:
+            remap[old_idx] = len(new_traits)
+            new_traits.append(trait)
+
+    new_moments: list[ExtractedMoment] = [
+        moment.model_copy(
+            update={
+                "exemplifies_trait_indexes": [
+                    remap[i] for i in moment.exemplifies_trait_indexes if i in remap
+                ],
+            }
+        )
+        for moment in result.moments
+    ]
+
+    dropped = len(result.traits) - len(new_traits)
+    return (
+        result.model_copy(update={"traits": new_traits, "moments": new_moments}),
+        dropped,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Inbound queue payload
 # ---------------------------------------------------------------------------
