@@ -52,12 +52,20 @@ def _strip_transaction_markers(sql: str) -> str:
     transaction markers). Inside psycopg's conn.transaction() the script
     manages its own savepoints, so bare BEGIN/COMMIT would commit the
     outer transaction mid-flight and corrupt savepoint accounting.
+
+    Lines inside a $$ ... $$ dollar-quoted block (e.g. plpgsql function
+    bodies) must be left alone, otherwise the BEGIN keyword that opens
+    the function body would be stripped.
     """
     out = []
+    in_dollar = False
     for line in sql.splitlines():
-        upper = line.strip().rstrip(";").upper()
-        if upper in {"BEGIN", "COMMIT", "ROLLBACK"}:
-            continue
+        if not in_dollar:
+            upper = line.strip().rstrip(";").upper()
+            if upper in {"BEGIN", "COMMIT", "ROLLBACK"}:
+                continue
+        if line.count("$$") % 2 == 1:
+            in_dollar = not in_dollar
         out.append(line)
     return "\n".join(out)
 
