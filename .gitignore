@@ -135,6 +135,7 @@ Thumbs.db
 
 # Local development
 .env.local
+.env.production
 .env.*.local
 local/
 *.sqlite
