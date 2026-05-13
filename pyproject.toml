@@ -9,7 +9,10 @@ description = "Flashback AI Legacy Mode - Python agent service"
 readme = "README-step-1.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
-authors = [{ name = "Flashback Labs" }]
+authors = [
+    { name = "Flashback Labs" },
+    { name = "5mokshith", email = "mokshithrao1481@gmail.com" },
+]
 # Pins tightened where the SDK surface matters; loosened on voyageai
 # because the upstream wheels lag the newest CPython. The minimum
 # version below is the one we have validated the call signature
