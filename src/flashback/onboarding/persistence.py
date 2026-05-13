@@ -15,6 +15,7 @@ from flashback.onboarding.archetypes import COVERAGE_DIMENSIONS, sanitize_implie
 class PersonOnboardingRow:
     person_id: UUID
     relationship: str | None
+    gender: str | None
     onboarding_complete: bool
     archetype_answers: list[dict[str, Any]] = field(default_factory=list)
 
@@ -40,6 +41,7 @@ async def fetch_person_onboarding(
         f"""
         SELECT id,
                relationship,
+               gender,
                COALESCE(onboarding_complete, false) AS onboarding_complete,
                COALESCE(archetype_answers, '[]'::jsonb) AS archetype_answers
           FROM persons
@@ -51,10 +53,11 @@ async def fetch_person_onboarding(
     row = await cur.fetchone()
     if row is None:
         return None
-    returned_person_id, relationship, complete, answers = row
+    returned_person_id, relationship, gender, complete, answers = row
     return PersonOnboardingRow(
         person_id=UUID(str(returned_person_id)),
         relationship=relationship,
+        gender=gender,
         onboarding_complete=bool(complete),
         archetype_answers=list(answers or []),
     )

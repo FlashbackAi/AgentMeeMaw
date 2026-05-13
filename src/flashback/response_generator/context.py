@@ -97,6 +97,7 @@ def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:
     rendered = render_archetype_answers_natural_language(
         ctx.archetype_answers,
         ctx.person_relationship,
+        ctx.person_gender,
     )
     sections.append(_block("archetype_answers", xml_text(rendered)))
     if ctx.anchor_dimension:

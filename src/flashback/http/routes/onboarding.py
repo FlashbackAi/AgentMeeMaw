@@ -29,6 +29,7 @@ from flashback.onboarding.archetypes import (
     answer_with_label,
     expected_question_ids,
     public_questions_for_relationship,
+    render_pronouns,
     resolve_answer,
     sanitize_implies,
 )
@@ -61,7 +62,10 @@ async def archetype_questions(
             detail="onboarding already complete for this person",
         )
 
-    archetype, questions = public_questions_for_relationship(person.relationship)
+    archetype, questions = public_questions_for_relationship(
+        person.relationship,
+        gender=person.gender,
+    )
     return ArchetypeQuestionsResponse(
         person_id=person_id,
         relationship=person.relationship,
@@ -227,7 +231,7 @@ async def _resolve_answers(
                 answer_with_label(
                     question_id=question_id,
                     option_id=str(option_id),
-                    label=str(option["label"]),
+                    label=render_pronouns(str(option["label"]), person.gender),
                 )
             )
             implies_blocks.append(sanitize_implies(option.get("implies")))

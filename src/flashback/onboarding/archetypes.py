@@ -8,6 +8,7 @@ the GET endpoint strips it before returning questions to Node/frontend.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 CoverageDimension = str
@@ -802,13 +803,83 @@ def archetype_for_relationship(relationship: str | None) -> str:
     return "generic"
 
 
-def public_questions_for_relationship(relationship: str | None) -> tuple[str, list[dict[str, Any]]]:
+_PRONOUNS = {
+    "he": {
+        "they": "he",
+        "them": "him",
+        "their": "his",
+        "theirs": "his",
+        "are": "is",
+        "were": "was",
+    },
+    "she": {
+        "they": "she",
+        "them": "her",
+        "their": "her",
+        "theirs": "hers",
+        "are": "is",
+        "were": "was",
+    },
+    "they": {
+        "they": "they",
+        "them": "them",
+        "their": "their",
+        "theirs": "theirs",
+        "are": "are",
+        "were": "were",
+    },
+}
+
+
+def render_pronouns(text: str, gender: str | None) -> str:
+    """Render neutral onboarding copy with the subject's pronouns."""
+
+    forms = _PRONOUNS.get((gender or "they").strip().lower(), _PRONOUNS["they"])
+    if forms is _PRONOUNS["they"]:
+        return text
+
+    phrase_replacements = (
+        ("What were they like", f"What {forms['were']} {forms['they']} like"),
+        ("what were they like", f"what {forms['were']} {forms['they']} like"),
+        ("What kind of grandparent were they", f"What kind of grandparent {forms['were']} {forms['they']}"),
+        ("what kind of grandparent were they", f"what kind of grandparent {forms['were']} {forms['they']}"),
+        ("when they are", f"when {forms['they']} {forms['are']}"),
+        ("When they are", f"When {forms['they']} {forms['are']}"),
+        ("they are", f"{forms['they']} {forms['are']}"),
+        ("They are", f"{forms['they'].capitalize()} {forms['are']}"),
+        ("they were", f"{forms['they']} {forms['were']}"),
+        ("They were", f"{forms['they'].capitalize()} {forms['were']}"),
+    )
+    rendered = text
+    for source, replacement in phrase_replacements:
+        rendered = rendered.replace(source, replacement)
+
+    word_replacements = (
+        ("theirs", forms["theirs"]),
+        ("Theirs", forms["theirs"].capitalize()),
+        ("their", forms["their"]),
+        ("Their", forms["their"].capitalize()),
+        ("them", forms["them"]),
+        ("Them", forms["them"].capitalize()),
+        ("they", forms["they"]),
+        ("They", forms["they"].capitalize()),
+    )
+    for source, replacement in word_replacements:
+        rendered = re.sub(rf"\b{source}\b", replacement, rendered)
+    return rendered
+
+
+def public_questions_for_relationship(
+    relationship: str | None, *, gender: str | None = None
+) -> tuple[str, list[dict[str, Any]]]:
     """Return ``(archetype, questions)`` with server-only implies removed."""
 
     archetype = archetype_for_relationship(relationship)
     questions = deepcopy(ARCHETYPES[archetype])
     for question in questions:
+        question["text"] = render_pronouns(str(question["text"]), gender)
         for option in question.get("options", []):
+            option["label"] = render_pronouns(str(option["label"]), gender)
             option.pop("implies", None)
     return archetype, questions
 
@@ -913,6 +984,7 @@ def answer_with_label(
 def render_archetype_answers_natural_language(
     answers: list[dict[str, Any]] | None,
     relationship: str | None,
+    gender: str | None = None,
 ) -> str:
     """Render stored archetype answers for the starter opener prompt."""
 
@@ -930,7 +1002,7 @@ def render_archetype_answers_natural_language(
                 question_id=question_id,
                 option_id=answer.get("option_id"),
             )
-            question_text = str(question["text"])
+            question_text = render_pronouns(str(question["text"]), gender)
         except ValueError:
             question_text = "Onboarding detail:"
             option = None
@@ -938,6 +1010,7 @@ def render_archetype_answers_natural_language(
             value = str(answer["free_text"]).strip()
         else:
             value = str(answer.get("label") or (option or {}).get("label") or "").strip()
+            value = render_pronouns(value, gender)
         if not value:
             continue
         lines.append(f"- {question_text} {value}.")
