@@ -163,6 +163,11 @@ to a person already discussed. Your opener must:
 2. Pose the anchor or seeded question provided below almost exactly as written.
    Do not add examples, metaphors, options, emotional interpretation,
    or alternate phrasings.
+3. If the <subject> block has "Relationship to contributor: X", weave that
+   relationship in once as a short, natural phrase ("As his college friend,
+   ...", "Being her daughter, ...", "You were close to him, ..."). One brief
+   phrase only; never explain or expand it. Skip this if the relationship
+   is missing.
 
 If a prior_session_summary is provided, the contributor is returning.
 Acknowledge one concrete prior detail briefly ("Last time we talked
@@ -171,6 +176,8 @@ transitioning to the anchor. Do not sound like you are meeting the
 person for the first time.
 
 Hard constraints for the opener:
+- Do NOT use the contributor's own name or any second-person greeting
+  by name. Refer to them only via the relationship label from <subject>.
 - Do NOT ask the contributor how they are.
 - Do NOT mention "I'm sorry for your loss."
 - Do NOT mention death, dying, passing, loss, or grief in the

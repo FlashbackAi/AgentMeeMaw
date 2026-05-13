@@ -17,9 +17,9 @@ from uuid import UUID
 from psycopg_pool import AsyncConnectionPool
 
 _INSERT_PERSON = """
-INSERT INTO persons (name, relationship)
-VALUES (%(name)s, %(relationship)s)
-RETURNING id, name, relationship, phase, created_at
+INSERT INTO persons (name, relationship, gender)
+VALUES (%(name)s, %(relationship)s, %(gender)s)
+RETURNING id, name, relationship, gender, phase, created_at
 """
 
 
@@ -28,6 +28,7 @@ class CreatedPerson:
     person_id: UUID
     name: str
     relationship: str
+    gender: str | None
     phase: str
     created_at: datetime
 
@@ -37,6 +38,7 @@ async def insert_person(
     *,
     name: str,
     relationship: str,
+    gender: str | None = None,
 ) -> CreatedPerson:
     """Insert one ``persons`` row and return the persisted shape."""
     async with db_pool.connection() as conn:
@@ -44,16 +46,17 @@ async def insert_person(
             async with conn.cursor() as cur:
                 await cur.execute(
                     _INSERT_PERSON,
-                    {"name": name, "relationship": relationship},
+                    {"name": name, "relationship": relationship, "gender": gender},
                 )
                 row = await cur.fetchone()
 
     assert row is not None  # INSERT ... RETURNING always yields a row
-    person_id, returned_name, returned_relationship, phase, created_at = row
+    person_id, returned_name, returned_relationship, returned_gender, phase, created_at = row
     return CreatedPerson(
         person_id=person_id,
         name=returned_name,
         relationship=returned_relationship,
+        gender=returned_gender,
         phase=phase,
         created_at=created_at,
     )

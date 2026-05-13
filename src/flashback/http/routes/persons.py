@@ -54,6 +54,7 @@ async def create(
             name=body.name,
             relationship=body.relationship,
             contributor_display_name=body.contributor_display_name,
+            gender=body.gender,
             db_pool=db_pool,
         ),
     )
@@ -64,12 +65,14 @@ async def _create_once(
     name: str,
     relationship: str,
     contributor_display_name: str,
+    gender: str | None,
     db_pool: AsyncConnectionPool,
 ) -> PersonCreateResponse:
     created = await insert_person(
         db_pool,
         name=name,
         relationship=relationship,
+        gender=gender,
     )
     structlog.contextvars.bind_contextvars(person_id=str(created.person_id))
     log.info(
@@ -82,6 +85,7 @@ async def _create_once(
         person_id=created.person_id,
         name=created.name,
         relationship=created.relationship,
+        gender=created.gender,  # type: ignore[arg-type]
         phase=created.phase,  # type: ignore[arg-type]
         created_at=created.created_at,
     )

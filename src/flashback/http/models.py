@@ -125,6 +125,7 @@ class PersonCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     relationship: str = Field(min_length=1, max_length=80)
     contributor_display_name: str = Field(min_length=1, max_length=64)
+    gender: Literal["he", "she", "they"] | None = None
 
     @field_validator(
         "name",
@@ -145,6 +146,7 @@ class PersonCreateResponse(BaseModel):
     person_id: UUID
     name: str
     relationship: str
+    gender: Literal["he", "she", "they"] | None = None
     phase: Literal["starter", "steady"]
     created_at: datetime
 
