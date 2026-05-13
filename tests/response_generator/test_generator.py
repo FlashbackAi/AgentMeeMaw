@@ -69,7 +69,7 @@ async def test_generate_first_time_opener_uses_first_time_prompt(monkeypatch):
     assert call.await_args.kwargs["system_prompt"] == FIRST_TIME_OPENER_PROMPT
     user_message = call.await_args.kwargs["user_message"]
     assert "<archetype_answers>" in user_message
-    assert "At home" in user_message
+    assert "Their voice" in user_message
 
 
 async def test_llm_error_propagates(monkeypatch):

@@ -72,8 +72,8 @@ class TestArchetypeQuestions:
         assert 3 <= len(body["questions"]) <= 5
         assert [q["id"] for q in body["questions"][:3]] == [
             "friend_meet",
-            "friend_first_impression",
             "friend_shared_place",
+            "friend_usual_activity",
         ]
         assert "implies" not in body["questions"][0]["options"][0]
 
@@ -92,11 +92,12 @@ class TestArchetypeAnswers:
                 "answers": [
                     {"question_id": "friend_meet", "option_id": "school"},
                     {
-                        "question_id": "friend_first_impression",
-                        "option_id": "confidence",
+                        "question_id": "friend_shared_place",
+                        "option_id": "calls",
                     },
-                    {"question_id": "friend_shared_place", "skipped": True},
-                    {"question_id": "friend_what_drew_you", "skipped": True},
+                    {"question_id": "friend_usual_activity", "skipped": True},
+                    {"question_id": "friend_kind", "skipped": True},
+                    {"question_id": "friend_first_memory", "skipped": True},
                 ],
             },
         )
@@ -136,8 +137,8 @@ class TestArchetypeAnswers:
 
         assert person_row is not None
         assert person_row[0] is True
-        assert person_row[1][0]["label"] == "At school or college"
-        assert person_row[1][1]["label"] == "They seemed confident"
+        assert person_row[1][0]["label"] == "Through school"
+        assert person_row[1][1]["label"] == "On calls or messages"
         assert person_row[1][2]["skipped"] is True
 
         assert coverage_row is not None

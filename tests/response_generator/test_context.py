@@ -74,6 +74,6 @@ def test_render_first_time_opener_context_includes_archetype_and_anchor():
     assert "<contributor_name>" in rendered
     assert "Sarah" in rendered
     assert "<archetype_answers>" in rendered
-    assert "What is an early scene with them that comes back to you? At home." in rendered
+    assert "When you picture them at home, what comes back first? Their voice." in rendered
     assert '<anchor_question dimension="sensory">' in rendered
     assert "What's a smell that brings them right back?" in rendered

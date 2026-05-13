@@ -66,18 +66,18 @@ def test_archetype_answers_render_as_opener_context() -> None:
             {
                 "question_id": "friend_meet",
                 "option_id": "school",
-                "label": "At school or college",
+                "label": "Through school",
             },
             {
-                "question_id": "friend_first_impression",
+                "question_id": "friend_usual_activity",
                 "option_id": None,
-                "free_text": "He was quietly confident",
+                "free_text": "We would talk for hours",
             },
             {"question_id": "friend_shared_place", "skipped": True},
         ],
         "friend",
     )
 
-    assert "How did you two first meet? At school or college." in rendered
-    assert "What do you remember noticing first about them? He was quietly confident." in rendered
+    assert "How did you two first meet? Through school." in rendered
+    assert "What did you usually do together? We would talk for hours." in rendered
     assert "friend_shared_place" not in rendered

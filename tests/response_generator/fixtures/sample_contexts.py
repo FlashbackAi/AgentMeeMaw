@@ -91,9 +91,9 @@ def sample_first_time_opener_context() -> FirstTimeOpenerContext:
         anchor_dimension="sensory",
         archetype_answers=[
             {
-                "question_id": "parent_early_scene",
-                "option_id": "home",
-                "label": "At home",
+                "question_id": "parent_home_picture",
+                "option_id": "voice",
+                "label": "Their voice",
             }
         ],
     )
