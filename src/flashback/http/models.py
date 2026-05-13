@@ -7,7 +7,7 @@ section. Uses pydantic v2 syntax (``model_config = ConfigDict(...)``).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -115,7 +115,7 @@ class PersonCreateRequest(BaseModel):
     """Body for ``POST /persons``.
 
     Node calls this once during onboarding, after the contributor has
-    supplied the deceased's display name, their own relationship to
+    supplied the subject's display name, their own relationship to
     them, and their contributor display name. DOB / DOD are deliberately
     not accepted (CLAUDE.md s1).
     """
@@ -149,6 +149,57 @@ class PersonCreateResponse(BaseModel):
     gender: Literal["he", "she", "they"] | None = None
     phase: Literal["starter", "steady"]
     created_at: datetime
+
+
+# --- /api/v1/onboarding ----------------------------------------------------
+
+
+class ArchetypeAnswerInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(min_length=1, max_length=120)
+    option_id: str | None = Field(default=None, max_length=120)
+    free_text: str | None = Field(default=None, max_length=500)
+    skipped: bool = False
+
+    @field_validator("question_id", "option_id", "free_text", mode="before")
+    @classmethod
+    def _strip_optional(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class ArchetypeAnswersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role_id: UUID
+    answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=5)
+    contributor_display_name: str | None = Field(default=None, max_length=64)
+
+    @field_validator("contributor_display_name", mode="before")
+    @classmethod
+    def _strip_contributor_name(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+
+class ArchetypeAnswersResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    opener: str
+
+
+class ArchetypeQuestionsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role_id: UUID
+    relationship: str | None = None
+    archetype: str
+    questions: list[dict[str, Any]]
 
 
 # --- /health ---------------------------------------------------------------

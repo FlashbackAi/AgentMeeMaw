@@ -292,6 +292,10 @@ class HttpConfig:
     llm_session_summary_model: str = "claude-sonnet-4-6"
     llm_session_summary_timeout_seconds: float = 12.0
     llm_session_summary_max_tokens: int = 300
+    llm_onboarding_parse_provider: str = "anthropic"
+    llm_onboarding_parse_model: str = "claude-haiku-4-5"
+    llm_onboarding_parse_timeout_seconds: float = 8.0
+    llm_onboarding_parse_max_tokens: int = 700
     aws_region: str = "us-east-1"
     voyage_api_key: str = ""
     embedding_model: str = "voyage-3-large"
@@ -423,6 +427,18 @@ class HttpConfig:
             ),
             llm_session_summary_max_tokens=int(
                 os.environ.get("LLM_SESSION_SUMMARY_MAX_TOKENS", "300")
+            ),
+            llm_onboarding_parse_provider=os.environ.get(
+                "LLM_ONBOARDING_PARSE_PROVIDER", "anthropic"
+            ),
+            llm_onboarding_parse_model=os.environ.get(
+                "LLM_ONBOARDING_PARSE_MODEL", "claude-haiku-4-5"
+            ),
+            llm_onboarding_parse_timeout_seconds=float(
+                os.environ.get("LLM_ONBOARDING_PARSE_TIMEOUT_SECONDS", "8")
+            ),
+            llm_onboarding_parse_max_tokens=int(
+                os.environ.get("LLM_ONBOARDING_PARSE_MAX_TOKENS", "700")
             ),
             aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             voyage_api_key=_required("VOYAGE_API_KEY"),

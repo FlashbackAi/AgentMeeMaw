@@ -39,6 +39,7 @@ from flashback.orchestrator.steps import (
     append_user_turn,
     classify,
     detect_segment,
+    generate_first_time_opener,
     generate_opener,
     generate_response,
     init_working_memory,
@@ -130,6 +131,96 @@ class Orchestrator:
             duration_ms = max(1, round((time.perf_counter() - started) * 1000))
             log.info(
                 "session_start_complete",
+                session_id=str(state.session_id),
+                person_id=str(state.person_id),
+                role_id=str(state.role_id),
+                duration_ms=duration_ms,
+                phase=state.person_phase,
+                question_seeded=(
+                    state.selection.question_id is not None
+                    if state.selection is not None
+                    else False
+                ),
+                degraded_steps=list(state.failures.keys()),
+            )
+            return SessionStartResult(
+                opener=(
+                    state.response.text
+                    if state.response is not None
+                    else f"Tell me about {state.person_name}."
+                ),
+                phase=state.person_phase,
+                selected_question_id=(
+                    state.selection.question_id if state.selection else None
+                ),
+            )
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
+
+    async def handle_first_time_opener(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> SessionStartResult:
+        """Run the very-first-session opener using archetype answers.
+
+        Same shape as ``handle_session_start`` minus continuity context
+        (there is no prior session to summarise) and with the
+        archetype-aware opener step in place of the normal one. Reads
+        ``archetype_answers`` from ``session_metadata``.
+        """
+
+        state = SessionStartState(
+            session_id=session_id,
+            person_id=person_id,
+            role_id=role_id,
+            session_metadata=session_metadata,
+            started_at=datetime.now(timezone.utc),
+        )
+        token = structlog.contextvars.bind_contextvars(
+            session_id=str(state.session_id),
+            person_id=str(state.person_id),
+            role_id=str(state.role_id),
+            opener_path="first_time",
+        )
+        started = time.perf_counter()
+        try:
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="load_person",
+                fn=lambda: load_person(state, self._deps),
+                state=state,
+            )
+            if self._deps.response_generator is not None:
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="select_starter_anchor",
+                    fn=lambda: select_starter_anchor(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="generate_first_time_opener",
+                    fn=lambda: generate_first_time_opener(state, self._deps),
+                    state=state,
+                )
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="init_working_memory",
+                fn=lambda: init_working_memory(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="append_opener",
+                fn=lambda: append_opener(state, self._deps),
+                state=state,
+            )
+            duration_ms = max(1, round((time.perf_counter() - started) * 1000))
+            log.info(
+                "first_time_opener_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
                 role_id=str(state.role_id),

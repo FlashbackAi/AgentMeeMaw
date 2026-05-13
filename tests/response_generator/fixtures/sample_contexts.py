@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from flashback.response_generator.schema import StarterContext, Turn, TurnContext
+from flashback.response_generator.schema import (
+    FirstTimeOpenerContext,
+    StarterContext,
+    Turn,
+    TurnContext,
+)
 from flashback.retrieval.schema import EntityResult, MomentResult, ThreadResult
 
 T0 = datetime(2026, 5, 4, tzinfo=timezone.utc)
@@ -69,8 +74,26 @@ def sample_starter_context() -> StarterContext:
     return StarterContext(
         person_name="Maya",
         person_relationship="mother",
+        contributor_display_name="Sarah",
         contributor_role="adult child",
         anchor_question_text="What's a smell that brings them right back?",
         anchor_dimension="sensory",
         prior_session_summary=None,
+    )
+
+
+def sample_first_time_opener_context() -> FirstTimeOpenerContext:
+    return FirstTimeOpenerContext(
+        person_name="Maya",
+        person_relationship="mother",
+        contributor_display_name="Sarah",
+        anchor_question_text="What's a smell that brings them right back?",
+        anchor_dimension="sensory",
+        archetype_answers=[
+            {
+                "question_id": "parent_early_scene",
+                "option_id": "home",
+                "label": "At home",
+            }
+        ],
     )

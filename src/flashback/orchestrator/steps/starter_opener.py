@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+import psycopg
 import structlog
 
 from flashback.orchestrator.deps import OrchestratorDeps
@@ -11,7 +13,7 @@ from flashback.orchestrator.errors import PersonNotFound
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.state import SessionStartState
 from flashback.phase_gate import PhaseGateError
-from flashback.response_generator import StarterContext
+from flashback.response_generator import FirstTimeOpenerContext, StarterContext
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -136,6 +138,9 @@ async def generate_opener(
             person_name=state.person_name,
             person_relationship=state.person_relationship,
             person_gender=state.person_gender,
+            contributor_display_name=_string_or_none(
+                state.session_metadata.get("contributor_display_name")
+            ),
             contributor_role=_string_or_none(
                 state.session_metadata.get("contributor_role")
                 or state.session_metadata.get("role")
@@ -148,6 +153,47 @@ async def generate_opener(
         )
         state.response = await deps.response_generator.generate_starter_opener(ctx)
         log.info("starter_opener.completed", opener_length=len(state.response.text))
+
+
+async def generate_first_time_opener(
+    state: SessionStartState,
+    deps: OrchestratorDeps,
+) -> None:
+    """Generate the opener for the very first session post-onboarding.
+
+    Reads ``archetype_answers`` from ``session_metadata`` (the onboarding
+    endpoint stuffs them in there). Different prompt, different LLM call
+    shape from :func:`generate_opener` — and the only place archetype
+    answers ever reach the response generator.
+    """
+
+    with timed_step(log, "generate_first_time_opener"):
+        if deps.response_generator is None:
+            state.response = None
+            log.info("response_generator.skipped", reason="not_configured")
+            return
+        if state.selection is None or state.selection.question_text is None:
+            raise PhaseGateError(
+                "first-time opener selection returned no anchor question"
+            )
+        archetype_answers = await _archetype_answers_for_state(state, deps)
+        ctx = FirstTimeOpenerContext(
+            person_name=state.person_name,
+            person_relationship=state.person_relationship,
+            person_gender=state.person_gender,
+            contributor_display_name=_string_or_none(
+                state.session_metadata.get("contributor_display_name")
+            ),
+            anchor_question_text=state.selection.question_text,
+            anchor_dimension=state.selection.dimension,
+            archetype_answers=archetype_answers,
+        )
+        state.response = await deps.response_generator.generate_first_time_opener(ctx)
+        log.info(
+            "first_time_opener.completed",
+            opener_length=len(state.response.text),
+            archetype_answer_count=len(archetype_answers),
+        )
 
 
 async def init_working_memory(
@@ -203,6 +249,37 @@ def _string_or_none(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+async def _archetype_answers_for_state(
+    state: SessionStartState,
+    deps: OrchestratorDeps,
+) -> list[dict[str, Any]]:
+    raw = state.session_metadata.get("archetype_answers")
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    if deps.db_pool is None:
+        return []
+
+    try:
+        async with deps.db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT COALESCE(archetype_answers, '[]'::jsonb)
+                      FROM person_roles
+                     WHERE id = %s
+                       AND person_id = %s
+                    """,
+                    (str(state.role_id), str(state.person_id)),
+                )
+                row = await cur.fetchone()
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        return []
+
+    if row is None or not isinstance(row[0], list):
+        return []
+    return [item for item in row[0] if isinstance(item, dict)]
 
 
 async def _build_continuity_summary(deps: OrchestratorDeps, person_id) -> str:

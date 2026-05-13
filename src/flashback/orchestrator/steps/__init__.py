@@ -9,6 +9,7 @@ from flashback.orchestrator.steps.retrieve import retrieve
 from flashback.orchestrator.steps.select_question import select_question
 from flashback.orchestrator.steps.starter_opener import (
     append_opener,
+    generate_first_time_opener,
     generate_opener,
     init_working_memory,
     load_continuity_context,
@@ -22,6 +23,7 @@ __all__ = [
     "append_user_turn",
     "classify",
     "detect_segment",
+    "generate_first_time_opener",
     "generate_opener",
     "generate_response",
     "init_working_memory",

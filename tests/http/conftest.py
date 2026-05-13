@@ -91,6 +91,12 @@ class FakeOrchestrator:
             raise self.start_raises
         return self.start_result
 
+    async def handle_first_time_opener(self, **kwargs):
+        self.start_calls.append({"first_time": True, **kwargs})
+        if self.start_raises:
+            raise self.start_raises
+        return self.start_result
+
     async def handle_turn(self, **kwargs):
         self.turn_calls.append(kwargs)
         if self.turn_raises:

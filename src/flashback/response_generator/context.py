@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from flashback.llm.prompt_safety import xml_text
-from flashback.response_generator.schema import StarterContext, TurnContext
+from flashback.onboarding.archetypes import render_archetype_answers_natural_language
+from flashback.response_generator.schema import (
+    FirstTimeOpenerContext,
+    StarterContext,
+    TurnContext,
+)
 
 
 def render_turn_context(ctx: TurnContext) -> str:
@@ -64,6 +69,8 @@ def render_turn_context(ctx: TurnContext) -> str:
 
 def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
+    if ctx.contributor_display_name:
+        sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
     if ctx.anchor_dimension:
         sections.append(
             "\n".join(
@@ -80,6 +87,30 @@ def render_starter_context(ctx: StarterContext) -> str:
         sections.append(
             _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
         )
+    return "\n\n".join(sections)
+
+
+def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:
+    sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
+    if ctx.contributor_display_name:
+        sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
+    rendered = render_archetype_answers_natural_language(
+        ctx.archetype_answers,
+        ctx.person_relationship,
+    )
+    sections.append(_block("archetype_answers", xml_text(rendered)))
+    if ctx.anchor_dimension:
+        sections.append(
+            "\n".join(
+                [
+                    f'<anchor_question dimension="{ctx.anchor_dimension}">',
+                    xml_text(ctx.anchor_question_text),
+                    "</anchor_question>",
+                ]
+            )
+        )
+    else:
+        sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     return "\n\n".join(sections)
 
 

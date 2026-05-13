@@ -39,6 +39,14 @@ class OrchestratorProtocol(Protocol):
         session_metadata: dict,
     ) -> SessionStartResult: ...
 
+    async def handle_first_time_opener(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> SessionStartResult: ...
+
     async def handle_turn(
         self,
         session_id: UUID,

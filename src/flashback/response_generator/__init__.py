@@ -2,6 +2,7 @@
 
 from flashback.response_generator.generator import ResponseGenerator
 from flashback.response_generator.schema import (
+    FirstTimeOpenerContext,
     ResponseResult,
     StarterContext,
     Turn,
@@ -9,6 +10,7 @@ from flashback.response_generator.schema import (
 )
 
 __all__ = [
+    "FirstTimeOpenerContext",
     "ResponseGenerator",
     "ResponseResult",
     "StarterContext",

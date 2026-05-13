@@ -22,17 +22,42 @@ class Turn(BaseModel):
 
 
 class StarterContext(BaseModel):
-    """Context for the first assistant message of a session."""
+    """Context for the opening assistant message of a returning session.
+
+    First-time openers (immediately after onboarding) use
+    :class:`FirstTimeOpenerContext` instead — archetype answers only feed
+    that path.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     person_name: str
     person_relationship: str | None = None
     person_gender: str = "they"
+    contributor_display_name: str | None = None
     contributor_role: str | None = None
     anchor_question_text: str
     anchor_dimension: AnchorDimension | None = None
     prior_session_summary: str | None = None
+
+
+class FirstTimeOpenerContext(BaseModel):
+    """Context for the very first opener, right after archetype onboarding.
+
+    Used once per legacy. After this session, archetype answers have
+    already been absorbed into the graph (entities, coverage, embeddings)
+    and the normal :class:`StarterContext` path takes over.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_name: str
+    person_relationship: str | None = None
+    person_gender: str = "they"
+    contributor_display_name: str | None = None
+    anchor_question_text: str
+    anchor_dimension: AnchorDimension | None = None
+    archetype_answers: list[dict] = Field(default_factory=list)
 
 
 class TurnContext(BaseModel):

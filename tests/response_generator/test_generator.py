@@ -8,8 +8,13 @@ import pytest
 from flashback.llm.errors import LLMError
 from flashback.response_generator import generator as generator_module
 from flashback.response_generator.generator import ResponseGenerator
-from flashback.response_generator.prompts import INTENT_TO_PROMPT, STARTER_OPENER_PROMPT
+from flashback.response_generator.prompts import (
+    FIRST_TIME_OPENER_PROMPT,
+    INTENT_TO_PROMPT,
+    STARTER_OPENER_PROMPT,
+)
 from tests.response_generator.fixtures.sample_contexts import (
+    sample_first_time_opener_context,
     sample_starter_context,
     sample_turn_context,
 )
@@ -50,6 +55,21 @@ async def test_generate_starter_opener_uses_starter_prompt(monkeypatch):
 
     assert result.text == "Maya comes to mind here."
     assert call.await_args.kwargs["system_prompt"] == STARTER_OPENER_PROMPT
+
+
+async def test_generate_first_time_opener_uses_first_time_prompt(monkeypatch):
+    call = AsyncMock(return_value="  Let's start at home with Maya.  ")
+    monkeypatch.setattr(generator_module, "call_text", call)
+
+    result = await _generator().generate_first_time_opener(
+        sample_first_time_opener_context()
+    )
+
+    assert result.text == "Let's start at home with Maya."
+    assert call.await_args.kwargs["system_prompt"] == FIRST_TIME_OPENER_PROMPT
+    user_message = call.await_args.kwargs["user_message"]
+    assert "<archetype_answers>" in user_message
+    assert "At home" in user_message
 
 
 async def test_llm_error_propagates(monkeypatch):
