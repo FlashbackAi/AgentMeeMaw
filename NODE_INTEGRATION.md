@@ -37,12 +37,12 @@ async-timing gotchas, the Postgres read contract, and the
 
 ### Node owns
 
-- Auth, users, contributor `person_roles`.
+- Auth and users. Multi-contributor `person_roles` are deferred in v1.
 - **Onboarding / legacy creation.** Collecting the subject's name,
   relationship, gender, contributor name, optional photo, and running
   the archetype question flow before the first conversation begins.
-  Node owns the authenticated UX and `person_roles`; the agent owns
-  `persons` creation plus archetype answer processing.
+  Node owns the authenticated UX; the agent owns `persons` creation
+  plus archetype answer processing.
 - Sessions and per-turn transcript log → DynamoDB.
 - **All user-facing reads** from Postgres for the legacy review UI
   (moments, entities, threads, traits, profile facts, profile
@@ -227,25 +227,22 @@ legacy creation flow:
 2. Call `POST /persons` on the agent to create the status-agnostic
    `persons` row. Do not collect DOB / DOD; lifespan emerges from
    stories and time anchors later.
-3. Create the Node-owned `person_roles` row linking the authenticated
-   contributor to that person. The row must include `relationship`,
-   `onboarding_complete`, and `archetype_answers`.
-4. Call `GET /api/v1/onboarding/archetype-questions?role_id=...` and
+3. Call `GET /api/v1/onboarding/archetype-questions?person_id=...` and
    show the returned 2-3 tappable questions. The response does not
    expose server-side `implies` blocks.
-5. Call `POST /api/v1/onboarding/archetype-answers` with one answer
+4. Call `POST /api/v1/onboarding/archetype-answers` with `person_id`
+   and one answer
    per returned question. Each answer chooses exactly one of
    `option_id`, `free_text`, or `skipped`.
-6. Use the returned `session_id` for the immediate `/session/start`
-   call. Pass `person_roles.archetype_answers` in
-   `session_metadata.archetype_answers` so the opener can anchor on
-   what onboarding captured without re-asking it.
-7. Push or otherwise trigger the person's portrait artifact only when
+5. Use the returned `session_id` for the immediate `/session/start`
+   call. The agent stores `persons.archetype_answers` and uses it for
+   the first opener without requiring Node to maintain a role table.
+6. Push or otherwise trigger the person's portrait artifact only when
    you have enough visual material for a useful prompt. The agent's
    `POST /persons` row creation intentionally does not enqueue a thin
    name-only portrait prompt.
 
-`person_roles.onboarding_complete` gates resume behavior. If it is
+`persons.onboarding_complete` gates resume behavior. If it is
 `false`, resume the archetype question step; if it is `true`, go
 straight to chat. The agent returns `409 Conflict` from the archetype
 question/answer endpoints when onboarding is already complete.
@@ -325,12 +322,12 @@ ignores it**. If you don't have one, omit the key. Don't fabricate.
 
 ### `session_metadata.archetype_answers`
 
-Recommended on the first session after archetype onboarding. Pass the
-stored `person_roles.archetype_answers` array exactly as persisted by
-`POST /api/v1/onboarding/archetype-answers`. The starter opener renders
-these answers into natural language, anchors on the most concrete
-captured detail, and avoids re-asking anything the contributor already
-tapped or typed.
+Optional on the first session after archetype onboarding. The agent
+already stores `persons.archetype_answers` during
+`POST /api/v1/onboarding/archetype-answers`; if Node passes the same
+array in metadata, the starter opener uses it directly. Either way, the
+first opener anchors on the most concrete captured detail and avoids
+re-asking anything the contributor already tapped or typed.
 
 ### `/session/wrap` is mandatory
 

@@ -12,8 +12,7 @@ from flashback.onboarding.archetypes import COVERAGE_DIMENSIONS, sanitize_implie
 
 
 @dataclass(frozen=True)
-class RoleRow:
-    role_id: UUID
+class PersonOnboardingRow:
     person_id: UUID
     relationship: str | None
     onboarding_complete: bool
@@ -33,29 +32,28 @@ class OnboardingPersistResult:
     coverage_deltas: dict[str, int]
 
 
-async def fetch_role(cur, *, role_id: UUID, for_update: bool = False) -> RoleRow | None:
+async def fetch_person_onboarding(
+    cur, *, person_id: UUID, for_update: bool = False
+) -> PersonOnboardingRow | None:
     lock = " FOR UPDATE" if for_update else ""
     await cur.execute(
         f"""
-        SELECT pr.id,
-               pr.person_id,
-               COALESCE(pr.relationship, p.relationship) AS relationship,
-               COALESCE(pr.onboarding_complete, false) AS onboarding_complete,
-               COALESCE(pr.archetype_answers, '[]'::jsonb) AS archetype_answers
-          FROM person_roles pr
-          JOIN persons p ON p.id = pr.person_id
-         WHERE pr.id = %s
+        SELECT id,
+               relationship,
+               COALESCE(onboarding_complete, false) AS onboarding_complete,
+               COALESCE(archetype_answers, '[]'::jsonb) AS archetype_answers
+          FROM persons
+         WHERE id = %s
         {lock}
         """,
-        (str(role_id),),
+        (str(person_id),),
     )
     row = await cur.fetchone()
     if row is None:
         return None
-    returned_role_id, person_id, relationship, complete, answers = row
-    return RoleRow(
-        role_id=UUID(str(returned_role_id)),
-        person_id=UUID(str(person_id)),
+    returned_person_id, relationship, complete, answers = row
+    return PersonOnboardingRow(
+        person_id=UUID(str(returned_person_id)),
         relationship=relationship,
         onboarding_complete=bool(complete),
         archetype_answers=list(answers or []),
@@ -65,13 +63,13 @@ async def fetch_role(cur, *, role_id: UUID, for_update: bool = False) -> RoleRow
 async def persist_archetype_onboarding(
     cur,
     *,
-    role: RoleRow,
+    person: PersonOnboardingRow,
     answers: list[dict[str, Any]],
     implies_blocks: list[dict[str, Any]],
 ) -> OnboardingPersistResult:
     """Persist onboarding answers and implied graph state.
 
-    Caller owns the transaction and has locked ``person_roles``.
+    Caller owns the transaction and has locked ``persons``.
     """
 
     embedding_jobs: list[EntityEmbeddingJob] = []
@@ -82,27 +80,27 @@ async def persist_archetype_onboarding(
         for raw_entity in implies.get("entities", []):
             job = await _upsert_entity(
                 cur,
-                person_id=str(role.person_id),
+                person_id=str(person.person_id),
                 entity=raw_entity,
                 answer=answer,
-                relationship=role.relationship,
+                relationship=person.relationship,
             )
             if job is not None:
                 embedding_jobs.append(job)
 
     if any(coverage_deltas.values()):
         await _apply_coverage_deltas(
-            cur, person_id=str(role.person_id), deltas=coverage_deltas
+            cur, person_id=str(person.person_id), deltas=coverage_deltas
         )
 
     await cur.execute(
         """
-        UPDATE person_roles
+        UPDATE persons
            SET archetype_answers = %s,
                onboarding_complete = true
          WHERE id = %s
         """,
-        (Json(answers), str(role.role_id)),
+        (Json(answers), str(person.person_id)),
     )
 
     return OnboardingPersistResult(

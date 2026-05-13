@@ -143,9 +143,9 @@ dependencies show `"error: <ExceptionClassName>"`.
 
 ## 4. Onboarding
 
-Node owns the authenticated user flow and `person_roles`; the agent
-owns canonical graph writes and the archetype answer processing that
-seeds the first conversation.
+Node owns the authenticated user flow. In v1 there is one contributor
+per legacy, so the agent stores onboarding completion on the
+agent-owned `persons` row instead of a Node-owned `person_roles` row.
 
 ### `POST /persons`
 
@@ -155,17 +155,17 @@ display name, relationship, subject gender, and contributor name. DOB
 
 ### `GET /api/v1/onboarding/archetype-questions`
 
-Return 2-3 tappable questions tailored to `person_roles.relationship`.
+Return 2-3 tappable questions tailored to `persons.relationship`.
 
 **Query**
 ```
-role_id=uuid
+person_id=uuid
 ```
 
 **Response 200**
 ```json
 {
-  "role_id": "uuid",
+  "person_id": "uuid",
   "relationship": "friend",
   "archetype": "friend",
   "questions": [
@@ -185,23 +185,23 @@ role_id=uuid
 The server-side `implies` blocks are deliberately omitted.
 
 **Errors**
-- `404` -- role not found
-- `409` -- `person_roles.onboarding_complete = true`
-- `503` -- `person_roles` or onboarding columns are unavailable
+- `404` -- person not found
+- `409` -- `persons.onboarding_complete = true`
+- `503` -- `persons` onboarding columns are unavailable
 
 ### `POST /api/v1/onboarding/archetype-answers`
 
 Validate every archetype question, resolve static option implications,
 parse free-text answers with the small LLM parser, upsert implied
 entities, bump `persons.coverage_state`, store
-`person_roles.archetype_answers`, set
-`person_roles.onboarding_complete = true`, enqueue new entity
+`persons.archetype_answers`, set
+`persons.onboarding_complete = true`, enqueue new entity
 embeddings when configured, and return the first session id.
 
 **Request**
 ```json
 {
-  "role_id": "uuid",
+  "person_id": "uuid",
   "answers": [
     { "question_id": "friend_meet", "option_id": "school" },
     {
@@ -223,11 +223,12 @@ Each answer must choose exactly one of `option_id`, `free_text`, or
 ```
 
 Node should use that `session_id` for the immediate
-`POST /session/start` call and include the stored
-`person_roles.archetype_answers` in `session_metadata.archetype_answers`.
+`POST /session/start` call. The endpoint already uses the stored
+`persons.archetype_answers` for the first opener; passing the same
+array in `session_metadata.archetype_answers` is optional.
 
 **Errors**
-- `404` -- role not found
+- `404` -- person not found
 - `409` -- onboarding already complete
 - `422` -- incomplete, duplicate, or invalid answers
 - `502` / `504` -- free-text parser failure or timeout
@@ -276,7 +277,7 @@ are:
 - `prior_session_summary`, which seeds the read-only
   `prior_session_summary` field in working memory (consumed only by the
   Response Generator — see invariant #15).
-- `archetype_answers`, the stored onboarding answers for the role. The
+- `archetype_answers`, the stored onboarding answers for the person. The
   first-turn opener renders these naturally and anchors on the most
   concrete detail without re-asking it.
 

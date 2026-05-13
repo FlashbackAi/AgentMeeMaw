@@ -161,8 +161,8 @@ async def generate_first_time_opener(
 ) -> None:
     """Generate the opener for the very first session post-onboarding.
 
-    Reads ``archetype_answers`` from ``session_metadata`` (the onboarding
-    endpoint stuffs them in there). Different prompt, different LLM call
+    Reads ``archetype_answers`` from ``session_metadata`` first, then
+    from ``persons`` as a fallback. Different prompt, different LLM call
     shape from :func:`generate_opener` — and the only place archetype
     answers ever reach the response generator.
     """
@@ -267,11 +267,10 @@ async def _archetype_answers_for_state(
                 await cur.execute(
                     """
                     SELECT COALESCE(archetype_answers, '[]'::jsonb)
-                      FROM person_roles
+                      FROM persons
                      WHERE id = %s
-                       AND person_id = %s
                     """,
-                    (str(state.role_id), str(state.person_id)),
+                    (str(state.person_id),),
                 )
                 row = await cur.fetchone()
     except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):

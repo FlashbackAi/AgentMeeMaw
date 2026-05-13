@@ -33,8 +33,8 @@ from flashback.onboarding.archetypes import (
     sanitize_implies,
 )
 from flashback.onboarding.persistence import (
-    RoleRow,
-    fetch_role,
+    PersonOnboardingRow,
+    fetch_person_onboarding,
     persist_archetype_onboarding,
 )
 from flashback.orchestrator import OrchestratorProtocol
@@ -49,22 +49,22 @@ log = structlog.get_logger("flashback.http.onboarding")
 
 @router.get("/archetype-questions", response_model=ArchetypeQuestionsResponse)
 async def archetype_questions(
-    role_id: UUID = Query(...),
+    person_id: UUID = Query(...),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
 ) -> ArchetypeQuestionsResponse:
     """Return 2-3 relationship-tailored tappable questions."""
 
-    role = await _load_role_or_http(db_pool, role_id=role_id)
-    if role.onboarding_complete:
+    person = await _load_person_onboarding_or_http(db_pool, person_id=person_id)
+    if person.onboarding_complete:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="onboarding already complete for this role",
+            detail="onboarding already complete for this person",
         )
 
-    archetype, questions = public_questions_for_relationship(role.relationship)
+    archetype, questions = public_questions_for_relationship(person.relationship)
     return ArchetypeQuestionsResponse(
-        role_id=role_id,
-        relationship=role.relationship,
+        person_id=person_id,
+        relationship=person.relationship,
         archetype=archetype,
         questions=questions,
     )
@@ -85,36 +85,38 @@ async def archetype_answers(
     the normal opener flow and ignore them.
     """
 
-    role = await _load_role_or_http(db_pool, role_id=body.role_id)
-    if role.onboarding_complete:
+    person = await _load_person_onboarding_or_http(db_pool, person_id=body.person_id)
+    if person.onboarding_complete:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="onboarding already complete for this role",
+            detail="onboarding already complete for this person",
         )
 
     answers, implies_blocks = await _resolve_answers(
         cfg=cfg,
-        role=role,
+        person=person,
         answers=[answer.model_dump(exclude_none=True) for answer in body.answers],
     )
 
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
-                locked_role = await fetch_role(cur, role_id=body.role_id, for_update=True)
-                if locked_role is None:
+                locked_person = await fetch_person_onboarding(
+                    cur, person_id=body.person_id, for_update=True
+                )
+                if locked_person is None:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"role {body.role_id} not found",
+                        detail=f"person {body.person_id} not found",
                     )
-                if locked_role.onboarding_complete:
+                if locked_person.onboarding_complete:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail="onboarding already complete for this role",
+                        detail="onboarding already complete for this person",
                     )
                 result = await persist_archetype_onboarding(
                     cur,
-                    role=locked_role,
+                    person=locked_person,
                     answers=answers,
                     implies_blocks=implies_blocks,
                 )
@@ -127,8 +129,10 @@ async def archetype_answers(
 
     opener_result = await orch.handle_first_time_opener(
         session_id=result.session_id,
-        person_id=role.person_id,
-        role_id=body.role_id,
+        person_id=person.person_id,
+        # V1 has one contributor per legacy, so the person id is a stable
+        # working-memory role stand-in for this onboarding-created session.
+        role_id=person.person_id,
         session_metadata={
             "archetype_answers": answers,
             "contributor_display_name": body.contributor_display_name or "",
@@ -137,8 +141,7 @@ async def archetype_answers(
 
     log.info(
         "onboarding.archetype_completed",
-        role_id=str(body.role_id),
-        person_id=str(role.person_id),
+        person_id=str(person.person_id),
         session_id=str(result.session_id),
         new_entities=len(result.embedding_jobs),
         coverage_deltas=result.coverage_deltas,
@@ -150,33 +153,33 @@ async def archetype_answers(
     )
 
 
-async def _load_role_or_http(
-    db_pool: AsyncConnectionPool, *, role_id: UUID
-) -> RoleRow:
+async def _load_person_onboarding_or_http(
+    db_pool: AsyncConnectionPool, *, person_id: UUID
+) -> PersonOnboardingRow:
     try:
         async with db_pool.connection() as conn:
             async with conn.cursor() as cur:
-                role = await fetch_role(cur, role_id=role_id)
-    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn) as exc:
+                person = await fetch_person_onboarding(cur, person_id=person_id)
+    except psycopg.errors.UndefinedColumn as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="person_roles onboarding columns are not available",
+            detail="persons onboarding columns are not available",
         ) from exc
-    if role is None:
+    if person is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"role {role_id} not found",
+            detail=f"person {person_id} not found",
         )
-    return role
+    return person
 
 
 async def _resolve_answers(
     *,
     cfg: HttpConfig,
-    role: RoleRow,
+    person: PersonOnboardingRow,
     answers: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    expected_ids = expected_question_ids(role.relationship)
+    expected_ids = expected_question_ids(person.relationship)
     provided_ids = [str(answer.get("question_id") or "") for answer in answers]
     if set(provided_ids) != expected_ids or len(provided_ids) != len(set(provided_ids)):
         raise HTTPException(
@@ -204,7 +207,7 @@ async def _resolve_answers(
 
         try:
             question, option = resolve_answer(
-                relationship=role.relationship,
+                relationship=person.relationship,
                 question_id=question_id,
                 option_id=str(option_id) if option_id else None,
             )
@@ -236,7 +239,7 @@ async def _resolve_answers(
             model=cfg.llm_onboarding_parse_model,
             timeout=cfg.llm_onboarding_parse_timeout_seconds,
             max_tokens=cfg.llm_onboarding_parse_max_tokens,
-            relationship=role.relationship,
+            relationship=person.relationship,
             question_text=str(question["text"]),
             free_text=free_text,
         )

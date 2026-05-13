@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import socket
 from urllib.parse import urlparse
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
@@ -39,25 +39,7 @@ def person_payload(**overrides):
     return payload
 
 
-async def _ensure_person_roles_table(async_db_pool) -> None:
-    async with async_db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS person_roles (
-                    id UUID PRIMARY KEY,
-                    person_id UUID NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
-                    relationship TEXT,
-                    onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
-                    archetype_answers JSONB NOT NULL DEFAULT '[]'::jsonb
-                )
-                """
-            )
-        await conn.commit()
-
-
-async def _create_friend_role(client_with_db, async_db_pool) -> tuple[str, str]:
-    await _ensure_person_roles_table(async_db_pool)
+async def _create_friend_person(client_with_db) -> str:
     person_resp = await client_with_db.post(
         "/persons",
         headers=auth_headers(),
@@ -68,31 +50,19 @@ async def _create_friend_role(client_with_db, async_db_pool) -> tuple[str, str]:
         ),
     )
     assert person_resp.status_code == 200, person_resp.text
-    person_id = person_resp.json()["person_id"]
-    role_id = str(uuid4())
-    async with async_db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                INSERT INTO person_roles (id, person_id, relationship)
-                VALUES (%s, %s, %s)
-                """,
-                (role_id, person_id, "friend"),
-            )
-        await conn.commit()
-    return person_id, role_id
+    return person_resp.json()["person_id"]
 
 
 class TestArchetypeQuestions:
     async def test_returns_public_questions_without_implies(
         self, client_with_db, async_db_pool
     ) -> None:
-        _, role_id = await _create_friend_role(client_with_db, async_db_pool)
+        person_id = await _create_friend_person(client_with_db)
 
         resp = await client_with_db.get(
             "/api/v1/onboarding/archetype-questions",
             headers=auth_headers(),
-            params={"role_id": role_id},
+            params={"person_id": person_id},
         )
 
         assert resp.status_code == 200, resp.text
@@ -112,13 +82,13 @@ class TestArchetypeAnswers:
     async def test_persists_answers_entities_and_coverage(
         self, client_with_db, async_db_pool
     ) -> None:
-        person_id, role_id = await _create_friend_role(client_with_db, async_db_pool)
+        person_id = await _create_friend_person(client_with_db)
 
         resp = await client_with_db.post(
             "/api/v1/onboarding/archetype-answers",
             headers=auth_headers(),
             json={
-                "role_id": role_id,
+                "person_id": person_id,
                 "answers": [
                     {"question_id": "friend_meet", "option_id": "school"},
                     {
@@ -139,12 +109,12 @@ class TestArchetypeAnswers:
                 await cur.execute(
                     """
                     SELECT onboarding_complete, archetype_answers
-                    FROM person_roles
+                    FROM persons
                     WHERE id = %s
                     """,
-                    (role_id,),
+                    (person_id,),
                 )
-                role_row = await cur.fetchone()
+                person_row = await cur.fetchone()
                 await cur.execute(
                     """
                     SELECT coverage_state
@@ -164,11 +134,11 @@ class TestArchetypeAnswers:
                 )
                 entity_rows = await cur.fetchall()
 
-        assert role_row is not None
-        assert role_row[0] is True
-        assert role_row[1][0]["label"] == "At school or college"
-        assert role_row[1][1]["label"] == "They seemed confident"
-        assert role_row[1][2]["skipped"] is True
+        assert person_row is not None
+        assert person_row[0] is True
+        assert person_row[1][0]["label"] == "At school or college"
+        assert person_row[1][1]["label"] == "They seemed confident"
+        assert person_row[1][2]["skipped"] is True
 
         assert coverage_row is not None
         coverage = coverage_row[0]
@@ -182,22 +152,22 @@ class TestArchetypeAnswers:
         assert entity_rows[0][1] == "school or college"
         assert entity_rows[0][2]["source"] == "archetype_onboarding"
 
-    async def test_complete_role_returns_409(
+    async def test_complete_person_returns_409(
         self, client_with_db, async_db_pool
     ) -> None:
-        _, role_id = await _create_friend_role(client_with_db, async_db_pool)
+        person_id = await _create_friend_person(client_with_db)
         async with async_db_pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE person_roles SET onboarding_complete = true WHERE id = %s",
-                    (role_id,),
+                    "UPDATE persons SET onboarding_complete = true WHERE id = %s",
+                    (person_id,),
                 )
             await conn.commit()
 
         resp = await client_with_db.get(
             "/api/v1/onboarding/archetype-questions",
             headers=auth_headers(),
-            params={"role_id": role_id},
+            params={"person_id": person_id},
         )
 
         assert resp.status_code == 409

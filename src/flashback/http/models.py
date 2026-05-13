@@ -173,7 +173,7 @@ class ArchetypeAnswerInput(BaseModel):
 class ArchetypeAnswersRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role_id: UUID
+    person_id: UUID
     answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=5)
     contributor_display_name: str | None = Field(default=None, max_length=64)
 
@@ -196,7 +196,7 @@ class ArchetypeAnswersResponse(BaseModel):
 class ArchetypeQuestionsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role_id: UUID
+    person_id: UUID
     relationship: str | None = None
     archetype: str
     questions: list[dict[str, Any]]

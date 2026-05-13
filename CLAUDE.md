@@ -85,7 +85,7 @@ External dependencies we **call** but do not own: the Node Backend
 
 ### What Node.js (other repo) owns
 
-- Auth, users, contributor `person_roles`.
+- Auth and users. Multi-contributor `person_roles` are deferred in v1.
 - Sessions and per-turn transcript log → DynamoDB.
 - **All user-facing reads** from Postgres for the UI (legacy review
   surfaces).
@@ -99,10 +99,10 @@ External dependencies we **call** but do not own: the Node Backend
   in by Node on the request, or fetched from a Node API.
 - **We never touch S3 or the URL columns.** We only write the
   `generation_prompt` column and push onto `artifact_generation`.
-- **We never write to Node-owned tables** (users, person_roles, etc.),
-  except the onboarding endpoint's narrow update of
-  `person_roles.onboarding_complete` and
-  `person_roles.archetype_answers` after Node has authorized the role.
+- **We never write to Node-owned tables** (users, future
+  `person_roles`, etc.). In v1 onboarding state is stored on the
+  agent-owned `persons` row because there is only one contributor per
+  legacy.
 - **No auth in this service.** Trust comes from a service-to-service
   token plus private network. Node is the auth boundary.
 - **Node never writes to the canonical graph.** Reads only. If Node

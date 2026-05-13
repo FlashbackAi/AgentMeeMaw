@@ -82,13 +82,13 @@ that happens to share the same repo, infrastructure, and process.
    A contributor creates a "legacy" for one subject. Node collects the
    subject's name, the contributor's relationship to them, the
    subject's gender, the contributor's own display name, and any
-   optional photo. Node calls the agent's `POST /persons`, creates the
-   Node-owned `person_roles` row, shows the archetype questions returned
-   by `GET /api/v1/onboarding/archetype-questions`, and completes the
-   step with `POST /api/v1/onboarding/archetype-answers`. The returned
-   `session_id` is used for the first `/session/start`, with
-   `person_roles.archetype_answers` passed in session metadata so the
-   opener can reference what onboarding captured.
+   optional photo. Node calls the agent's `POST /persons`, shows the
+   archetype questions returned by
+   `GET /api/v1/onboarding/archetype-questions?person_id=...`, and
+   completes the step with `POST /api/v1/onboarding/archetype-answers`.
+   The agent stores onboarding completion and answers on `persons`
+   because v1 has one contributor per legacy. The returned `session_id`
+   is used for the first `/session/start`.
 
 2. **Conversation.** The contributor opens the legacy and starts
    talking. Each conversation is a "session." Node calls the agent's
