@@ -2,7 +2,7 @@
 
 Per CLAUDE.md s3 the canonical graph is write-locked to the agent
 service. Node hits this endpoint during onboarding once the
-contributor has supplied (a) the deceased's display name, (b) their
+contributor has supplied (a) the subject's display name, (b) their
 own relationship to them, and (c) the contributor's own display name.
 The new row is inserted with all cold-start defaults
 (``phase='starter'``, zeroed coverage, no profile summary, no artifact

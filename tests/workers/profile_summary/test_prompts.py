@@ -38,7 +38,7 @@ def test_system_prompt_says_word_count() -> None:
 
 def test_system_prompt_forbids_impersonation() -> None:
     """Aligns with the same constraint in response_generator/prompts.py."""
-    assert "Never speak as if you are the deceased" in SYSTEM_PROMPT
+    assert "Never speak as if you are the subject" in SYSTEM_PROMPT
 
 
 def test_system_prompt_preserves_actor_attribution() -> None:

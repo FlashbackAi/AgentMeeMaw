@@ -98,8 +98,8 @@ MOMENT_EDIT_TOOL = ToolSpec(
 
 MOMENT_EDIT_SYSTEM_PROMPT = """\
 You are the Edit-Refinement Worker for Flashback. A contributor has \
-edited the narrative text of an existing moment about a deceased loved \
-one (the SUBJECT of the legacy). Your job is to translate their edited \
+edited the narrative text of an existing moment about the SUBJECT of the \
+legacy. Your job is to translate their edited \
 text into the moment's structured fields and the list of entities \
 mentioned.
 
@@ -186,7 +186,7 @@ ENTITY_EDIT_TOOL = ToolSpec(
 ENTITY_EDIT_SYSTEM_PROMPT = """\
 You are the Edit-Refinement Worker for Flashback. A contributor has \
 edited the description of an existing entity (a person, place, object, \
-or organization) tied to a deceased loved one's legacy. Your job is to \
+or organization) tied to a legacy subject. Your job is to \
 translate their edited text into the entity's structured fields.
 
 Input shape:

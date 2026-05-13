@@ -24,13 +24,13 @@ from flashback.llm.tool_spec import ToolSpec
 
 
 NAMING_SYSTEM_PROMPT = """\
-You are the Thread Detector for Flashback, a memorial conversation \
+You are the Thread Detector for Flashback, a legacy conversation \
 agent. The system has identified a cluster of moments that group together \
 in the embedding space. Your job is to name and describe the underlying \
 THREAD that connects them.
 
-A thread is a narrative arc, theme, or aspect of the deceased's life — \
-not a single moment, not a category, not the deceased themselves.
+A thread is a narrative arc, theme, or aspect of the subject's life or \
+legacy — not a single moment, not a category, not the subject themselves.
 
 Examples of GOOD thread names:
 - "Summers at the lake"
@@ -115,7 +115,7 @@ NAMING_TOOL = ToolSpec(
 
 
 P4_SYSTEM_PROMPT = """\
-You are generating "thread_deepen" questions for the Flashback memorial \
+You are generating "thread_deepen" questions for the Flashback legacy \
 agent. A thread has just been detected or updated. Your job is to \
 produce 1–2 questions that would surface NEW information or DEEPEN this \
 thread next time the contributor is talking.
@@ -128,7 +128,9 @@ contributor ("What did Sarah think of those summers?"). Do NOT write \
 "the contributor" when a name is provided — use the name, or restructure \
 the question to avoid attribution. The phrase "the contributor" is \
 reserved for the empty-tag case; only then fall back to neutral phrasing. \
-Never write a placeholder like "<contributor>".
+Never write a placeholder like "<contributor>". Never infer the subject's \
+life status; prefer tense-neutral question phrasing unless the supplied \
+moments clearly establish a tense.
 
 Good thread_deepen questions:
 - Ask about a specific aspect not yet covered ("What did the cabin look \

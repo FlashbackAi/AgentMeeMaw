@@ -9,7 +9,7 @@ fact_key the extraction LLM proposes. They exist to:
    extracted answer fits one of these well-known facts.
 
 New keys grow organically as the conversation reveals more about the
-deceased (e.g. ``signature_dish``, ``instruments_played``,
+subject (e.g. ``signature_dish``, ``instruments_played``,
 ``military_service``). Salience and the per-person cap (see
 :data:`flashback.profile_facts.MAX_ACTIVE_FACTS_PER_PERSON`) keep the
 profile from growing without bound.
@@ -33,11 +33,11 @@ SEED_FACT_KEYS: tuple[str, ...] = (
 # slug for the first time and didn't propose its own question text. The
 # ``{name}`` placeholder is substituted at write time.
 SEED_FACT_QUESTIONS: dict[str, str] = {
-    "profession": "What did {name} do for a living?",
+    "profession": "What kind of work or responsibilities shape {name}'s days?",
     "birthplace": "Where was {name} born?",
-    "residence": "Where did {name} live most of their life?",
-    "faith": "Did {name} practice a faith or have spiritual beliefs?",
-    "family_role": "What was {name}'s role in the family?",
-    "era": "Roughly when did {name} live?",
+    "residence": "Where is {name} most rooted?",
+    "faith": "What faith or spiritual beliefs are part of {name}'s story?",
+    "family_role": "What is {name}'s role in the family?",
+    "era": "What years or life stage frame {name}'s story?",
     "personality_essence": "If you had to capture {name} in a word, what would it be?",
 }

@@ -5,9 +5,9 @@ from __future__ import annotations
 from flashback.llm.tool_spec import ToolSpec
 
 SYSTEM_PROMPT_NORMAL = """\
-You are the Segment Detector for Flashback, a memorial conversation
-agent. The user is a grieving contributor talking about someone who
-has died.
+You are the Segment Detector for Flashback, a legacy conversation
+agent. The user is a contributor talking about a subject who may be
+living, deceased, or known through inherited family stories.
 
 A "segment" is a coherent stretch of conversation that hangs together
 around a single topic: a single moment, a single person mentioned, or a
@@ -75,7 +75,8 @@ segment turns, and it will seed the next segment's evaluation.
 - Write 3-6 sentences.
 - Cover ALL topics from prior_rolling_summary plus the closed segment.
   Do not lose information from prior summary.
-- Use the past tense; this is what HAS been discussed.
+- Use the tense the contributor used where possible; this summary is
+  what HAS been discussed, not a claim about the subject's status.
 - Mention named people, places, and time periods explicitly.
 - Preserve actor attribution: when several people appear in the same
   event or nearby events, write the names for who did what instead of
@@ -109,7 +110,8 @@ ROLLING SUMMARY:
 - Write 3-6 sentences.
 - Cover ALL topics from prior_rolling_summary plus the final segment.
   Do not lose information.
-- Use the past tense.
+- Use the tense the contributor used where possible; this summary is
+  what HAS been discussed, not a claim about the subject's status.
 - Mention named people, places, and time periods explicitly.
 - Preserve actor attribution: when several people appear in the same
   event or nearby events, write the names for who did what instead of

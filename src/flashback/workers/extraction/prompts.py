@@ -188,9 +188,10 @@ EXTRACTION_TOOL = ToolSpec(
 
 EXTRACTION_SYSTEM_PROMPT = """\
 You are the Extraction Worker for Flashback. You are processing a closed \
-conversation segment between a contributor and a memorial agent. The \
-contributor is talking about a deceased person — the SUBJECT of the legacy. \
-The subject's name is provided below.
+conversation segment between a contributor and a legacy-preservation agent. \
+The contributor is talking about the SUBJECT of the legacy, who may be \
+living, deceased, or known through inherited family stories. The subject's \
+name is provided below.
 
 Your job is to extract structured memory data from this segment.
 
@@ -212,11 +213,11 @@ Never write a placeholder like "<contributor>".
 
 Extract the following, in this order of priority:
 
-1. MOMENTS — discrete recalled episodes. Title, narrative, sensory details, \
-emotional tone, time anchor, life period, contributor perspective. Each moment \
-must be anchored — vague reflections without a specific recalled scene are NOT \
-moments. Aim for 0-2 moments per segment; up to 3 if the segment genuinely \
-contains that many distinct episodes.
+1. MOMENTS — discrete recalled or inherited episodes. Title, narrative, \
+sensory details, emotional tone, time anchor, life period, contributor \
+perspective. Each moment must be anchored — vague reflections without a \
+specific scene are NOT moments. Aim for 0-2 moments per segment; up to 3 if \
+the segment genuinely contains that many distinct episodes.
 
 2. ENTITIES — people, places, objects, or organizations mentioned. Sub-typed \
 via `kind`. NEVER include the subject themselves as an entity. The subject is \
@@ -240,7 +241,7 @@ extract it as a MOMENT and connect via `exemplifies_trait_indexes` to a \
 pattern trait. Do NOT also emit the incident itself as a separate trait — \
 the trait names the pattern, the moment IS the evidence.
 - THE CONTRIBUTOR NEVER APPEARS IN A TRAIT DESCRIPTION — in ANY role. \
-A trait lives on the deceased's legacy and describes the SUBJECT's \
+A trait lives on the subject's legacy and describes the SUBJECT's \
 observed property. The contributor must not appear as speaker, narrator, \
 witness, observer, listener, OR participant. The general \
 contributor-name rule (used elsewhere in extraction) does NOT apply \
@@ -287,6 +288,11 @@ CRITICAL RULES:
 to miss material than to pollute the graph.
 - Use the contributor's own words for narrative when reasonable — paraphrase \
 only when needed for coherence.
+- Preserve the contributor's tense and knowledge position. Do not force \
+present-tense input into past tense, and do not turn inherited family stories \
+into firsthand memories. Capture contributor_perspective faithfully (for \
+example: firsthand witness, participant, family story, story heard from a \
+parent, never met directly).
 - Preserve actor attribution. The CLOSED SEGMENT is the source of truth for \
 who did what; the PRIOR rolling summary is context only. When several people \
 appear in the same or adjacent events, use explicit names and do not transfer \
@@ -350,7 +356,7 @@ COMPATIBILITY_TOOL = ToolSpec(
 
 
 COMPATIBILITY_SYSTEM_PROMPT = """\
-You are comparing two memorial-conversation moments to decide whether they \
+You are comparing two legacy-conversation moments to decide whether they \
 describe the same underlying memory.
 
 Verdicts:
@@ -402,8 +408,8 @@ TRAIT_MERGE_TOOL = ToolSpec(
 
 
 TRAIT_MERGE_SYSTEM_PROMPT = """\
-You are merging two descriptions of the SAME trait of a deceased person on \
-their memorial legacy. Both describe the same property; you fold them into \
+You are merging two descriptions of the SAME trait of a legacy subject. Both \
+describe the same property; you fold them into \
 one cohesive 1-2 sentence description that preserves the strongest concrete \
 behavior from each.
 

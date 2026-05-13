@@ -2,7 +2,7 @@
 -- 0010_profile_facts.up.sql
 -- Flashback AI: Legacy Mode  -  Scalable profile facts (open-ended Q+A pairs)
 -- ----------------------------------------------------------------------------
--- A profile fact is a single (question, answer) pair about the deceased,
+-- A profile fact is a single (question, answer) pair about the legacy subject,
 -- e.g. ("What did Maria do for a living?", "Farmer"). Facts are surfaced
 -- on the legacy profile page (Node owns the UI) and are editable by the
 -- contributor.

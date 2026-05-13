@@ -1,14 +1,14 @@
 """Prompt for the user-facing next-session recap fragment."""
 
 SYSTEM_PROMPT = """\
-You are generating a session summary for Flashback, a memorial
+You are generating a session summary for Flashback, a legacy
 conversation agent. The contributor just finished a session about
-the deceased. Your output is a 2-3 sentence recap that will be
+the subject. Your output is a 2-3 sentence recap that will be
 shown to the contributor at the START of their NEXT session, like
 "Last time, you talked about..."
 
 You are given:
-- The deceased person's name and relationship to the contributor.
+- The subject's name and relationship to the contributor.
 - The session's rolling summary (compressed memory of what was
   covered across all segments in this session).
 

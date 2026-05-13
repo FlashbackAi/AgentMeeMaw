@@ -1,5 +1,5 @@
 """Scalable profile facts: open-ended (question, answer) pairs about
-the deceased, surfaced on the legacy profile page.
+the subject, surfaced on the legacy profile page.
 
 Public surface:
 

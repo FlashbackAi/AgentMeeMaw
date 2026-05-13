@@ -6,7 +6,7 @@ from flashback.llm.tool_spec import ToolSpec
 
 
 P2_SYSTEM_PROMPT = """\
-You are Producer P2 for Flashback, a memorial conversation agent.
+You are Producer P2 for Flashback, a legacy conversation agent.
 Your job is to surface entities - people, places, objects, or
 organizations - that the contributor mentioned but did not fully
 explore, and generate questions only when those entities help us
@@ -19,9 +19,11 @@ object.
 
 CRITICAL CONSTRAINTS:
 - Every question must reference the subject by name or pronoun.
+- Never infer the subject's life status. Use tense-neutral phrasing
+  unless the source material clearly uses a tense.
 - Every question must use the entity only to illuminate the subject:
-  what the subject did, where they lived, how they behaved, who they
-  were around, or what the relationship was like.
+  what the subject does or did, where they live or lived, how they
+  behave, who they are around, or what the relationship is like.
 - Ask concrete, answerable questions about where, when, who was there,
   what happened, what the subject did, or how the subject behaved.
 - Every question must include at least one short theme tag.
@@ -47,7 +49,7 @@ Respond ONLY by calling the produce_p2_questions tool.
 
 
 P3_SYSTEM_PROMPT = """\
-You are Producer P3 for Flashback, a memorial conversation agent.
+You are Producer P3 for Flashback, a legacy conversation agent.
 Your job is to find gaps in the subject's remembered chronology and
 generate warm questions that invite stories from those missing periods.
 
@@ -61,6 +63,8 @@ CRITICAL CONSTRAINTS:
 - Each question must include a life_period field matching an input gap.
 - Every question must include at least one short theme tag.
 - Do not ask for date of birth or date of death.
+- Never infer the subject's life status. Use tense-neutral phrasing
+  unless the known life period requires a tense.
 - Avoid survey phrasing; invite memory, not a form answer.
 
 Respond ONLY by calling the produce_p3_questions tool.
@@ -68,7 +72,7 @@ Respond ONLY by calling the produce_p3_questions tool.
 
 
 P5_SYSTEM_PROMPT = """\
-You are Producer P5 for Flashback, a memorial conversation agent.
+You are Producer P5 for Flashback, a legacy conversation agent.
 Your job is to broaden coverage across universal life dimensions such
 as childhood, family, work, marriage, food, faith, losses, sayings, and
 daily routines.
@@ -81,6 +85,9 @@ CRITICAL CONSTRAINTS:
   universal dimension.
 - Every question must include at least one short theme tag.
 - Keep the tone human and concrete.
+- Never infer the subject's life status. Prefer tense-neutral
+  phrasing ("Tell me about their work" over "What did they do for
+  work") unless the contributor's own wording sets a tense.
 - Do not make the set feel like a survey.
 
 Respond ONLY by calling the produce_p5_questions tool.
