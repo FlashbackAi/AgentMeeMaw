@@ -28,28 +28,31 @@ shape; read those for endpoint and column-level detail.
 
 ## 1. What Legacy Mode is
 
-Legacy Mode preserves memories of **deceased loved ones**. A surviving
-contributor — spouse, child, sibling, friend — talks to an interviewer
-agent about one specific person. Over many sessions, the system
-progressively builds a structured, evidence-linked memory graph of that
-person's life: the moments, the people and places involved, the
-character traits that emerge, the threads that connect episodes.
+Legacy Mode preserves a person's legacy across **living subjects,
+deceased subjects, and ancestors the contributor never met directly**.
+A contributor — spouse, child, sibling, friend, descendant, colleague —
+talks to an interviewer agent about one specific person. Over many
+sessions, the system progressively builds a structured, evidence-linked
+memory graph of that person's life: the moments, the people and places
+involved, the character traits that emerge, the threads that connect
+episodes.
 
-This is grief technology. A few rules from that:
+This is legacy preservation across multiple subject contexts. A few
+rules from that:
 
 - The agent is an **interviewer / archivist**, not an impersonator. We
   do not build a "talk to Dad" chatbot. The agent asks; the contributor
   answers.
 - We do not clone voices. We do not generate photoreal video of the
-  deceased.
+  subject.
 - We do generate **Pixar-style stylized artifacts** — images for
   persons, threads, entities; short videos for moments — purely for
   visual texture in the legacy review UI.
 - The conversation must never feel like a survey. Cold openers,
   dropped references, emotional pacing, all matter.
 - We deliberately do **not** ask for date of birth or date of death up
-  front. That's cold UX for grief. Lifespan is derived later from the
-  time anchors of moments the contributor naturally shares.
+  front. Lifespan is derived later from the time anchors of moments the
+  contributor naturally shares.
 
 ---
 
@@ -61,7 +64,7 @@ alongside them in the same repo:
 
 | | v1 (existing chat / creation) | v2 (Legacy Mode) |
 |---|---|---|
-| Subject | the user themselves / general | one specific deceased person per legacy |
+| Subject | the user themselves / general | one specific legacy subject per legacy |
 | Goal | conversational utility | building a structured memory archive |
 | Backend | existing v1 modules | new v2 modules in the same repo → Python agent service |
 | State | v1's existing stores | working memory in Valkey + canonical graph in Postgres (agent-owned) |
@@ -75,39 +78,17 @@ that happens to share the same repo, infrastructure, and process.
 
 ## 3. The user journey
 
-1. **Legacy creation / onboarding — fully Node-owned.** A contributor
-   creates a "legacy" for one deceased person. Node runs the full
-   onboarding UX: collects the deceased's name, the contributor's
-   relationship to them, the **contributor's own display name**
-   (used for attribution in the archive's generated text — entity
-   descriptions, moment narratives, profile summary — *not* for
-   addressing the contributor in chat), and any optional photo. Node
-   creates the `person_role` row connecting the contributor to that
-   person (Node-owned table). Node is responsible for getting a
-   `persons` row to exist before the agent is ever called —
-   `/session/start` requires a pre-existing `person_id`. The
-   contributor's display name is passed on every `/session/start`
-   (not persisted in the agent today). Multi-contributor architecture
-   is deliberately deferred to a future iteration. The agent has no
-   opinions about onboarding and exposes no onboarding endpoint.
-
-   > **Open question (resolve before this integration ships).** The
-   > agent's CLAUDE.md rule is "Node never writes to the canonical
-   > graph; if Node needs a write surface, we expose an agent
-   > endpoint." Today the agent does not expose `POST /persons`. So
-   > one of the following must be decided with the agent team:
-   >   - **(a)** Add `POST /persons` to the agent service, and Node
-   >     calls it during onboarding. Cleanest. Lets the agent own
-   >     `generation_prompt` and the artifact-generation push for the
-   >     person's stylized image.
-   >   - **(b)** Document `persons` (and `person_role`) as a
-   >     specifically-allowed Node write — the only canonical-graph
-   >     write Node ever does for the row's lifecycle, in addition to
-   >     URL columns. Node is then also responsible for pushing the
-   >     `artifact_generation` message for the new person's image
-   >     (using the same payload shape the agent uses).
-   > The Node integration cannot complete onboarding without this
-   > resolution.
+1. **Legacy creation / onboarding — Node-owned UX with agent writes.**
+   A contributor creates a "legacy" for one subject. Node collects the
+   subject's name, the contributor's relationship to them, the
+   subject's gender, the contributor's own display name, and any
+   optional photo. Node calls the agent's `POST /persons`, creates the
+   Node-owned `person_roles` row, shows the archetype questions returned
+   by `GET /api/v1/onboarding/archetype-questions`, and completes the
+   step with `POST /api/v1/onboarding/archetype-answers`. The returned
+   `session_id` is used for the first `/session/start`, with
+   `person_roles.archetype_answers` passed in session metadata so the
+   opener can reference what onboarding captured.
 
 2. **Conversation.** The contributor opens the legacy and starts
    talking. Each conversation is a "session." Node calls the agent's
@@ -116,7 +97,7 @@ that happens to share the same repo, infrastructure, and process.
    opener and every reply. The contributor sees a chat-like surface.
 
 3. **The legacy review UI.** Between conversations, the contributor
-   can browse what they've built — a profile page for the deceased,
+   can browse what they've built — a profile page for the subject,
    a moments timeline, a threads view, entities (people, places,
    objects, organizations that came up), a trait list, and a profile
    Q+A list ("profile facts"). Each of these renders rows from the
@@ -209,7 +190,7 @@ parallel infrastructure.
   everything v1 does today must be byte-identical after this work.
   No edits, no refactors, no renames, no formatter sweeps, no drive-
   by improvements.
-- Voice synthesis, photoreal video, "talk to the deceased" interaction
+- Voice synthesis, photoreal video, "talk to the subject" interaction
   modes — these are explicitly not part of the product.
 - Pushing onto the agent's `extraction` or `embedding` SQS queues —
   the agent does that itself.

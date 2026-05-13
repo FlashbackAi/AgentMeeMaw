@@ -98,6 +98,9 @@ rejected with `422`.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness + dependency reachability |
+| `POST` | `/persons` | Create an agent-owned `persons` row during onboarding |
+| `GET` | `/api/v1/onboarding/archetype-questions` | Return relationship-tailored tappable onboarding questions |
+| `POST` | `/api/v1/onboarding/archetype-answers` | Persist archetype answers, seed entities/coverage, return first `session_id` |
 | `POST` | `/session/start` | Open a session, return the agent's opener |
 | `POST` | `/turn` | One user message → one assistant reply |
 | `POST` | `/session/wrap` | Force-close the open segment, run post-session sequencing |
@@ -138,7 +141,100 @@ dependencies show `"error: <ExceptionClassName>"`.
 
 ---
 
-## 4. Conversation lifecycle
+## 4. Onboarding
+
+Node owns the authenticated user flow and `person_roles`; the agent
+owns canonical graph writes and the archetype answer processing that
+seeds the first conversation.
+
+### `POST /persons`
+
+Create the `persons` row after the contributor supplies the subject's
+display name, relationship, subject gender, and contributor name. DOB
+/ DOD are not accepted; `persons` is intentionally status-agnostic.
+
+### `GET /api/v1/onboarding/archetype-questions`
+
+Return 2-3 tappable questions tailored to `person_roles.relationship`.
+
+**Query**
+```
+role_id=uuid
+```
+
+**Response 200**
+```json
+{
+  "role_id": "uuid",
+  "relationship": "friend",
+  "archetype": "friend",
+  "questions": [
+    {
+      "id": "friend_meet",
+      "text": "How did you two first meet?",
+      "allow_free_text": true,
+      "allow_skip": true,
+      "options": [
+        { "id": "school", "label": "At school or college" }
+      ]
+    }
+  ]
+}
+```
+
+The server-side `implies` blocks are deliberately omitted.
+
+**Errors**
+- `404` -- role not found
+- `409` -- `person_roles.onboarding_complete = true`
+- `503` -- `person_roles` or onboarding columns are unavailable
+
+### `POST /api/v1/onboarding/archetype-answers`
+
+Validate every archetype question, resolve static option implications,
+parse free-text answers with the small LLM parser, upsert implied
+entities, bump `persons.coverage_state`, store
+`person_roles.archetype_answers`, set
+`person_roles.onboarding_complete = true`, enqueue new entity
+embeddings when configured, and return the first session id.
+
+**Request**
+```json
+{
+  "role_id": "uuid",
+  "answers": [
+    { "question_id": "friend_meet", "option_id": "school" },
+    {
+      "question_id": "friend_first_impression",
+      "option_id": null,
+      "free_text": "He was quietly confident"
+    },
+    { "question_id": "friend_shared_place", "skipped": true }
+  ]
+}
+```
+
+Each answer must choose exactly one of `option_id`, `free_text`, or
+`skipped`.
+
+**Response 200**
+```json
+{ "session_id": "uuid" }
+```
+
+Node should use that `session_id` for the immediate
+`POST /session/start` call and include the stored
+`person_roles.archetype_answers` in `session_metadata.archetype_answers`.
+
+**Errors**
+- `404` -- role not found
+- `409` -- onboarding already complete
+- `422` -- incomplete, duplicate, or invalid answers
+- `502` / `504` -- free-text parser failure or timeout
+
+---
+
+## 5. Conversation lifecycle
 
 ### `POST /session/start`
 
@@ -153,7 +249,8 @@ gate + question selection, return the agent's opener.
   "role_id": "uuid",
   "contributor_display_name": "string (optional, recommended)",
   "session_metadata": {
-    "prior_session_summary": "string (optional)"
+    "prior_session_summary": "string (optional)",
+    "archetype_answers": "array (optional, first session)"
   }
 }
 ```
@@ -166,17 +263,22 @@ summaries, profile summary, profile facts — so attribution can read
 naturally ("Sarah recalls his laugh", "John, Sarah's father, was a
 carpenter").
 
-**Not used in conversational replies.** The agent deliberately does
-not address the contributor by name in `/turn` responses or in the
-opener; over-using a name in grief conversation feels artificial.
+The opener may use the contributor name as context for the relationship,
+but the agent should not use it as a repeated salutation. `/turn`
+responses stay relationship-centered rather than name-heavy.
 When omitted or null, archive-side text falls back to neutral
 attribution ("the contributor", or omitted). Not persisted across
 sessions today — pass it on every `/session/start`.
 
-`session_metadata` is a free-form dict. The only key the agent reads
-today is `prior_session_summary`, which seeds the read-only
-`prior_session_summary` field in working memory (consumed only by the
-Response Generator — see invariant #15).
+`session_metadata` is a free-form dict. The keys the agent reads today
+are:
+
+- `prior_session_summary`, which seeds the read-only
+  `prior_session_summary` field in working memory (consumed only by the
+  Response Generator — see invariant #15).
+- `archetype_answers`, the stored onboarding answers for the role. The
+  first-turn opener renders these naturally and anchors on the most
+  concrete detail without re-asking it.
 
 **Response 200**
 ```json

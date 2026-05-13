@@ -11,16 +11,18 @@ human — working in **this repo**. Read it before touching code.
 
 ## 1. Product context
 
-Legacy Mode preserves memories of **deceased loved ones**. A surviving
-contributor (spouse, child, sibling, friend) talks with the agent about a
+Legacy Mode preserves a person's legacy across living, deceased, or
+never-met subjects. A contributor (spouse, child, sibling, friend,
+descendant, colleague, mentor/mentee, etc.) talks with the agent about a
 specific person, and the system progressively builds a structured,
-evidence-linked memory graph of that person's life.
+evidence-linked memory graph of that person's life and stories.
 
-This is **grief technology**. A few rules that flow from that:
+This is **legacy preservation** across multiple subject contexts. A few
+rules flow from that:
 
 - We do **not** build a "talk to Dad" chatbot. The agent is an
   interviewer/archivist, not an impersonator.
-- We do **not** clone voices or generate photoreal video of the deceased
+- We do **not** clone voices or generate photoreal video of the subject
   in v1.
 - We **do** generate Pixar-style stylized artifacts (images for persons /
   threads / entities, short videos for moments) for visual texture.
@@ -97,7 +99,10 @@ External dependencies we **call** but do not own: the Node Backend
   in by Node on the request, or fetched from a Node API.
 - **We never touch S3 or the URL columns.** We only write the
   `generation_prompt` column and push onto `artifact_generation`.
-- **We never write to Node-owned tables** (users, person_roles, etc.).
+- **We never write to Node-owned tables** (users, person_roles, etc.),
+  except the onboarding endpoint's narrow update of
+  `person_roles.onboarding_complete` and
+  `person_roles.archetype_answers` after Node has authorized the role.
 - **No auth in this service.** Trust comes from a service-to-service
   token plus private network. Node is the auth boundary.
 - **Node never writes to the canonical graph.** Reads only. If Node
@@ -211,7 +216,7 @@ Every piece of code touching the graph or queues must respect these.
        merged description so the embedding worker re-embeds.
 
     c. **Descriptions are about the subject, not the speaker.** Trait
-       descriptions live on the deceased's legacy and must describe
+       descriptions live on the subject's legacy and must describe
        the SUBJECT's observed property in behavioral terms. The
        contributor is excluded entirely from trait descriptions. The
        general contributor-name attribution rule (used elsewhere in
@@ -295,8 +300,9 @@ in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
   turn of a new legacy is always `era`** — the work/life-period
   opener is the lowest-friction cold start.
 - **First-turn opener** is LLM-generated under tight constraints —
-  must (a) name the deceased, (b) name the Flashback role, (c) ask the
-  chosen anchor. Not templated.
+  must (a) name the subject, (b) use onboarding details when present
+  without re-asking them, and (c) ask the chosen anchor as fallback.
+  Not templated.
 - **Coverage Tracker** (code, runs after Extraction Worker) increments
   `persons.coverage_state` per moment based on extracted content.
 - **Handover Check** flips `persons.phase` to `'steady'` and stamps

@@ -1,4 +1,4 @@
-# NODE_INTEGRATION.md — Wiring the Node Backend to the Agent Service
+﻿# NODE_INTEGRATION.md — Wiring the Node Backend to the Agent Service
 
 This is the **handoff brief** for the Node.js Backend (a separate
 repo) integrating with this Python agent service. It covers everything
@@ -38,13 +38,11 @@ async-timing gotchas, the Postgres read contract, and the
 ### Node owns
 
 - Auth, users, contributor `person_roles`.
-- **Onboarding / legacy creation.** Collecting the deceased's name,
-  the contributor's relationship, optional photo, and ensuring a
-  `persons` row exists before any conversation begins. The agent has
-  no onboarding endpoint and no opinions about the UX — it just
-  expects a valid `person_id` on `/session/start`. See §4 below for
-  the open mechanism question (`POST /persons` agent endpoint vs
-  documented Node-side direct write).
+- **Onboarding / legacy creation.** Collecting the subject's name,
+  relationship, gender, contributor name, optional photo, and running
+  the archetype question flow before the first conversation begins.
+  Node owns the authenticated UX and `person_roles`; the agent owns
+  `persons` creation plus archetype answer processing.
 - Sessions and per-turn transcript log → DynamoDB.
 - **All user-facing reads** from Postgres for the legacy review UI
   (moments, entities, threads, traits, profile facts, profile
@@ -218,53 +216,43 @@ In Node, treat `5xx` as transient (retry with backoff if idempotent),
 
 ---
 
-## 4. Onboarding — Node-owned, with one open question
+## 4. Onboarding — Node-owned UX with agent archetype processing
 
-The agent has no onboarding endpoint and no UI opinions. Before the
-first call to `/session/start`, Node must:
+Before the first call to `/session/start`, Node must complete the
+legacy creation flow:
 
-1. Collect from the contributor: deceased's `name`, the contributor's
-   `relationship` to the deceased ("father", "spouse", etc.), the
-   **contributor's own display name** (used by the agent to address
-   them by name in conversation), and optional photo / reference image
-   for the deceased.
-2. Ensure a `persons` row exists for the legacy. This row is what
-   `/session/start`'s `person_id` references; the agent 404s if it
-   doesn't exist.
-3. Ensure a `person_role` row exists linking the contributor's
-   user account to that `persons` row (Node-owned table).
-4. Push an `artifact_generation` message for the new person's
-   stylized image so the legacy gets a portrait. Payload shape per §7;
-   `record_type = "person"`, `artifact_kind = "image"`,
-   `generation_prompt = <one-sentence visual description Node writes>`.
+1. Collect the subject's `name`, the contributor's `relationship` to
+   the subject, subject `gender`, the contributor's display name, and
+   optional photo / reference image.
+2. Call `POST /persons` on the agent to create the status-agnostic
+   `persons` row. Do not collect DOB / DOD; lifespan emerges from
+   stories and time anchors later.
+3. Create the Node-owned `person_roles` row linking the authenticated
+   contributor to that person. The row must include `relationship`,
+   `onboarding_complete`, and `archetype_answers`.
+4. Call `GET /api/v1/onboarding/archetype-questions?role_id=...` and
+   show the returned 2-3 tappable questions. The response does not
+   expose server-side `implies` blocks.
+5. Call `POST /api/v1/onboarding/archetype-answers` with one answer
+   per returned question. Each answer chooses exactly one of
+   `option_id`, `free_text`, or `skipped`.
+6. Use the returned `session_id` for the immediate `/session/start`
+   call. Pass `person_roles.archetype_answers` in
+   `session_metadata.archetype_answers` so the opener can anchor on
+   what onboarding captured without re-asking it.
+7. Push or otherwise trigger the person's portrait artifact only when
+   you have enough visual material for a useful prompt. The agent's
+   `POST /persons` row creation intentionally does not enqueue a thin
+   name-only portrait prompt.
 
-DOB / DOD are deliberately not collected. The agent derives lifespan
-from moment time anchors. Don't add date fields to your onboarding
-form.
+`person_roles.onboarding_complete` gates resume behavior. If it is
+`false`, resume the archetype question step; if it is `true`, go
+straight to chat. The agent returns `409 Conflict` from the archetype
+question/answer endpoints when onboarding is already complete.
 
-### Open mechanism question — resolve before shipping
-
-The agent's CLAUDE.md rule is **"Node never writes to the canonical
-graph; if Node needs a write surface, we expose an agent endpoint."**
-The agent does not currently expose `POST /persons`. Onboarding
-cannot ship until one of the following is resolved with the agent
-team:
-
-| Option | What happens | Trade-off |
-|---|---|---|
-| **(a) Add `POST /persons` to the agent** | Node calls the agent during onboarding. Agent inserts the `persons` row, writes `generation_prompt`, pushes the `artifact_generation` message itself. Node only writes its own `person_role` row. | Cleanest; respects the rule. Requires a small change in the agent repo. |
-| **(b) Document `persons` as a Node-writable canonical-graph table** | Node inserts the `persons` row directly. Node also writes `generation_prompt` and pushes the `artifact_generation` message. | No agent change. Specifically-allowed exception to the canonical-graph-write rule, has to be documented in CLAUDE.md so it doesn't get reverted later. |
-
-Recommend (a) — it's the rule-respecting answer and the agent team
-can ship the endpoint quickly. But the call is yours and theirs to
-make together. **Do not just write to `persons` from Node without
-this being decided** — that's a one-way door that cements an
-exception nobody intended.
-
-Until resolved, treat onboarding as a hard blocker for shipping
-Legacy Mode end-to-end. You can still build everything from
-`/session/start` onward against a manually-seeded `persons` row in
-dev.
+The archetype endpoints are service-to-service only, same as the rest
+of the agent API. Node remains the user-auth boundary: verify the user
+owns the role before calling the agent.
 
 ---
 
@@ -306,8 +294,10 @@ Frontend                Node                              Agent
 
 ### `session_id`
 
-Generated **by Node**. Stable for the duration of one conversation.
-Used by the agent as the working-memory key.
+For first-time onboarding, use the `session_id` returned by
+`POST /api/v1/onboarding/archetype-answers`. For later sessions, Node
+generates a fresh UUID. It is stable for the duration of one
+conversation and used by the agent as the working-memory key.
 
 ### `contributor_display_name`
 
@@ -317,10 +307,9 @@ narratives, thread summaries, profile summary, profile facts. The
 review UI ends up reading naturally ("John, Sarah's father, was a
 carpenter") instead of generic ("the contributor's father").
 
-**Not used in conversation.** The agent does not address the
-contributor by name in `/turn` replies or in the opener; deliberate
-choice — over-using names in grief conversation feels artificial.
-The chat surface stays neutral whether or not you pass the name.
+The first opener may use the contributor name as relationship context,
+but the agent should not use it as a repeated salutation. `/turn`
+replies stay relationship-centered rather than name-heavy.
 
 The contributor's name is collected at onboarding (§4) and is
 Node-side state — pass it on every `/session/start`. The agent does
@@ -333,6 +322,15 @@ Optional. If you have a prior session summary for this person, pass
 it on `/session/start`. The agent seeds it into working memory as a
 read-only field that the Response Generator consults; **extraction
 ignores it**. If you don't have one, omit the key. Don't fabricate.
+
+### `session_metadata.archetype_answers`
+
+Recommended on the first session after archetype onboarding. Pass the
+stored `person_roles.archetype_answers` array exactly as persisted by
+`POST /api/v1/onboarding/archetype-answers`. The starter opener renders
+these answers into natural language, anchors on the most concrete
+captured detail, and avoids re-asking anything the contributor already
+tapped or typed.
 
 ### `/session/wrap` is mandatory
 

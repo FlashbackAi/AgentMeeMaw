@@ -118,108 +118,94 @@ behavioral data to do better).
 
 ### 4.1 Editorial principles
 
-- **Concrete over abstract.** "What's a smell..." beats "What did
-  they smell like?" because it gives the contributor a *direction*
-  rather than a question to answer about a person.
-- **Present-tense recall.** "When you think of them..." is warmer
-  than "Did they ever..." — the memory is alive, not historical.
+- **Status-neutral by default.** Questions must work for a living
+  elder, a deceased relative, or an ancestor known through family
+  stories. Mirror the contributor's tense when they use one; otherwise
+  prefer tense-neutral phrasing.
+- **Concrete over abstract.** "What small thing brings them to mind?"
+  beats "What is their legacy?" because it gives the contributor a
+  scene-sized door.
+- **Warmth comes from relationship, not life status.** Use the
+  contributor's relationship to the subject rather than condolence
+  framing.
 - **No DOB / DOD probing.** Lifespan emerges from anchored stories,
-  not from "When was she born?"
-- **First turn is always sensory.** Smell and sound bypass narrative
-  framing and let a contributor land in a memory before they have to
-  organize it.
+  not from front-door biographical intake.
 - **Avoid "favorite," "best," "most."** Superlatives ask the
-  contributor to *evaluate*. We want them to *recall*.
-- **Three of each, not five.** More variants doesn't help with such
-  a small audience; it just dilutes wording quality. We can A/B
-  later.
+  contributor to evaluate. We want them to recall, describe, or pass on
+  what they know.
+- **Three of each, not five.** More variants does not help with such a
+  small audience; it just dilutes wording quality. We can A/B later.
 
 ### 4.2 Sensory (3)
 
-> The first turn of every new legacy comes from this set.
+1. **When you picture {name}, what do you see?**
+   *Visual anchor without assuming whether the picture is present-day,
+   remembered, or inherited.*
 
-1. **What's a smell that brings them right back?**
-   *Scent is the most direct memory pathway. "Right back" implies a
-   place the contributor already lives — they just have to name it.*
+2. **What small thing brings {name} to mind?**
+   *A small object, sound, habit, or place is often enough to open a
+   specific scene.*
 
-2. **Was there a sound — their laugh, the way they hummed, their
-   footsteps — you'd recognize anywhere?**
-   *The list of three gives examples without prescribing. "Anywhere"
-   is grounding — it says: this is something you carry.*
-
-3. **Picture them in a room you both knew well. What do you see
-   first?**
-   *Visual anchor with shared context. "First" prevents the
-   contributor from feeling they need a complete description.*
+3. **What is something {name} often has with {them}?**
+   *Invites a signature object or practice without making the subject
+   historical by default.*
 
 ### 4.3 Voice (3)
 
-1. **Was there a phrase they used so often it almost felt like their
-   signature?**
-   *"Almost felt like their signature" reframes a verbal tic as
-   identity — flattering rather than diminishing.*
+1. **What is {name} like?**
+   *A compact personality/temperament opener that works for firsthand
+   and inherited knowledge.*
 
-2. **Was there a piece of advice they gave that stayed with you?**
-   *"Stayed with you" lets the contributor pick what mattered to
-   them, not what was objectively "good advice." Often produces the
-   highest-emotional-temperature answer.*
+2. **What is {name} like to talk to?**
+   *Surfaces voice, rhythm, warmth, and communication style without
+   assuming the conversation is no longer possible.*
 
-3. **How would they answer the phone, or greet you when you walked
-   in?**
-   *The most concrete voice prompt. Often surfaces a verbatim
-   phrase the Extraction Worker can lift into an entity attribute.*
+3. **What word comes to mind when you think of {name}?**
+   *Gives the contributor a low-friction first trait while leaving room
+   for a concrete follow-up.*
 
 ### 4.4 Place (3)
 
-1. **Where do you picture them when you think of them at their
-   happiest?**
-   *Joy-anchored. Bypasses the contributor's potential reluctance
-   to surface harder places.*
+1. **Where does {name} feel most rooted?**
+   *Roots can be current, remembered, ancestral, or emotional.*
 
-2. **Was there a place — a house, a kitchen, a porch — that felt
-   like theirs?**
-   *Three concrete examples. "Felt like theirs" is the editorial
-   move — it admits places aren't deeded but felt.*
+2. **What place should someone picture when they picture {name}?**
+   *Useful for living subjects, remembered homes, and inherited family
+   geography.*
 
-3. **Where would you find them on a quiet afternoon?**
-   *"Quiet afternoon" cues daily-routine memory rather than
-   special-occasion memory. Usually the richest extraction surface.*
+3. **What is home like around {them}?**
+   *Invites a scene with people, objects, and atmosphere instead of a
+   profile fact alone.*
 
 ### 4.5 Relation (3)
 
-1. **Who did they light up around?**
-   *Six words. Present-tense visualization ("light up"). Forces a
-   named entity, which P1 can immediately deepen if dropped.*
+1. **Who is {name} to you?**
+   *Names the contributor's relationship without assuming a bereaved
+   stance.*
 
-2. **How did they show people they loved them?**
-   *"Show" rather than "say" — the answer is usually a behavior, not
-   a phrase. Maps cleanly to a trait.*
+2. **Who are the people closest to {name}?**
+   *Draws out relational context and likely entity anchors.*
 
-3. **When you think of the two of you together, what's the first
-   thing that comes to mind?**
-   *The contributor's relationship is itself an entity worth
-   capturing. "First thing" lets it be small.*
+3. **Who does {name} look after, or who looks after {them}?**
+   *Care can flow in either direction; this keeps the question open for
+   elders, children, friends, and ancestors.*
 
 ### 4.6 Era (3)
 
-> Era is the trickiest dimension — easy to make cold ("when were
-> they born?"). All three phrasings approach time *through them*,
-> not the calendar.
+> Era is the trickiest dimension: easy to make cold or biographical.
+> These phrasings approach time through what the contributor knows.
 
-1. **If you had to pick the years that feel most like them to you,
-   what would they be?**
-   *"Feel most like them" — emotional anchoring, not chronological
-   precision. The contributor can answer "the late 80s" or "after
-   the kids left" — both are usable.*
+1. **What kind of work or responsibilities shape {name}'s days?**
+   *Works for employment, caregiving, household roles, study, or a
+   family story about responsibility.*
 
-2. **What was happening in their world when you knew them best?**
-   *"Their world" places the dimension where it belongs — around
-   the subject, not external history.*
+2. **What part of {their} life do you know best?**
+   *Allows firsthand, partial, and inherited knowledge without forcing a
+   full chronology.*
 
-3. **When you think of them in their prime — most fully themselves
-   — what stretch of life is that?**
-   *"Most fully themselves" is the editorial frame. Era as
-   essence, not as a date range.*
+3. **What years or life stage belong to the story you know?**
+   *Asks for usable era context while leaving room for "I only know the
+   village years" or "college days."*
 
 ---
 

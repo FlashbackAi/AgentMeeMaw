@@ -50,8 +50,11 @@ The subject of a legacy. One row per legacy.
 **No `status` column.** Persons are not superseded or merged. The
 `active_persons` view exists for API symmetry but is just `SELECT *`.
 
-**No `date_of_birth` / `date_of_death`.** Cold UX for grief; lifespan
-is derived from moment time anchors.
+**Intentionally status-agnostic.** `persons` has no life-status,
+`date_of_birth`, or `date_of_death` columns. Legacy Mode supports
+living subjects, deceased subjects, and ancestors the contributor never
+met directly; lifespan and era context are derived from moment time
+anchors when the contributor provides them.
 
 ### 2.2 `moments`
 

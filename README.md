@@ -1,7 +1,8 @@
 # Flashback Agent Service
 
 Flashback's Python agent service powers Legacy Mode conversations for
-preserving memories of deceased loved ones. It owns the conversational
+preserving a person's legacy across living subjects, deceased subjects,
+and ancestors known through family stories. It owns the conversational
 turn loop, ephemeral Working Memory in Valkey, canonical graph writes in
 Postgres, LLM extraction and synthesis workers, and SQS producer paths
 that move captured memories through embedding, artifact, trait, profile,
