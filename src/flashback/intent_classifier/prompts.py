@@ -51,6 +51,27 @@ INTENTS - definitions and selection rules:
   explicitly asking to move on. Example: "I don't really remember
   much else about that. What else?"
 
+OUTCOMES — what each intent triggers downstream:
+
+Your classification routes the next assistant turn. Consider not just
+"what did the user say" but "what response shape would serve them best."
+
+- `clarify` → assistant asks ONE gentle disambiguating question.
+  No retrieval, no graph context. Use when the assistant cannot
+  identify the referent and must ask before continuing.
+- `recall` → assistant uses vector retrieval over moments AND entities
+  to surface previously-shared material from the graph, then anchors
+  its reply in what was already captured. Use when the user is
+  genuinely referencing existing memory.
+- `deepen` → assistant acknowledges and makes space. No follow-up
+  question, no retrieval. Reserve for high emotional weight.
+- `story` → assistant lets the user continue narrating with minimal
+  interjection. No retrieval. Use when they are in flow.
+- `switch` → assistant offers 2-3 directions from the entity/thread
+  catalog (or bridges to a seeded question). No moments retrieval.
+  Use when the user signals "let's move on" or stalls into
+  disengagement.
+
 EMOTIONAL TEMPERATURE:
 
 - `low`: matter-of-fact, descriptive, recounting facts.

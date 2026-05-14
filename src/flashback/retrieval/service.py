@@ -10,12 +10,14 @@ from psycopg_pool import AsyncConnectionPool
 
 from flashback.retrieval.queries import (
     GET_DROPPED_PHRASES_SQL,
+    GET_ENTITIES_BY_IDS_SQL,
     GET_ENTITIES_BY_KIND_SQL,
     GET_ENTITIES_SQL,
     GET_RELATED_MOMENTS_SQL,
     GET_SESSION_SUMMARY_SQL,
     GET_THREADS_FOR_ENTITY_SQL,
     GET_THREADS_SQL,
+    SEARCH_ENTITIES_SQL,
     SEARCH_MOMENTS_SQL,
 )
 from flashback.retrieval.schema import (
@@ -79,6 +81,50 @@ class RetrievalService:
             },
         )
         return [MomentResult.model_validate(row) for row in rows]
+
+    async def search_entities(
+        self,
+        query: str,
+        person_id: UUID,
+        limit: int | None = None,
+    ) -> list[EntityResult]:
+        """Vector similarity search over active entities for a person."""
+        clamped_limit = self._clamp_limit(limit)
+        vector = await self.embed_query(query)
+        if vector is None:
+            return []
+
+        rows = await self._fetch_all(
+            SEARCH_ENTITIES_SQL,
+            {
+                "person_id": person_id,
+                "query_vector": Vector(vector),
+                "embedding_model": self._embedding_model,
+                "embedding_model_version": self._embedding_model_version,
+                "limit": clamped_limit,
+            },
+        )
+        return [EntityResult.model_validate(row) for row in rows]
+
+    async def get_entities_by_ids(
+        self,
+        person_id: UUID,
+        entity_ids: list[UUID],
+    ) -> list[EntityResult]:
+        """Fetch active entities by id, scoped to a person.
+
+        Used by the deterministic entity-mention scanner, which already
+        knows the entity ids it wants (from the cached name list) and
+        needs the full descriptions for the response generator's
+        context. No vector search; no embedding call.
+        """
+        if not entity_ids:
+            return []
+        rows = await self._fetch_all(
+            GET_ENTITIES_BY_IDS_SQL,
+            {"person_id": person_id, "entity_ids": entity_ids},
+        )
+        return [EntityResult.model_validate(row) for row in rows]
 
     async def get_entities(
         self,

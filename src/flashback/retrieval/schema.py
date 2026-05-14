@@ -32,6 +32,7 @@ class EntityResult(BaseModel):
     aliases: list[str]
     attributes: dict
     created_at: datetime
+    similarity_score: float | None = None
 
 
 class ThreadResult(BaseModel):

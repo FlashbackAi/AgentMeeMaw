@@ -142,29 +142,57 @@ async def insert_entity(
     status: str = "active",
     attributes: dict | None = None,
     created_at: datetime | None = None,
+    embedding: list[float] | None = None,
+    model: str | None = MODEL,
+    version: str | None = VERSION,
 ) -> UUID:
     created_at = created_at or datetime.now(timezone.utc)
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                INSERT INTO entities
-                    (person_id, kind, name, description, aliases, attributes,
-                     status, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (
-                    person_id,
-                    kind,
-                    name,
-                    description,
-                    ["alias"],
-                    Json(attributes or {}),
-                    status,
-                    created_at,
-                ),
-            )
+            if embedding is None:
+                await cur.execute(
+                    """
+                    INSERT INTO entities
+                        (person_id, kind, name, description, aliases, attributes,
+                         status, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        person_id,
+                        kind,
+                        name,
+                        description,
+                        ["alias"],
+                        Json(attributes or {}),
+                        status,
+                        created_at,
+                    ),
+                )
+            else:
+                await cur.execute(
+                    """
+                    INSERT INTO entities
+                        (person_id, kind, name, description, aliases, attributes,
+                         status, created_at, description_embedding,
+                         embedding_model, embedding_model_version)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        person_id,
+                        kind,
+                        name,
+                        description,
+                        ["alias"],
+                        Json(attributes or {}),
+                        status,
+                        created_at,
+                        embedding,
+                        model,
+                        version,
+                    ),
+                )
             (entity_id,) = await cur.fetchone()
             await conn.commit()
     return entity_id

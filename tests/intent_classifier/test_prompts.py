@@ -4,7 +4,7 @@ from typing import get_args
 
 import jsonschema
 
-from flashback.intent_classifier.prompts import INTENT_TOOL
+from flashback.intent_classifier.prompts import INTENT_TOOL, SYSTEM_PROMPT
 from flashback.intent_classifier.schema import Confidence, Intent, IntentResult, Temperature
 
 
@@ -29,3 +29,12 @@ def test_confidence_values_match_literal():
 def test_temperature_values_match_literal():
     tool_values = INTENT_TOOL.input_schema["properties"]["emotional_temperature"]["enum"]
     assert set(tool_values) == set(get_args(Temperature))
+
+
+def test_system_prompt_documents_outcomes_per_intent():
+    """The OUTCOMES section makes the classifier reason over downstream
+    response shape, not just input signal. Every intent must be named so
+    the LLM cannot silently rely on a stale definition."""
+    assert "OUTCOMES" in SYSTEM_PROMPT
+    for intent in get_args(Intent):
+        assert f"`{intent}`" in SYSTEM_PROMPT

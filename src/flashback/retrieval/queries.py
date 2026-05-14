@@ -22,10 +22,38 @@ ORDER  BY narrative_embedding <=> %(query_vector)s
 LIMIT  %(limit)s
 """
 
+SEARCH_ENTITIES_SQL = """
+WITH candidates AS MATERIALIZED (
+    SELECT
+        id, person_id, kind, name, description, aliases, attributes,
+        created_at, description_embedding
+    FROM   active_entities
+    WHERE  person_id              = %(person_id)s
+      AND  embedding_model         = %(embedding_model)s
+      AND  embedding_model_version = %(embedding_model_version)s
+      AND  description_embedding IS NOT NULL
+)
+SELECT
+    id, person_id, kind, name, description, aliases, attributes,
+    created_at,
+    (description_embedding <=> %(query_vector)s) AS similarity_score
+FROM   candidates
+ORDER  BY description_embedding <=> %(query_vector)s
+LIMIT  %(limit)s
+"""
+
 GET_ENTITIES_SQL = """
 SELECT id, person_id, kind, name, description, aliases, attributes, created_at
 FROM   active_entities
 WHERE  person_id = %(person_id)s
+ORDER  BY created_at DESC
+"""
+
+GET_ENTITIES_BY_IDS_SQL = """
+SELECT id, person_id, kind, name, description, aliases, attributes, created_at
+FROM   active_entities
+WHERE  person_id = %(person_id)s
+  AND  id        = ANY(%(entity_ids)s)
 ORDER  BY created_at DESC
 """
 

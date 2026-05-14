@@ -34,11 +34,21 @@ class PhaseGate:
         self,
         person_id: UUID,
         session_id: UUID,
+        recently_asked_ids: list[UUID] | None = None,
     ) -> SelectionResult:
-        """Read ``persons.phase`` and route to starter or steady selection."""
+        """Read ``persons.phase`` and route to starter or steady selection.
+
+        ``recently_asked_ids`` carries the session-scoped Working Memory
+        register so neither starter nor steady selection re-serves a
+        question already asked this session. The steady selector also
+        reads the same list internally for theme diversity, so for now
+        pass it explicitly to keep call-sites symmetric.
+        """
         phase = await self._read_phase(person_id)
         if phase == "starter":
-            result = await self._starter.select(person_id)
+            result = await self._starter.select(
+                person_id, recently_asked_ids=recently_asked_ids
+            )
         else:
             result = await self._steady.select(person_id, session_id)
         result.phase = phase

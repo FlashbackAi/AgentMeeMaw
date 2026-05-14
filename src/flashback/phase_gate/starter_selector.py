@@ -41,12 +41,24 @@ class StarterSelector:
     def __init__(self, db_pool: AsyncConnectionPool):
         self._pool = db_pool
 
-    async def select(self, person_id: UUID) -> SelectionResult:
-        """Pick a starter_anchor template for the given person."""
+    async def select(
+        self,
+        person_id: UUID,
+        recently_asked_ids: list[UUID] | None = None,
+    ) -> SelectionResult:
+        """Pick a starter_anchor template for the given person.
+
+        ``recently_asked_ids`` is the session-scoped list of question ids
+        already posed in this Working Memory session. Excluded so the
+        starter selector does not re-serve the same prompt within one
+        session even before any moment is extracted.
+        """
+        recent_ids = list(recently_asked_ids or [])
         dimension = await self._choose_dimension(person_id)
         row = await self._fetch_template(
             person_id=person_id,
             dimension=dimension,
+            recent_ids=recent_ids,
             exclude_answered=True,
         )
         answered_filter_used = True
@@ -54,6 +66,18 @@ class StarterSelector:
             row = await self._fetch_template(
                 person_id=person_id,
                 dimension=dimension,
+                recent_ids=recent_ids,
+                exclude_answered=False,
+            )
+            answered_filter_used = False
+        if row is None and recent_ids:
+            # Whole bank exhausted by the WM register — drop the
+            # session-scoped exclude rather than fail loudly. Better to
+            # repeat than to crash.
+            row = await self._fetch_template(
+                person_id=person_id,
+                dimension=dimension,
+                recent_ids=[],
                 exclude_answered=False,
             )
             answered_filter_used = False
@@ -113,6 +137,7 @@ class StarterSelector:
         *,
         person_id: UUID,
         dimension: Dimension,
+        recent_ids: list[UUID],
         exclude_answered: bool,
     ) -> tuple[UUID, str] | None:
         query = (
@@ -124,7 +149,11 @@ class StarterSelector:
             async with conn.cursor() as cur:
                 await cur.execute(
                     query,
-                    {"person_id": person_id, "dimension": dimension},
+                    {
+                        "person_id": person_id,
+                        "dimension": dimension,
+                        "recent_ids": recent_ids,
+                    },
                 )
                 row = await cur.fetchone()
         if row is None:

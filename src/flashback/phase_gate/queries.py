@@ -31,6 +31,7 @@ SELECT q.id, q.text
 FROM active_questions q
 WHERE q.source = 'starter_anchor'
   AND q.attributes->>'dimension' = %(dimension)s
+  AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
   AND NOT EXISTS (
     SELECT 1
     FROM active_edges e
@@ -50,6 +51,7 @@ SELECT q.id, q.text
 FROM active_questions q
 WHERE q.source = 'starter_anchor'
   AND q.attributes->>'dimension' = %(dimension)s
+  AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
 ORDER BY random()
 LIMIT 1
 """

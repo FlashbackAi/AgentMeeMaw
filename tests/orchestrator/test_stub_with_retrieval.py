@@ -32,12 +32,19 @@ class FixedClassifier:
 class FakeRetrieval:
     def __init__(self, *, raise_on_search: bool = False) -> None:
         self.raise_on_search = raise_on_search
-        self.search_calls = []
+        self.search_moment_calls = []
+        self.search_entity_calls = []
         self.entity_calls = []
         self.thread_calls = []
 
     async def search_moments(self, *, query, person_id):
-        self.search_calls.append({"query": query, "person_id": person_id})
+        self.search_moment_calls.append({"query": query, "person_id": person_id})
+        if self.raise_on_search:
+            raise RuntimeError("db unavailable")
+        return [object()]
+
+    async def search_entities(self, *, query, person_id):
+        self.search_entity_calls.append({"query": query, "person_id": person_id})
         if self.raise_on_search:
             raise RuntimeError("db unavailable")
         return [object()]
@@ -123,7 +130,7 @@ async def _post_turn(app, client, *, classifier, retrieval):
     return response
 
 
-async def test_recall_intent_calls_retrieval(app, client):
+async def test_recall_intent_searches_moments_and_entities(app, client):
     retrieval = FakeRetrieval()
 
     response = await _post_turn(
@@ -134,7 +141,25 @@ async def test_recall_intent_calls_retrieval(app, client):
     )
 
     assert response.status_code == 200
-    assert len(retrieval.search_calls) == 1
+    assert len(retrieval.search_moment_calls) == 1
+    assert len(retrieval.search_entity_calls) == 1
+    assert retrieval.entity_calls == []
+    assert retrieval.thread_calls == []
+
+
+async def test_clarify_intent_skips_retrieval(app, client):
+    retrieval = FakeRetrieval()
+
+    response = await _post_turn(
+        app,
+        client,
+        classifier=FixedClassifier("clarify"),
+        retrieval=retrieval,
+    )
+
+    assert response.status_code == 200
+    assert retrieval.search_moment_calls == []
+    assert retrieval.search_entity_calls == []
     assert retrieval.entity_calls == []
     assert retrieval.thread_calls == []
 
@@ -150,7 +175,27 @@ async def test_deepen_intent_skips_retrieval(app, client):
     )
 
     assert response.status_code == 200
-    assert retrieval.search_calls == []
+    assert retrieval.search_moment_calls == []
+    assert retrieval.search_entity_calls == []
+    assert retrieval.entity_calls == []
+    assert retrieval.thread_calls == []
+
+
+async def test_story_intent_skips_retrieval(app, client):
+    retrieval = FakeRetrieval()
+
+    response = await _post_turn(
+        app,
+        client,
+        classifier=FixedClassifier("story"),
+        retrieval=retrieval,
+    )
+
+    assert response.status_code == 200
+    assert retrieval.search_moment_calls == []
+    assert retrieval.search_entity_calls == []
+    assert retrieval.entity_calls == []
+    assert retrieval.thread_calls == []
 
 
 async def test_retrieval_failure_still_returns_200(app, client):
@@ -167,7 +212,7 @@ async def test_retrieval_failure_still_returns_200(app, client):
     assert response.json()["reply"] == "I hear you. Tell me more."
 
 
-async def test_switch_intent_fetches_broader_context(app, client):
+async def test_switch_intent_fetches_entities_and_threads_only(app, client):
     retrieval = FakeRetrieval()
 
     response = await _post_turn(
@@ -178,6 +223,7 @@ async def test_switch_intent_fetches_broader_context(app, client):
     )
 
     assert response.status_code == 200
-    assert len(retrieval.search_calls) == 1
+    assert retrieval.search_moment_calls == []
+    assert retrieval.search_entity_calls == []
     assert len(retrieval.entity_calls) == 1
     assert len(retrieval.thread_calls) == 1
