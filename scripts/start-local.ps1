@@ -50,13 +50,31 @@ Write-Step "2/5" "Migrations"
 if ($Reset) {
     Write-Run "Resetting public schema..."
     docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" | Out-Null
+    $applied = @()
 }
 
-$appliedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT filename FROM schema_migrations ORDER BY filename" 2>$null
-if ($appliedRaw) {
-    $applied = $appliedRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-} else {
+# Ensure the bookkeeping table exists. The Python migrator
+# (scripts/migrate.py) is the canonical creator, but this PS script
+# does its own tracking and INSERTs into the table on each migration,
+# so we need it to exist before the loop runs (especially after -Reset).
+docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())" | Out-Null
+
+if (-not $Reset) {
+    # schema_migrations may not exist on a fresh DB. PowerShell 5.1 with
+    # ErrorActionPreference=Stop treats native stderr as terminating, so
+    # swallow the "relation does not exist" case via try/catch.
     $applied = @()
+    try {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $appliedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT filename FROM schema_migrations ORDER BY filename" 2>$null
+        $ErrorActionPreference = $prev
+        if ($appliedRaw) {
+            $applied = $appliedRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        }
+    } catch {
+        $applied = @()
+    }
 }
 
 $migFiles  = Get-ChildItem "$repo\migrations" -Filter "*.up.sql" | Sort-Object Name
@@ -68,7 +86,10 @@ if ($unapplied.Count -eq 0) {
     Write-Run "Applying $($unapplied.Count) new migration(s)..."
     foreach ($mig in $unapplied) {
         Write-Run $mig.Name
-        $sql = Get-Content $mig.FullName -Raw
+        # IMPORTANT: -Encoding UTF8 — migration SQL contains em-dashes
+        # and other non-ASCII chars that get mangled into '???' if
+        # Get-Content falls back to Windows-1252.
+        $sql = Get-Content $mig.FullName -Raw -Encoding UTF8
         $sql | docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1
         if ($LASTEXITCODE -ne 0) { Write-Fail "Failed on $($mig.Name)"; exit 1 }
         $checksum = (Get-FileHash $mig.FullName -Algorithm MD5).Hash
@@ -80,7 +101,7 @@ if ($unapplied.Count -eq 0) {
 # --- 3. Question embeddings ---------------------------------------------------
 Write-Step "3/5" "Question embeddings"
 
-$unembedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT COUNT(*) FROM questions WHERE source='starter_anchor' AND person_id IS NULL AND embedding IS NULL" 2>&1
+$unembedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT COUNT(*) FROM questions WHERE source='coverage_tap' AND person_id IS NULL AND embedding IS NULL" 2>&1
 $unembed    = [int](($unembedRaw | Where-Object { $_ -match '\d' } | Select-Object -First 1).ToString().Trim())
 
 if ($unembed -gt 0) {
@@ -110,8 +131,12 @@ Write-Step "5/5" "Workers (embedding / extraction)"
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.embedding run" -WindowStyle Normal
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.extraction run" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.trait_synthesizer run" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.profile_summary run" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.producers run" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$repo'; python -m flashback.workers.thread_detector run" -WindowStyle Normal
 
-Write-Ok "Started in new windows."
+Write-Ok "Started 6 workers in new windows (embedding, extraction, trait_synthesizer, profile_summary, producers, thread_detector)."
 
 # --- Done ---------------------------------------------------------------------
 Write-Host ""
