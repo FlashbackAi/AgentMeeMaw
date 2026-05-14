@@ -61,6 +61,24 @@ def render_turn_context(ctx: TurnContext) -> str:
     if retrieval_sections:
         sections.append(_block("retrieved_context", "\n".join(retrieval_sections)))
 
+    if ctx.mentioned_entities:
+        lines = []
+        for entity in ctx.mentioned_entities:
+            description = entity.description or ""
+            lines.append(
+                f"- {entity.kind} {xml_text(entity.name)}: {xml_text(description)}".rstrip()
+            )
+        attrs = ' ambiguous="true"' if ctx.ambiguous_mention else ""
+        sections.append(
+            "\n".join(
+                [
+                    f"<mentioned_entities{attrs}>",
+                    "\n".join(lines),
+                    "</mentioned_entities>",
+                ]
+            )
+        )
+
     if ctx.seeded_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.seeded_question_text)))
 

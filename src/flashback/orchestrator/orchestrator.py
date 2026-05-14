@@ -46,6 +46,7 @@ from flashback.orchestrator.steps import (
     load_continuity_context,
     load_person,
     retrieve,
+    scan_entity_mentions,
     select_question,
     select_starter_anchor,
 )
@@ -280,6 +281,12 @@ class Orchestrator:
                 policies=TURN_POLICIES,
                 step_name="intent_classify",
                 fn=lambda: classify(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="entity_mention_scan",
+                fn=lambda: scan_entity_mentions(state, self._deps),
                 state=state,
             )
             if state.effective_intent in {"recall", "clarify", "switch"}:

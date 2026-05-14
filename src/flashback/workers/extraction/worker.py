@@ -80,7 +80,9 @@ from .sqs_client import (
 from .voyage_query import SyncVoyageQueryEmbedder
 from .coverage import run_coverage_tracker
 from .handover import run_handover_check
+from flashback.entity_mention.cache_sync import invalidate_entity_name_cache
 from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
+from uuid import UUID as _UUID
 
 log = structlog.get_logger("flashback.workers.extraction")
 
@@ -110,6 +112,7 @@ class ExtractionWorker:
     settings: object
     embedding_model: str
     embedding_model_version: str
+    redis_client: object | None = None
     refinement_distance_threshold: float = 0.35
     refinement_candidate_limit: int = 3
     sqs_wait_seconds: int = 20
@@ -304,6 +307,18 @@ class ExtractionWorker:
                     )
                     if trigger_status.would_trigger:
                         outbox_jobs += 1
+
+        if persistence_result.entity_ids and self.redis_client is not None:
+            try:
+                invalidate_entity_name_cache(
+                    self.redis_client, _UUID(str(payload.person_id))
+                )
+            except Exception as exc:  # noqa: BLE001 - cache hygiene is best-effort
+                log.warning(
+                    "extraction.entity_name_cache_invalidation_failed",
+                    person_id=str(payload.person_id),
+                    error=str(exc),
+                )
 
         log.info(
             "extraction.persisted",

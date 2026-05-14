@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+import redis as _redis
+
 from flashback.config import ExtractionConfig
 from flashback.db.connection import make_pool
 
@@ -68,6 +70,7 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
         model=cfg.embedding_model,
         timeout=cfg.extraction_voyage_query_timeout_seconds,
     )
+    redis_client = _redis.Redis.from_url(cfg.valkey_url)
 
     worker = ExtractionWorker(
         db_pool=pool,
@@ -97,6 +100,7 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
         settings=cfg,
         embedding_model=cfg.embedding_model,
         embedding_model_version=cfg.embedding_model_version,
+        redis_client=redis_client,
         refinement_distance_threshold=cfg.extraction_refinement_distance_threshold,
         refinement_candidate_limit=cfg.extraction_refinement_candidate_limit,
         sqs_wait_seconds=cfg.sqs_wait_seconds,

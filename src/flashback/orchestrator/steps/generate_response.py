@@ -54,6 +54,8 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
             related_moments=state.related_moments,
             related_entities=state.related_entities,
             related_threads=state.related_threads,
+            mentioned_entities=state.mentioned_entities,
+            ambiguous_mention=state.ambiguous_mention,
             seeded_question_text=(
                 state.selection.question_text if state.selection else None
             ),

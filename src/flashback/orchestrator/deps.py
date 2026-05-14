@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from psycopg_pool import AsyncConnectionPool
 
 from flashback.config import HttpConfig
+from flashback.entity_mention.cache import EntityNameCache
 from flashback.intent_classifier.classifier import IntentClassifier
 from flashback.phase_gate.gate import PhaseGate
 from flashback.queues.extraction import ExtractionQueueProducer
@@ -40,4 +41,5 @@ class OrchestratorDeps:
     trait_synthesizer_queue: TraitSynthesizerQueueProducer | None = None
     profile_summary_queue: ProfileSummaryQueueProducer | None = None
     producers_per_session_queue: ProducersPerSessionQueueProducer | None = None
+    entity_name_cache: EntityNameCache | None = None
     settings: HttpConfig | None = None

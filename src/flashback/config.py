@@ -104,6 +104,7 @@ class ExtractionConfig:
     """
 
     database_url: str = field(repr=False)
+    valkey_url: str = field(repr=False)
     aws_region: str
 
     extraction_queue_url: str
@@ -155,6 +156,7 @@ class ExtractionConfig:
         big_model = os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6")
         return cls(
             database_url=_required("DATABASE_URL"),
+            valkey_url=_required("VALKEY_URL"),
             aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),

@@ -76,6 +76,8 @@ class TurnContext(BaseModel):
     related_moments: list[MomentResult] = Field(default_factory=list)
     related_entities: list[EntityResult] = Field(default_factory=list)
     related_threads: list[ThreadResult] = Field(default_factory=list)
+    mentioned_entities: list[EntityResult] = Field(default_factory=list)
+    ambiguous_mention: bool = False
     seeded_question_text: str | None = None
 
 

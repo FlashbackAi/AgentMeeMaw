@@ -51,6 +51,7 @@ from flashback.queues import (
 )
 from flashback.queues.boto import make_sqs_client
 from flashback.response_generator import ResponseGenerator
+from flashback.entity_mention.cache import EntityNameCache
 from flashback.retrieval import RetrievalService, VoyageQueryEmbedder
 from flashback.segment_detector import SegmentDetector
 from flashback.session_summary import SessionSummaryGenerator
@@ -101,6 +102,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             max_limit=cfg.retrieval_max_limit,
         )
         app.state.retrieval = retrieval
+        entity_name_cache = EntityNameCache(
+            redis_client=redis_client,
+            db_pool=db_pool,
+            ttl_seconds=cfg.working_memory_ttl_seconds,
+        )
+        app.state.entity_name_cache = entity_name_cache
         intent_classifier = IntentClassifier(
             settings=cfg,
             provider=cast(Provider, cfg.llm_small_provider),
@@ -168,6 +175,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             trait_synthesizer_queue=trait_synthesizer_queue,
             profile_summary_queue=profile_summary_queue,
             producers_per_session_queue=producers_per_session_queue,
+            entity_name_cache=entity_name_cache,
             settings=cfg,
         )
         app.state.orchestrator_deps = orchestrator_deps
