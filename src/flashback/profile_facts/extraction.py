@@ -45,19 +45,30 @@ def extract_facts(
     cfg: FactExtractionConfig,
     settings,
     rendered_context: str,
+    archetype_answers_block: str = "",
 ) -> list[ExtractedFact]:
     """Run the extraction LLM and return the validated facts list.
 
     ``rendered_context`` is the SAME string the prose-summary call gets
     — name, traits, threads, entities, time period. Reusing it avoids
     re-fetching from the DB.
+
+    ``archetype_answers_block`` is appended to the user message when
+    non-empty. It carries the contributor's tap-and-type onboarding
+    answers verbatim and is only populated on the FIRST profile_summary
+    run for a person — subsequent runs see only conversation-derived
+    context.
     """
+    user_message = rendered_context
+    if archetype_answers_block.strip():
+        user_message = f"{rendered_context}\n\n{archetype_answers_block}".strip()
+
     raw = asyncio.run(
         call_with_tool(
             provider=cfg.provider,  # type: ignore[arg-type]
             model=cfg.model,
             system_prompt=SYSTEM_PROMPT,
-            user_message=rendered_context,
+            user_message=user_message,
             tool=PROFILE_FACTS_TOOL,
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,

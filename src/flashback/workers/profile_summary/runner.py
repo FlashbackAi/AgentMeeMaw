@@ -35,6 +35,9 @@ from dataclasses import dataclass
 import structlog
 
 from flashback.llm.errors import LLMError
+from flashback.onboarding.archetypes import (
+    render_archetype_answers_natural_language,
+)
 from flashback.profile_facts.extraction import (
     FactExtractionConfig,
     PROFILE_FACTS_PROMPT_VERSION,
@@ -45,6 +48,7 @@ from flashback.profile_facts.repository import upsert_fact
 from .context import build_context, render_context
 from .idempotency import is_processed, mark_processed_empty
 from .persistence import PersistResult, persist_summary
+from .schema import ProfileSummaryContext
 from .summary_llm import SummaryLLMConfig, generate_summary
 
 log = structlog.get_logger("flashback.workers.profile_summary.runner")
@@ -77,7 +81,14 @@ class RunResult:
             return {"skipped": True}
         if self.empty:
             return {"skipped": False, "empty_legacy": True, "summary_chars": 0}
-        assert self.persist is not None
+        if self.persist is None:
+            return {
+                "skipped": False,
+                "summary_chars": 0,
+                "archetype_only": True,
+                "facts_extracted": self.facts_extracted,
+                "facts_upserted": self.facts_upserted,
+            }
         return {
             "skipped": False,
             **self.persist.summary(),
@@ -130,8 +141,17 @@ def run_once(
         contributor_display_name=contributor_display_name,
     )
 
-    # 3. Empty-legacy short-circuit.
-    if not context.traits and not context.threads and not context.entities:
+    archetype_block = _build_archetype_block(context)
+    legacy_is_empty = (
+        not context.traits and not context.threads and not context.entities
+    )
+
+    # 3. Empty-legacy short-circuit. Skip both LLM calls only when there
+    # is truly nothing to work with. If the legacy has no traits/threads/
+    # entities yet but the contributor just finished archetype onboarding
+    # (first-run + archetype_block non-empty), we still want to mine those
+    # answers into facts — so we skip the summary call but run extraction.
+    if legacy_is_empty and not archetype_block:
         log.info(
             "profile_summary.empty_legacy_skip",
             person_id=person_id,
@@ -144,48 +164,69 @@ def run_once(
         )
         return RunResult.empty_legacy()
 
-    # 4. Summary LLM call.
-    summary_text = generate_summary(
-        cfg=summary_cfg,
-        settings=settings,
-        context=context,
-    )
+    # 4. Summary LLM call (skipped when there's nothing prose-worthy in
+    # the graph yet — archetype-only first runs go straight to facts).
+    if legacy_is_empty:
+        log.info(
+            "profile_summary.archetype_only_first_run",
+            person_id=person_id,
+            idempotency_key=idempotency_key,
+        )
+        summary_text = ""
+        persist = None
+    else:
+        summary_text = generate_summary(
+            cfg=summary_cfg,
+            settings=settings,
+            context=context,
+        )
 
-    # 5. Per-person transaction (summary only — fact extraction is
-    # outside this transaction so an LLM failure on facts doesn't
-    # roll back the summary).
-    with db_pool.connection() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                persist = persist_summary(
-                    cur,
-                    person_id=person_id,
-                    summary_text=summary_text,
-                    idempotency_key=idempotency_key,
-                )
+        # 5. Per-person transaction (summary only — fact extraction is
+        # outside this transaction so an LLM failure on facts doesn't
+        # roll back the summary).
+        with db_pool.connection() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    persist = persist_summary(
+                        cur,
+                        person_id=person_id,
+                        summary_text=summary_text,
+                        idempotency_key=idempotency_key,
+                    )
 
-    log.info(
-        "profile_summary.persisted",
-        person_id=person_id,
-        idempotency_key=idempotency_key,
-        **persist.summary(),
-    )
+        log.info(
+            "profile_summary.persisted",
+            person_id=person_id,
+            idempotency_key=idempotency_key,
+            **persist.summary(),
+        )
 
     # 6. Profile-fact extraction (best-effort).
     facts_extracted = 0
     facts_upserted = 0
-    if fact_extraction_cfg is not None and embedding_sender is not None:
+    if fact_extraction_cfg is None or embedding_sender is None:
+        log.info(
+            "profile_facts.extraction_disabled",
+            person_id=person_id,
+            reason=(
+                "missing_fact_extraction_cfg"
+                if fact_extraction_cfg is None
+                else "missing_embedding_sender"
+            ),
+        )
+    else:
         if embedding_model is None or embedding_model_version is None:
             raise ValueError(
                 "embedding_model and embedding_model_version are required "
                 "when fact_extraction_cfg is provided"
             )
-        rendered = render_context(context)
+        rendered = render_context(context) if not legacy_is_empty else ""
         try:
             extracted = extract_facts(
                 cfg=fact_extraction_cfg,
                 settings=settings,
                 rendered_context=rendered,
+                archetype_answers_block=archetype_block,
             )
         except LLMError as exc:
             log.warning(
@@ -250,3 +291,29 @@ def run_once(
         facts_extracted=facts_extracted,
         facts_upserted=facts_upserted,
     )
+
+
+def _build_archetype_block(context: ProfileSummaryContext) -> str:
+    """Render the archetype-onboarding answers as a prompt block.
+
+    Returns an empty string when:
+    - this isn't the person's first profile_summary run (we mine
+      archetype answers once and once only), or
+    - the contributor never answered onboarding (no archetype data).
+
+    The rendering reuses the same natural-language helper the first-time
+    opener uses, so the prompt presents these exactly as the contributor
+    would recognise them.
+    """
+    if not context.is_first_summary:
+        return ""
+    if not context.archetype_answers:
+        return ""
+    rendered = render_archetype_answers_natural_language(
+        context.archetype_answers,
+        context.relationship,
+        context.gender,
+    )
+    if not rendered.strip() or rendered.strip().startswith("No concrete"):
+        return ""
+    return f"<archetype_answers>\n{rendered}\n</archetype_answers>"

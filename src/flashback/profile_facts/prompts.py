@@ -99,6 +99,34 @@ OTHER QUALITY RULES:
   output is acceptable.
 - Do NOT include facts about the contributor — only about the subject.
 - Do NOT speak as the subject.
+
+ARCHETYPE ONBOARDING ANSWERS (first-run only):
+- When the user message contains an `<archetype_answers>` block, the
+  contributor typed or tapped those answers during onboarding. Treat
+  them as authoritative, contributor-typed facts about the subject —
+  they pass the grounding rule by construction.
+- This block appears only on the FIRST profile_summary run for a
+  person. Mine it once, do not expect to see it again.
+- For each non-skipped archetype answer that maps to an identity-
+  shaped fact (how/where the contributor met the subject, where they
+  spent time together, where the subject is most rooted, how the
+  contributor knows the subject), emit one high-confidence fact.
+  Skipped answers (those whose rendering says "skipped" or that don't
+  appear) are not facts.
+- If the conversation surfaces (traits/threads/entities) a more
+  specific detail on the same topic — a place name, year, or
+  workplace — incorporate that detail into the fact's `answer_text`
+  rather than parroting the tap label verbatim. Example: tap label
+  "at school or college" + thread mentioning Stanford undergrad
+  becomes `answer_text="Stanford undergrad"`, not `"at school or
+  college"`.
+- If no such detail exists, write a clean short sentence using the
+  tap label, not the raw tap value. Example: `"Met through school
+  or college"`, not `"at school or college"`.
+- Archetype-derived facts still count toward the 5-fact cap. When
+  both archetype and conversation produce candidate facts, prefer
+  the archetype-derived ones on first run — they are the contributor's
+  most direct statements about the subject.
 """
 
 

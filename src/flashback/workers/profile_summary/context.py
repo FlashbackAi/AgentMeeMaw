@@ -50,7 +50,12 @@ def build_context(
     """Read everything the summary LLM needs for one person."""
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            person_name, relationship = _fetch_person(cur, person_id=person_id)
+            (
+                person_name,
+                relationship,
+                gender,
+                archetype_answers,
+            ) = _fetch_person(cur, person_id=person_id)
             traits = _fetch_top_traits(
                 cur, person_id=person_id, limit=top_traits_max
             )
@@ -60,6 +65,7 @@ def build_context(
             entities = _fetch_top_entities(
                 cur, person_id=person_id, limit=top_entities_max
             )
+            is_first_summary = _is_first_summary(cur, person_id=person_id)
 
     time_period = derive_time_period(db_pool, person_id=person_id)
 
@@ -72,6 +78,9 @@ def build_context(
         entities=entities,
         time_period=time_period,
         contributor_display_name=(contributor_display_name or "").strip(),
+        gender=gender,
+        archetype_answers=archetype_answers,
+        is_first_summary=is_first_summary,
     )
 
 
@@ -142,17 +151,42 @@ def render_context(ctx: ProfileSummaryContext) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_person(cur, *, person_id: str) -> tuple[str, str | None]:
+def _fetch_person(
+    cur, *, person_id: str
+) -> tuple[str, str | None, str | None, list[dict]]:
     cur.execute(
-        "SELECT name, relationship FROM persons WHERE id = %s",
+        """
+        SELECT name,
+               relationship,
+               gender,
+               COALESCE(archetype_answers, '[]'::jsonb)
+          FROM persons
+         WHERE id = %s
+        """,
         (person_id,),
     )
     row = cur.fetchone()
     if row is None:
         raise ValueError(f"person {person_id!r} not found")
-    name, relationship = row
+    name, relationship, gender, archetype_answers = row
     relationship = None if relationship is None else str(relationship)
-    return str(name), relationship
+    gender = None if gender is None else str(gender)
+    return str(name), relationship, gender, list(archetype_answers or [])
+
+
+def _is_first_summary(cur, *, person_id: str) -> bool:
+    """True when there are no prior profile_summary runs for this person.
+
+    Checked BEFORE the current run's idempotency row is inserted, so a
+    genuinely first invocation returns True. Used to gate archetype
+    onboarding answers into the fact-extraction prompt: we want those
+    answers mined exactly once, not on every wrap.
+    """
+    cur.execute(
+        "SELECT 1 FROM processed_profile_summaries WHERE person_id = %s LIMIT 1",
+        (person_id,),
+    )
+    return cur.fetchone() is None
 
 
 def _fetch_top_traits(cur, *, person_id: str, limit: int) -> list[TraitView]:

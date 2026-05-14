@@ -18,7 +18,7 @@ there is no parsed-result schema — the returned string IS the summary.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -114,3 +114,6 @@ class ProfileSummaryContext:
     entities: list[EntityView]
     time_period: TimePeriodView
     contributor_display_name: str = ""
+    gender: str | None = None
+    archetype_answers: list[dict[str, Any]] = field(default_factory=list)
+    is_first_summary: bool = False
