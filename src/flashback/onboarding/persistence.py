@@ -154,7 +154,7 @@ async def _upsert_entity(
             """
             UPDATE entities
                SET description = COALESCE(description, %s),
-                   attributes = attributes || %s
+                   attributes = attributes || %s::jsonb
              WHERE id = %s
                AND person_id = %s
                AND status = 'active'
