@@ -809,24 +809,30 @@ _PRONOUNS = {
         "them": "him",
         "their": "his",
         "theirs": "his",
+        "themselves": "himself",
         "are": "is",
         "were": "was",
+        "verb_s": "s",
     },
     "she": {
         "they": "she",
         "them": "her",
         "their": "her",
         "theirs": "hers",
+        "themselves": "herself",
         "are": "is",
         "were": "was",
+        "verb_s": "s",
     },
     "they": {
         "they": "they",
         "them": "them",
         "their": "their",
         "theirs": "theirs",
+        "themselves": "themselves",
         "are": "are",
         "were": "were",
+        "verb_s": "",
     },
 }
 
@@ -838,23 +844,37 @@ def render_pronouns(text: str, gender: str | None) -> str:
     if forms is _PRONOUNS["they"]:
         return text
 
+    # Phrase rules must run before word rules so multi-word patterns
+    # (e.g. "are they" → "is he", "they make" → "he makes") get the
+    # auxiliary or verb-suffix right before bare "they" → "he" fires.
     phrase_replacements = (
         ("What were they like", f"What {forms['were']} {forms['they']} like"),
         ("what were they like", f"what {forms['were']} {forms['they']} like"),
-        ("What kind of grandparent were they", f"What kind of grandparent {forms['were']} {forms['they']}"),
-        ("what kind of grandparent were they", f"what kind of grandparent {forms['were']} {forms['they']}"),
+        ("were they", f"{forms['were']} {forms['they']}"),
+        ("Were they", f"{forms['were'].capitalize()} {forms['they']}"),
+        ("are they", f"{forms['are']} {forms['they']}"),
+        ("Are they", f"{forms['are'].capitalize()} {forms['they']}"),
         ("when they are", f"when {forms['they']} {forms['are']}"),
         ("When they are", f"When {forms['they']} {forms['are']}"),
         ("they are", f"{forms['they']} {forms['are']}"),
         ("They are", f"{forms['they'].capitalize()} {forms['are']}"),
         ("they were", f"{forms['they']} {forms['were']}"),
         ("They were", f"{forms['they'].capitalize()} {forms['were']}"),
+        # Bare present-tense verbs that occur after "they" in archetype
+        # option labels. After the pronoun flips to "he"/"she" we need
+        # the verb to carry "-s"; for "they" it stays bare.
+        ("they make", f"{forms['they']} make{forms['verb_s']}"),
+        ("They make", f"{forms['they'].capitalize()} make{forms['verb_s']}"),
+        ("they move", f"{forms['they']} move{forms['verb_s']}"),
+        ("They move", f"{forms['they'].capitalize()} move{forms['verb_s']}"),
     )
     rendered = text
     for source, replacement in phrase_replacements:
         rendered = rendered.replace(source, replacement)
 
     word_replacements = (
+        ("themselves", forms["themselves"]),
+        ("Themselves", forms["themselves"].capitalize()),
         ("theirs", forms["theirs"]),
         ("Theirs", forms["theirs"].capitalize()),
         ("their", forms["their"]),
