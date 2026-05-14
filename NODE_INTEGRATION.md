@@ -277,7 +277,7 @@ Frontend                Node                              Agent
    │                     ├─────────────────────────────────▶│
    │                     │  200 { reply, metadata }         │
    │                     │◀─────────────────────────────────┤
-   │  reply              │                                  │
+   │  reply + tap chips  │                                  │
    │◀────────────────────┤                                  │
    │      … (loop) …     │                                  │
    │                     │                                  │
@@ -325,9 +325,17 @@ ignores it**. If you don't have one, omit the key. Don't fabricate.
 Optional on the first session after archetype onboarding. The agent
 already stores `persons.archetype_answers` during
 `POST /api/v1/onboarding/archetype-answers`; if Node passes the same
-array in metadata, the starter opener uses it directly. Either way, the
+array in metadata, the first-time opener uses it directly. Either way, the
 first opener anchors on the most concrete captured detail and avoids
 re-asking anything the contributor already tapped or typed.
+
+### Turn `metadata.taps`
+
+`/turn` responses always include `metadata.taps` as a list. Render each
+tap as a chip beneath the bot reply. When the contributor taps a chip,
+POST `/turn` normally with the chip text as `message`; no special Node
+field is required. `/session/start` also includes `metadata.taps`, but
+it is always `[]` in v1.
 
 ### `/session/wrap` is mandatory
 

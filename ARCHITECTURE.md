@@ -113,8 +113,11 @@ It is checked after every successful Extraction Worker run; if the
 delta threshold is hit, it fires (and runs P4 inline at the end). It
 is not part of the Session Wrap chain.
 
-P0 (starter anchors) is **not** part of this loop — it's a one-time
-seeder migration.
+Coverage taps (formerly P0 / starter_anchor) are not part of this
+loop. They are a fixed pool of global template questions seeded by
+migration (`source='coverage_tap'`) and surfaced as archetype-style
+tap cards by the Turn Orchestrator's `select_coverage_tap` step. See
+§3.3 and CLAUDE.md §6.
 
 ---
 
@@ -130,20 +133,42 @@ from Node. Validates request, hydrates Working Memory from Valkey
 
 Plain code. Sequences the Turn loop steps. **Not** an LLM call.
 
-### 3.3 Phase Gate
+### 3.3 Phase Gate + tap surface
 
-Code. Fires only at session start or on a switch intent (detected by
-the Intent Classifier on the prior turn). Reads `persons.phase`:
+Code. Three orchestrator steps cooperate to produce the next question.
+Session openers no longer inline a starter question; the cold-start
+load is carried by archetype answers and continuity context.
 
-- `phase = 'starter'` → pick the lowest-coverage anchor dimension
-  (tiebreaker `sensory > voice > place > relation > era`; first turn
-  ever is always `sensory`); pull a `source='starter_anchor'` question
-  for that dimension.
-- `phase = 'steady'` → pick the top-ranked question from the question
-  bank, ranked by source priority and themes diversity (cap
-  `universal_dimension` at 1 per top-5).
+**`select_coverage_tap`** runs on every `/turn`. When intent is
+`switch`/`clarify` AND some `coverage_state` dim is at 0 AND the
+session cap (2) and 2-user-turn cooldown allow, it selects a global
+template question from `source='coverage_tap'` for the lowest-coverage
+dim (tiebreaker `era > relation > place > voice > sensory`, cold to
+warm) and emits it as a structured tap.
 
-The selected question feeds into the Response Generator's prompt.
+**`select_question`** runs on switch intent when no coverage tap fired.
+In `phase='steady'` it picks the top-ranked question from the produced
+question bank (`dropped_reference`, `underdeveloped_entity`,
+`thread_deepen`, `life_period_gap`, `universal_dimension`) ranked by
+source priority and themes diversity. In `phase='starter'` the same
+selector is reused but scoped to a narrower fallback set; the result
+is the candidate for `promote_seeded_to_tap`.
+
+**`promote_seeded_to_tap`** runs only when `phase='starter'`. If
+`select_question` returned a seeded question and no coverage tap
+fired, the seeded question is converted into a tap card so the
+archetype-style surface continues mid-chat. In steady phase this
+step is a no-op and the bot inlines the seeded question in its reply.
+
+**Tap option chips** are generated per-turn by a small gpt-5.1 call
+(`flashback.orchestrator.tap_options`). The call returns 4 short
+option strings given the question + subject context + dimension hint.
+Best-effort: on failure the card falls back to question + free-text.
+Options are not persisted on the question row.
+
+When `state.taps` is set, the Response Generator switches to a
+`tap_pending` prompt branch and produces an acknowledgment only —
+no question, no options. The tap card IS the next question.
 
 ### 3.4 Working Memory (Valkey)
 
@@ -403,12 +428,17 @@ inside the Background loop.
 
 | Producer | Trigger | Source tag |
 |---|---|---|
-| **P0** | One-time seeder migration | `starter_anchor` |
+| **P0** (retired) | One-time seeder migration, relabelled by 0019 | `coverage_tap` |
 | **P1** | Inline in Extraction Worker | `dropped_reference` |
 | **P2** | Background loop, **per session** | `underdeveloped_entity` |
 | **P3** | Background loop, **weekly** | `life_period_gap` |
 | **P4** | Inline at end of Thread Detector | `thread_deepen` |
 | **P5** | Background loop, **weekly** | `universal_dimension` |
+
+P0 still exists as data — migration 0019 relabelled the original
+`starter_anchor` rows to `coverage_tap` so the runtime tap surface
+draws from them. There is no producer process running P0 at runtime;
+the rows are a fixed seed.
 
 #### P2 — Underdeveloped entity (per session)
 

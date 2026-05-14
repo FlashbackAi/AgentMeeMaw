@@ -165,7 +165,7 @@ First-class question nodes. Two distinct shapes share one table:
 
 | Shape | `person_id` | `source` |
 |---|---|---|
-| **Global template** | NULL | `starter_anchor` only |
+| **Global template** | NULL | `coverage_tap` only |
 | **Per-person** | NOT NULL | everything else |
 
 A CHECK constraint (`chk_questions_person_scope`) enforces this
@@ -174,7 +174,7 @@ mutual exclusion.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID PK | |
-| `person_id` | UUID FK→persons | NULL for `starter_anchor` only |
+| `person_id` | UUID FK→persons | NULL for `coverage_tap` only |
 | `text` | TEXT NOT NULL | |
 | `source` | TEXT NOT NULL | CHECK in 6 values (see below) |
 | `attributes` | JSONB NOT NULL DEFAULT `'{}'` | shape varies by source |
@@ -187,7 +187,7 @@ mutual exclusion.
 
 | `source` | `attributes` shape |
 |---|---|
-| `starter_anchor` | `{ dimension, themes }` — `dimension` is one of the 5 |
+| `coverage_tap` | `{ dimension, themes }` — `dimension` is one of the 5 |
 | `dropped_reference` | `{ dropped_phrase, themes }` |
 | `underdeveloped_entity` | `{ themes }` |
 | `life_period_gap` | `{ life_period, themes }` |
@@ -200,8 +200,8 @@ mutual exclusion.
 - `(person_id, status)` — per-person bank queries
 - `(source, status)`
 - Expression `((attributes->>'dimension'))` partial WHERE
-  `source='starter_anchor' AND status='active'` — fast Phase Gate
-  lookup of starter templates by dimension
+  `source='coverage_tap' AND status='active'` — fast coverage-tap
+  lookup by dimension
 - HNSW on `embedding` partial WHERE active
 
 **Question `attributes` JSONB keys (non-relational only):**
@@ -337,7 +337,7 @@ combinations. The DB only checks `edge_type` membership.
 **Caller responsibilities (not enforced by `validate_edge()`):**
 - Both endpoints must belong to the same `person_id`. (Exception:
   `from_kind='question' AND from.person_id IS NULL` is allowed when
-  the question is a `starter_anchor` template — the answered moment's
+  the question is a `coverage_tap` template — the answered moment's
   `person_id` is the scope.)
 - Both endpoints must be `status='active'`.
 - For `happened_at`: the target entity must be `kind='place'`.
@@ -481,12 +481,13 @@ WHERE  person_id = $1
   AND  status    = 'active';
 ```
 
-### Phase Gate: pick a starter for a dimension
+### Coverage tap: pick a template for a dimension
 
 ```sql
 SELECT id, text
 FROM   active_questions
-WHERE  source = 'starter_anchor'
+WHERE  source = 'coverage_tap'
+  AND  person_id IS NULL
   AND  attributes->>'dimension' = $1   -- 'sensory' | 'voice' | ...
   AND  NOT EXISTS (
         SELECT 1 FROM active_edges e

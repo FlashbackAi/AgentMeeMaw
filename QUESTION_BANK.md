@@ -21,15 +21,19 @@ see `ARCHITECTURE.md` §3.16.
 
 | `source` | When it fires | Person scope | Producer |
 |---|---|---|---|
-| `starter_anchor` | Starter phase, session start / switch intent | **Global template** (`person_id IS NULL`) | P0 — one-time migration |
+| `coverage_tap` | Starter/steady, `switch`/`clarify` intent when a coverage dim is at 0 | **Global template** (`person_id IS NULL`) | P0 (retired) — one-time migration, relabelled by 0019 |
 | `dropped_reference` | Inline during extraction, when a named entity is mentioned but not explored | Per-person | P1 — Extraction Worker |
 | `underdeveloped_entity` | Background, **per session** post-wrap | Per-person | P2 |
 | `life_period_gap` | Background, **weekly** | Per-person | P3 |
 | `thread_deepen` | Inline at end of Thread Detector | Per-person | P4 |
 | `universal_dimension` | Background, **weekly** | Per-person | P5 |
 
-Only `starter_anchor` rows are global. Everything else is owned by a
+Only `coverage_tap` rows are global. Everything else is owned by a
 single legacy.
+
+Migration 0019 relabelled the original `starter_anchor` rows from P0
+to `coverage_tap`. The runtime tap surface (see CLAUDE.md §6) draws
+from these rows and surfaces them as archetype-style tap cards.
 
 ---
 
@@ -46,10 +50,12 @@ to be a low-stakes, high-warmth way into a memory.
 | **relation** | How they related to others | Any `involves` edge to a `person` entity ≠ the subject |
 | **era** | When they lived, what time felt most "them" | The moment has a `time_anchor` with a year, OR `life_period_estimate` is set |
 
-**Selection rule** (Phase Gate, starter phase): pick the
-lowest-coverage dimension; tiebreaker order is
-`sensory > voice > place > relation > era`. The very first turn of a
-new legacy is **always** `sensory`.
+**Selection rule** (`select_coverage_tap`): pick the lowest-zero
+dimension; tiebreaker order is
+`era > relation > place > voice > sensory` (cold to warm, so sensory
+is asked last once we've earned the intimacy). Taps only fire on
+`switch`/`clarify` intent and respect a 2-tap session cap plus a
+2-user-turn cooldown.
 
 ---
 
@@ -60,7 +66,7 @@ the source. **`themes` is required on every question** (invariant
 #9 — diversity ranking depends on it).
 
 ```jsonc
-// starter_anchor
+// coverage_tap  (formerly starter_anchor; relabelled by migration 0019)
 {
   "dimension": "sensory" | "voice" | "place" | "relation" | "era",
   "themes":    [string, ...]
@@ -95,10 +101,10 @@ the source. **`themes` is required on every question** (invariant
 }
 ```
 
-Note that the `dimension` field is reused across `starter_anchor` and
+Note that the `dimension` field is reused across `coverage_tap` and
 `universal_dimension` for two different purposes:
 
-- For `starter_anchor` it is constrained to one of the **5 anchor
+- For `coverage_tap` it is constrained to one of the **5 anchor
   dimensions**.
 - For `universal_dimension` it is one of the broader life-coverage
   dimensions (`childhood`, `family`, `work`, `marriage`, `parenthood`,
@@ -211,24 +217,30 @@ behavioral data to do better).
 
 ## 5. Selection & ranking
 
-### 5.1 Starter phase (Phase Gate)
+### 5.1 Coverage taps (`select_coverage_tap`)
+
+Coverage taps surface as archetype-style tap cards on `switch` /
+`clarify` intents. Selection:
 
 ```
 1. Read persons.coverage_state.
-2. Identify the dimension(s) with the lowest count.
-3. Tiebreaker: sensory > voice > place > relation > era.
-4. SELECT a random starter_anchor template
+2. Identify dimensions with count == 0 (strict).
+3. Tiebreaker: era > relation > place > voice > sensory.
+4. SELECT a random coverage_tap template
    WHERE attributes->>'dimension' = <chosen>
      AND status = 'active'
+     AND person_id IS NULL
      AND <hasn't been answered for this person yet>.
-5. If first turn ever for this legacy: force dimension = 'sensory'.
+5. Skip if taps_emitted_this_session >= 2 (session cap).
+6. Skip if user_turns_since_last_tap < 2 (cooldown).
 ```
 
 The "hasn't been answered yet" check uses `answered_by` edges; see
-`SCHEMA.md` §7 for the query. Until that filter is wired (step 8),
-the Phase Gate may legitimately re-ask a starter — that's
-acceptable, as the Coverage Tracker will eventually move past
-starter phase regardless.
+`SCHEMA.md` §7 for the query.
+
+Option chips on the tap card are generated per-turn by a small
+gpt-5.1 call (`flashback.orchestrator.tap_options`) — they are not
+persisted on the question row.
 
 ### 5.2 Steady phase (Phase Gate)
 

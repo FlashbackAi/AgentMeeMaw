@@ -288,13 +288,15 @@ are:
   "opener": "string",
   "metadata": {
     "phase": "starter | steady",
-    "selected_question_id": "uuid | null"
+    "selected_question_id": "uuid | null",
+    "taps": []
   }
 }
 ```
 
-`selected_question_id` is the `questions` row the opener was built
-around (null if no question was needed for this open).
+`selected_question_id` is retained for compatibility and is always null
+for v1 session openers. `metadata.taps` is reserved for the tap-chip
+shape and is always an empty list on `/session/start`.
 
 **Errors**
 - `404` — `person_id` not found
@@ -327,13 +329,22 @@ One user message in, one assistant reply out. Idempotent on
   "metadata": {
     "intent": "string | null",
     "emotional_temperature": "low | medium | high | null",
-    "segment_boundary": false
+    "segment_boundary": false,
+    "taps": [
+      {
+        "question_id": "uuid",
+        "text": "string",
+        "dimension": "era | relation | place | voice | sensory"
+      }
+    ]
   }
 }
 ```
 
 `segment_boundary` is `true` on the turn at which the Segment Detector
 decided to close a segment and push it onto the extraction queue.
+`metadata.taps` is always present. v1 emits at most one coverage-gap tap
+on eligible `switch` or `clarify` turns; otherwise it is `[]`.
 
 **Errors**
 - `409` — no working memory for `session_id` (did `/session/start` succeed?)

@@ -288,21 +288,50 @@ A fresh legacy starts in `phase='starter'`. Goal: at least one moment
 in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
 `relation`, `era`.
 
-- **Phase Gate** (code) fires **only** at session start or on a switch
-  intent — never per-turn. Reads `persons.phase`, routes question
-  selection to the starter or steady source.
-- **Producer 0** is a **one-time seeder migration** (~15 starter
-  questions, 5 dimensions × 2–3 phrasings, `source='starter_anchor'`,
-  `attributes.dimension` set). Not a runtime component.
-- **Anchor selection in starter phase:** lowest-coverage dimension;
-  tiebreaker `era > relation > place > voice > sensory` (cold → warm,
-  so sensory is asked last once we've earned the intimacy). **First
-  turn of a new legacy is always `era`** — the work/life-period
-  opener is the lowest-friction cold start.
-- **First-turn opener** is LLM-generated under tight constraints —
+- **Phase Gate** (code) fires only on switch-intent `/turn` selection.
+  Session openers no longer select an inline starter question.
+- **Coverage taps** are global template questions seeded by migration
+  (`source='coverage_tap'`, `attributes.dimension`, `attributes.themes`).
+  They surface as **archetype-style tap cards** under the agent's reply,
+  not inline questions. Each card has: the question text, 4 short
+  tappable answer chips, a free-text input, and a Skip button.
+- **`select_coverage_tap` step** runs on every `/turn` and emits one
+  tap for the lowest zero-coverage dimension when intent is
+  `switch`/`clarify`. Tiebreaker: `era > relation > place > voice >
+  sensory` (cold to warm — sensory is asked last once we've earned the
+  intimacy).
+- **`promote_seeded_to_tap` step** runs on switch turns in starter
+  phase only. When no coverage gap is open but the steady selector
+  picked a question from the producer bank (P2-P5), that seeded
+  question is promoted into a tap card too — so the archetype-style
+  surface continues mid-chat through starter phase. In steady phase
+  this step is a no-op; the bot inlines its question as normal.
+- **Tap option chips are LLM-generated per turn** (small gpt-5.1 call
+  in `flashback.orchestrator.tap_options`). Given the question, subject
+  name + relationship, and gap dimension, the call returns 4 short
+  concrete option strings (e.g. "Her quick smile", "Always in the
+  kitchen"). Generation is best-effort: on failure the card falls
+  back to question + free-text only. Options are NOT stored on the
+  question row; they are regenerated each time the tap fires.
+- **`tap_pending` response-generator branch.** When `state.taps` is
+  set, the SWITCH / CLARIFY prompts switch to acknowledgment-only
+  mode (one short sentence, no question, no options). The tap card
+  IS the next question; the bot does not also speak one.
+- **Cap and cooldown.** Maximum **2 taps per session**
+  (`taps_emitted_this_session`). Additionally, a **2-user-turn
+  cooldown** between taps (`user_turns_since_last_tap` in Working
+  Memory) — async extraction means `coverage_state` lags real-time,
+  so back-to-back taps would surface the same gap dim twice.
+- **Tap-acceptance signal to Intent Classifier.** When a tap is
+  emitted, `signal_pending_tap_question` is set in Working Memory.
+  The classifier reads it on the next turn so a terse option-style
+  reply ("Her quick smile") is classified as `story` / `deepen`,
+  not `switch`. Signal is cleared after one classification.
+- **First-turn opener** is LLM-generated under tight constraints:
   must (a) name the subject, (b) use onboarding details when present
-  without re-asking them, and (c) ask the chosen anchor as fallback.
-  Not templated.
+  without re-asking them, and (c) open conversationally. Archetype
+  answers and continuity context carry the cold-start load. Not
+  templated.
 - **Coverage Tracker** (code, runs after Extraction Worker) increments
   `persons.coverage_state` per moment based on extracted content.
 - **Handover Check** flips `persons.phase` to `'steady'` and stamps
@@ -331,7 +360,7 @@ write them together as we go.
 1. **Schema migrations** — node tables, generic `edges` table, history
    tables, phase/coverage columns, artifact URL/prompt columns,
    embedding-model columns, `active_*` views.
-2. **Starter question seed migration** (Producer 0 output).
+2. **Coverage tap seed migration** (formerly Producer 0 output).
 3. **Embedding worker** — drains `embedding` queue, calls Voyage,
    writes vector + model + version. The whole pipeline (what gets
    stored, when triggers fire) is documented in `ARCHITECTURE.md` §6.
@@ -340,12 +369,18 @@ write them together as we go.
 5. **Intent Classifier** (small LLM) — outputs `intent`, `confidence`,
    `emotional_temperature`.
 6. **Retrieval Service** — tool surface over the canonical graph.
-7. **Response Generator + starter opener** — big LLM, prompt families
+7. **Response Generator + session opener** — big LLM, prompt families
    per intent.
-8. **Phase Gate + question selection** — code; routes starter vs
-   steady.
-9. **Turn Orchestrator** — the loop: append turn → intent → retrieval
-   → response → append response → segment detector.
+8. **Phase Gate + question/tap selection** — code; steady question
+   selection plus structured coverage taps. Tap card surface is built
+   from three steps: `select_coverage_tap` (gap-driven),
+   `promote_seeded_to_tap` (starter-phase only — promotes a steady
+   seeded question into a tap), and a small gpt-5.1 call in
+   `flashback.orchestrator.tap_options` that generates 4 option chips
+   per emitted tap.
+9. **Turn Orchestrator** — the loop: append turn → intent → tap
+   selection / retrieval → seeded-question selection → promote-to-tap →
+   response → append response → segment detector.
 10. **Segment Detector** (small LLM) — runs every turn after buffer
     threshold; emits boundary or "not yet".
 11. **Extraction Worker** (big LLM) — moments + entities + traits +
@@ -385,10 +420,10 @@ We expose an HTTP service. Node calls us; we never call Node.
 
 - `POST /session/start` — body: `{ session_id, person_id, role_id,
   session_metadata }`. Returns the opener message. We hydrate Working
-  Memory, run Phase Gate + question selection + Response Generator.
+  Memory and run the Response Generator; `metadata.taps` is always empty.
 - `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
   Returns the assistant reply + metadata (intent,
-  emotional_temperature, etc.). Runs the Turn loop end-to-end.
+  emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
 - `POST /session/wrap` — body: `{ session_id, person_id }`. Force-
   closes the open segment, generates session summary, kicks off
   post-session sequencing. Returns the session summary.
