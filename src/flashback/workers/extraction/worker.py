@@ -87,6 +87,20 @@ from uuid import UUID as _UUID
 log = structlog.get_logger("flashback.workers.extraction")
 
 
+def _candidate_question_ids(payload: ExtractionMessage) -> list[str]:
+    ids: list[str] = []
+    if payload.seeded_question_id is not None:
+        ids.append(str(payload.seeded_question_id))
+    ids.extend(str(question_id) for question_id in payload.candidate_question_ids)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for question_id in ids:
+        if question_id not in seen:
+            deduped.append(question_id)
+            seen.add(question_id)
+    return deduped
+
+
 # ---------------------------------------------------------------------------
 # Wired worker (dependency container)
 # ---------------------------------------------------------------------------
@@ -225,6 +239,9 @@ class ExtractionWorker:
             prior_rolling_summary=payload.prior_rolling_summary,
             segment_turns=payload.segment_turns,
             contributor_display_name=payload.contributor_display_name or "",
+            candidate_question_ids=[
+                str(question_id) for question_id in payload.candidate_question_ids
+            ],
         )
 
         # 2b. Invariant #18: drop orphan traits with no exemplifying moment
@@ -262,11 +279,7 @@ class ExtractionWorker:
                         person=person,
                         extraction=extraction,
                         moment_decisions=decisions,
-                        seeded_question_id=(
-                            str(payload.seeded_question_id)
-                            if payload.seeded_question_id is not None
-                            else None
-                        ),
+                        seeded_question_ids=_candidate_question_ids(payload),
                         llm_provenance=LLMProvenance(
                             provider=self.extraction_cfg.provider,
                             model=self.extraction_cfg.model,

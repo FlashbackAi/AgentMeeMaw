@@ -66,12 +66,14 @@ class FakeOrchestrator:
             opener="Tell me about Test Subject.",
             phase="starter",
             selected_question_id=None,
+            taps=[],
         )
         self.turn_result = TurnResult(
             reply="I hear you. Tell me more.",
             intent=None,
             emotional_temperature=None,
             segment_boundary=False,
+            taps=[],
         )
         self.wrap_result = SessionWrapResult(
             session_summary="",

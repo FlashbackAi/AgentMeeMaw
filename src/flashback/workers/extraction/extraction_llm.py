@@ -46,6 +46,7 @@ def run_extraction(
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
+    candidate_question_ids: Iterable[str] = (),
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -59,6 +60,7 @@ def run_extraction(
         prior_rolling_summary=prior_rolling_summary,
         segment_turns=segment_turns,
         contributor_display_name=contributor_display_name,
+        candidate_question_ids=candidate_question_ids,
     )
 
     args = asyncio.run(
@@ -91,6 +93,7 @@ def _build_user_message(
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
+    candidate_question_ids: Iterable[str] = (),
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -108,6 +111,9 @@ def _build_user_message(
     ]
     contributor_name = (contributor_display_name or "").strip()
     lines.append(tagged("contributor_display_name", contributor_name))
+    candidate_ids = [qid for qid in candidate_question_ids if qid]
+    if candidate_ids:
+        lines.append(tagged("candidate_answered_question_ids", "\n".join(candidate_ids)))
     lines.extend(
         [
             "",

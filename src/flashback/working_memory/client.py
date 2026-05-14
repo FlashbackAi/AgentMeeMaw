@@ -21,6 +21,7 @@ Atomicity:
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any, Literal
 
 from redis.asyncio import Redis
@@ -156,6 +157,7 @@ class WorkingMemory:
         role: Literal["user", "assistant"],
         content: str,
         timestamp: datetime,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """
         Append to BOTH transcript and segment buffer.
@@ -164,7 +166,7 @@ class WorkingMemory:
         segment buffer is *not* trimmed; it grows until a boundary
         fires, at which point :meth:`reset_segment` clears it.
         """
-        turn = Turn(role=role, content=content, timestamp=timestamp)
+        turn = Turn(role=role, content=content, timestamp=timestamp, metadata=metadata or {})
         payload = turn.to_json()
         t_key = transcript_key(session_id)
         seg_key = segment_key(session_id)
@@ -351,6 +353,49 @@ class WorkingMemory:
             item.decode("utf-8") if isinstance(item, bytes) else str(item)
             for item in raw
         ]
+
+    async def record_tap_emitted(
+        self,
+        session_id: str,
+        question_id: str,
+        question_text: str = "",
+    ) -> None:
+        """Increment the session tap counter and keep a 5-item FIFO id list.
+
+        Also resets ``user_turns_since_last_tap`` to 0 so the cooldown
+        gate suppresses back-to-back taps, and stashes the question text
+        in ``signal_pending_tap_question`` so the Intent Classifier on
+        the next turn knows the user is answering a specific question
+        (and shouldn't read a short answer as `switch`).
+        """
+        s_key = state_key(session_id)
+        state = await self.get_state(session_id)
+        emitted = [*state.emitted_tap_question_ids, question_id][-5:]
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hincrby(s_key, "taps_emitted_this_session", 1)
+            p.hset(s_key, "emitted_tap_question_ids", json.dumps(emitted))
+            p.hset(s_key, "user_turns_since_last_tap", "0")
+            p.hset(s_key, "signal_pending_tap_question", question_text)
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def increment_user_turns_since_last_tap(self, session_id: str) -> int:
+        """Atomically increment the tap cooldown counter. Returns new value."""
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hincrby(s_key, "user_turns_since_last_tap", 1)
+            p.expire(s_key, self._ttl)
+            results = await p.execute()
+        return int(results[0])
+
+    async def clear_pending_tap_question(self, session_id: str) -> None:
+        """Clear the cached tap-question text after the classifier has read it.
+
+        Keeps the signal scoped to the single turn that immediately
+        follows the tap emission. Leaving it set across multiple turns
+        would mis-classify later replies as tap-answers.
+        """
+        await self.update_signals(session_id, signal_pending_tap_question="")
 
     # --- Internal ----------------------------------------------------------
 

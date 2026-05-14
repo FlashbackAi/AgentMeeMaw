@@ -36,6 +36,14 @@ async def classify(state: TurnState, deps: OrchestratorDeps) -> None:
             signal_last_intent=result.intent,
             signal_emotional_temperature_estimate=result.emotional_temperature,
         )
+        # Clear the pending-tap signal once classification has consumed
+        # it. The signal is scoped to the single turn that immediately
+        # follows tap emission — letting it persist would mis-classify
+        # later replies as tap answers.
+        if state.working_memory_state.signal_pending_tap_question:
+            await deps.working_memory.clear_pending_tap_question(
+                str(state.session_id)
+            )
         log.info(
             "intent_classifier.completed",
             intent=result.intent,

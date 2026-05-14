@@ -12,6 +12,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from flashback.orchestrator.protocol import Tap
+
 
 # --- /session/start --------------------------------------------------------
 
@@ -31,6 +33,7 @@ class SessionStartMetadata(BaseModel):
 
     phase: Literal["starter", "steady"]
     selected_question_id: UUID | None = None
+    taps: list[Tap] = Field(default_factory=list)
 
 
 class SessionStartResponse(BaseModel):
@@ -59,6 +62,7 @@ class TurnMetadata(BaseModel):
     intent: str | None = None
     emotional_temperature: Literal["low", "medium", "high"] | None = None
     segment_boundary: bool = False
+    taps: list[Tap] = Field(default_factory=list)
 
 
 class TurnResponse(BaseModel):

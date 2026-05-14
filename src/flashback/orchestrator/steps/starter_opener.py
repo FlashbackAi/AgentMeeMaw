@@ -12,7 +12,6 @@ from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.errors import PersonNotFound
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.state import SessionStartState
-from flashback.phase_gate import PhaseGateError
 from flashback.response_generator import FirstTimeOpenerContext, StarterContext
 
 log = structlog.get_logger("flashback.orchestrator")
@@ -82,43 +81,6 @@ async def load_continuity_context(
             state.session_metadata["prior_session_summary"] = summary
 
 
-async def select_starter_anchor(
-    state: SessionStartState,
-    deps: OrchestratorDeps,
-) -> None:
-    with timed_step(log, "select_starter_anchor"):
-        if deps.phase_gate is None:
-            raise PhaseGateError("phase gate is not configured")
-        if state.person_phase == "starter":
-            state.selection = await deps.phase_gate.select_starter_question(
-                state.person_id
-            )
-        else:
-            state.selection = await deps.phase_gate.select_next_question(
-                state.person_id,
-                state.session_id,
-            )
-        if state.selection.question_id is None or state.selection.question_text is None:
-            if state.person_phase == "starter":
-                raise PhaseGateError("starter selection returned no question")
-            log.info(
-                "phase_gate.session_start_empty",
-                phase=state.selection.phase,
-                rationale=state.selection.rationale,
-            )
-            return
-        if state.person_phase == "starter" and state.selection.dimension is None:
-            raise PhaseGateError("starter selection returned no dimension")
-        log.info(
-            "phase_gate.session_start_selected",
-            phase=state.selection.phase,
-            question_id=str(state.selection.question_id),
-            source=state.selection.source,
-            dimension=state.selection.dimension,
-            rationale=state.selection.rationale,
-        )
-
-
 async def generate_opener(
     state: SessionStartState,
     deps: OrchestratorDeps,
@@ -128,12 +90,6 @@ async def generate_opener(
             state.response = None
             log.info("response_generator.skipped", reason="not_configured")
             return
-        if state.selection is None or state.selection.question_text is None:
-            state.response = None
-            log.info("starter_opener.skipped", reason="no_seeded_question")
-            return
-        if state.person_phase == "starter" and state.selection.dimension is None:
-            raise PhaseGateError("starter selection missing dimension")
         ctx = StarterContext(
             person_name=state.person_name,
             person_relationship=state.person_relationship,
@@ -145,8 +101,8 @@ async def generate_opener(
                 state.session_metadata.get("contributor_role")
                 or state.session_metadata.get("role")
             ),
-            anchor_question_text=state.selection.question_text,
-            anchor_dimension=state.selection.dimension,
+            anchor_question_text=None,
+            anchor_dimension=None,
             prior_session_summary=_string_or_none(
                 state.session_metadata.get("prior_session_summary")
             ),
@@ -172,10 +128,6 @@ async def generate_first_time_opener(
             state.response = None
             log.info("response_generator.skipped", reason="not_configured")
             return
-        if state.selection is None or state.selection.question_text is None:
-            raise PhaseGateError(
-                "first-time opener selection returned no anchor question"
-            )
         archetype_answers = await _archetype_answers_for_state(state, deps)
         ctx = FirstTimeOpenerContext(
             person_name=state.person_name,
@@ -184,8 +136,8 @@ async def generate_first_time_opener(
             contributor_display_name=_string_or_none(
                 state.session_metadata.get("contributor_display_name")
             ),
-            anchor_question_text=state.selection.question_text,
-            anchor_dimension=state.selection.dimension,
+            anchor_question_text=None,
+            anchor_dimension=None,
             archetype_answers=archetype_answers,
         )
         state.response = await deps.response_generator.generate_first_time_opener(ctx)

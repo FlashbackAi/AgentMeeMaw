@@ -38,15 +38,6 @@ async def select_question(state: TurnState, deps: OrchestratorDeps) -> None:
             session_id=state.session_id,
             recently_asked_ids=recently_asked_ids,
         )
-        if (
-            deps.working_memory is not None
-            and state.selection is not None
-            and state.selection.question_id is not None
-        ):
-            await deps.working_memory.append_asked_question(
-                session_id=str(state.session_id),
-                question_id=str(state.selection.question_id),
-            )
         log.info(
             "phase_gate.selected",
             phase=state.selection.phase,

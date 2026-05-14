@@ -82,6 +82,11 @@ def render_turn_context(ctx: TurnContext) -> str:
     if ctx.seeded_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.seeded_question_text)))
 
+    if ctx.tap_pending:
+        dim_attr = f' dimension="{ctx.tap_dimension}"' if ctx.tap_dimension else ""
+        body = xml_text(ctx.tap_question_text or "")
+        sections.append(f"<tap_pending{dim_attr}>{body}</tap_pending>")
+
     return "\n\n".join(sections)
 
 
@@ -89,7 +94,7 @@ def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
     if ctx.contributor_display_name:
         sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
-    if ctx.anchor_dimension:
+    if ctx.anchor_dimension and ctx.anchor_question_text:
         sections.append(
             "\n".join(
                 [
@@ -99,7 +104,7 @@ def render_starter_context(ctx: StarterContext) -> str:
                 ]
             )
         )
-    else:
+    elif ctx.anchor_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     if ctx.prior_session_summary and ctx.prior_session_summary.strip():
         sections.append(
@@ -118,7 +123,7 @@ def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:
         ctx.person_gender,
     )
     sections.append(_block("archetype_answers", xml_text(rendered)))
-    if ctx.anchor_dimension:
+    if ctx.anchor_dimension and ctx.anchor_question_text:
         sections.append(
             "\n".join(
                 [
@@ -128,7 +133,7 @@ def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:
                 ]
             )
         )
-    else:
+    elif ctx.anchor_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     return "\n\n".join(sections)
 

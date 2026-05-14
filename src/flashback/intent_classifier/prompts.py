@@ -89,6 +89,19 @@ A few important rules:
   If the most recent line lands with weight, classify `deepen`.
 - `switch` requires the user to actively signal they're done with
   the topic, not just a brief pause in narration.
+- **Tap acceptance.** If `pending_tap_question` is set to a
+  non-empty value in the signals block, the prior assistant turn
+  surfaced a tappable question and the user's most recent message
+  is most likely an ANSWER to that question (often a short option
+  chip text like "His quick smile" or "Always in the kitchen"). In
+  that case:
+  * Default to `story` for substantive answers, even when terse.
+  * Use `deepen` if the answer lands with emotional weight.
+  * Use `clarify` only if the answer is too vague to act on (e.g.
+    a literal "I don't know").
+  * Use `switch` ONLY if the user EXPLICITLY refuses to engage
+    ("nope", "I don't want to talk about it"). A short option-style
+    reply alone is NOT a switch.
 - Brevity alone is not `clarify`. Short user messages can be any
   intent.
 - Do not use `clarify` just because a detail could be expanded.

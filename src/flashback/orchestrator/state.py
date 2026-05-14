@@ -9,6 +9,7 @@ from uuid import UUID
 
 from flashback.intent_classifier.schema import Intent, IntentResult, Temperature
 from flashback.phase_gate.schema import SelectionResult
+from flashback.orchestrator.protocol import Tap
 from flashback.response_generator.schema import ResponseResult
 from flashback.retrieval.schema import EntityResult, MomentResult, ThreadResult
 from flashback.working_memory.schema import Turn, WorkingMemoryState
@@ -46,6 +47,7 @@ class TurnState:
     mentioned_entities: list[EntityResult] = field(default_factory=list)
     ambiguous_mention: bool = False
     selection: SelectionResult | None = None
+    taps: list[Tap] = field(default_factory=list)
     response: ResponseResult | None = None
     segment_boundary_detected: bool = False
 

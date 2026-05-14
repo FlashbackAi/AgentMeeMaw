@@ -36,7 +36,7 @@ class StarterContext(BaseModel):
     person_gender: str = "they"
     contributor_display_name: str | None = None
     contributor_role: str | None = None
-    anchor_question_text: str
+    anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
     prior_session_summary: str | None = None
 
@@ -55,7 +55,7 @@ class FirstTimeOpenerContext(BaseModel):
     person_relationship: str | None = None
     person_gender: str = "they"
     contributor_display_name: str | None = None
-    anchor_question_text: str
+    anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
     archetype_answers: list[dict] = Field(default_factory=list)
 
@@ -79,6 +79,11 @@ class TurnContext(BaseModel):
     mentioned_entities: list[EntityResult] = Field(default_factory=list)
     ambiguous_mention: bool = False
     seeded_question_text: str | None = None
+    tap_pending: bool = False
+    tap_question_text: str | None = None
+    # Free-form: usually one of AnchorDimension but may be empty / non-anchor
+    # when a steady-selector seeded question is promoted to a tap.
+    tap_dimension: str | None = None
 
 
 class ResponseResult(BaseModel):

@@ -89,6 +89,7 @@ async def session_start(
         metadata=SessionStartMetadata(
             phase=result.phase,
             selected_question_id=result.selected_question_id,
+            taps=result.taps,
         ),
     )
 

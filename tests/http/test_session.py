@@ -26,6 +26,7 @@ class TestSessionStart:
             opener="Tell me about Maya.",
             phase="starter",
             selected_question_id=None,
+            taps=[],
         )
 
         resp = await client.post(
@@ -44,6 +45,7 @@ class TestSessionStart:
         assert body["opener"] == "Tell me about Maya."
         assert body["metadata"]["phase"] == "starter"
         assert body["metadata"]["selected_question_id"] is None
+        assert body["metadata"]["taps"] == []
 
         # WM populated.
         assert await fake_redis.exists(state_key(session_id))
@@ -129,8 +131,10 @@ class TestSessionStart:
         )
         assert resp.status_code == 200
 
+        prior = await fake_redis.hget(state_key(session_id), "prior_session_summary")
         rolling = await fake_redis.hget(state_key(session_id), "rolling_summary")
-        assert rolling == b"We talked about Dad's garden."
+        assert prior == b"We talked about Dad's garden."
+        assert rolling == b""
 
     async def test_selected_question_id_propagates(
         self, client, fake_redis, fake_orchestrator: FakeOrchestrator
@@ -143,6 +147,7 @@ class TestSessionStart:
             opener="Tell me about Maya.",
             phase="starter",
             selected_question_id=UUID(qid),
+            taps=[],
         )
         resp = await client.post(
             "/session/start",

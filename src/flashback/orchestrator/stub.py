@@ -9,6 +9,7 @@ from flashback.orchestrator.protocol import (
     OrchestratorProtocol as Orchestrator,
     SessionStartResult,
     SessionWrapResult,
+    Tap,
     TurnResult,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "SessionWrapResult",
     "StarterQuestionNotFoundError",
     "StubOrchestrator",
+    "Tap",
     "TurnResult",
 ]

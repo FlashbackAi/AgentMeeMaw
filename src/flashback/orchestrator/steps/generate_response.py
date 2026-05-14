@@ -59,6 +59,13 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
             seeded_question_text=(
                 state.selection.question_text if state.selection else None
             ),
+            tap_pending=bool(state.taps),
+            tap_question_text=(state.taps[0].text if state.taps else None),
+            tap_dimension=(
+                state.taps[0].dimension
+                if state.taps and state.taps[0].dimension
+                else None
+            ),
         )
         state.response = await deps.response_generator.generate_turn_response(ctx)
         log.info(

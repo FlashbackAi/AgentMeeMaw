@@ -41,7 +41,7 @@ from flashback.identity_merges import IdentityMergeVerifier
 from flashback.intent_classifier import IntentClassifier
 from flashback.llm.interface import Provider
 from flashback.orchestrator import Orchestrator, OrchestratorDeps
-from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
+from flashback.phase_gate import PhaseGate, SteadySelector
 from flashback.queues import (
     AsyncSQSClient,
     ExtractionQueueProducer,
@@ -159,7 +159,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         session_summary_generator = SessionSummaryGenerator(settings=cfg)
         phase_gate = PhaseGate(
             db_pool=db_pool,
-            starter_selector=StarterSelector(db_pool),
             steady_selector=SteadySelector(db_pool, wm),
         )
         orchestrator_deps = OrchestratorDeps(

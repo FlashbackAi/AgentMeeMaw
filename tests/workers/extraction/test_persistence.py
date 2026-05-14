@@ -138,6 +138,39 @@ def test_extraction_without_seeded_question_writes_no_answered_by(
     assert count == 0
 
 
+def test_tap_candidate_question_writes_answered_by(db_pool, make_person):
+    person_id = make_person("Mom Smith")
+    tap_question_id = _seed_question(db_pool, person_id)
+    extraction = ExtractionResult.model_validate(
+        sample_extractions.clean_extraction()
+    )
+    decisions = [MomentDecision(moment=m) for m in extraction.moments]
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Mom Smith", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=decisions,
+                    seeded_question_ids=[tap_question_id],
+                )
+
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM edges
+                 WHERE from_kind='question' AND from_id=%s
+                   AND to_kind='moment'   AND edge_type='answered_by'
+                """,
+                (tap_question_id,),
+            )
+            (count,) = cur.fetchone()
+    assert count == 2
+
+
 def test_invalid_edge_aborts_transaction(db_pool, make_person):
     """A bad happened_at (to a non-place entity) is dropped silently. Use a
     truly invalid edge (involves to a trait) to prove the transaction aborts."""

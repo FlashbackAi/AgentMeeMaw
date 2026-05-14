@@ -15,6 +15,18 @@ from flashback.phase_gate.schema import SelectionResult
 from flashback.working_memory import WorkingMemory
 
 UNIVERSAL_DIMENSION_DEMOTION_GAP = 1.5
+STEADY_SOURCES: tuple[str, ...] = (
+    "dropped_reference",
+    "underdeveloped_entity",
+    "thread_deepen",
+    "life_period_gap",
+    "universal_dimension",
+)
+STARTER_FALLBACK_SOURCES: tuple[str, ...] = (
+    "underdeveloped_entity",
+    "life_period_gap",
+    "universal_dimension",
+)
 
 
 class SteadySelector:
@@ -22,7 +34,13 @@ class SteadySelector:
         self._pool = db_pool
         self._wm = working_memory
 
-    async def select(self, person_id: UUID, session_id: UUID) -> SelectionResult:
+    async def select(
+        self,
+        person_id: UUID,
+        session_id: UUID,
+        *,
+        sources: tuple[str, ...] = STEADY_SOURCES,
+    ) -> SelectionResult:
         """Pick the next-best question from the person's bank.
 
         The docs express the universal cap as "1 universal_dimension per top-5".
@@ -38,7 +56,7 @@ class SteadySelector:
             )
         ]
         recent_themes = await self._fetch_recent_themes(recent_ids)
-        candidates = await self._fetch_candidates(person_id, recent_ids)
+        candidates = await self._fetch_candidates(person_id, recent_ids, sources)
         if not candidates:
             return SelectionResult(
                 phase="steady",
@@ -89,12 +107,17 @@ class SteadySelector:
         self,
         person_id: UUID,
         recent_ids: list[UUID],
+        sources: tuple[str, ...],
     ) -> list["_Candidate"]:
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     SELECT_STEADY_CANDIDATES,
-                    {"person_id": person_id, "recent_ids": recent_ids},
+                    {
+                        "person_id": person_id,
+                        "recent_ids": recent_ids,
+                        "sources": list(sources),
+                    },
                 )
                 rows = await cur.fetchall()
         return [

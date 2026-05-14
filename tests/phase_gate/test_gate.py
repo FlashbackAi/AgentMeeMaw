@@ -15,14 +15,15 @@ class FakeSelector:
         self.phase = phase
         self.calls = 0
 
-    async def select(self, *args):
+    async def select(self, *args, **kwargs):
         self.calls += 1
+        self.sources = kwargs.get("sources")
         return SelectionResult(
             phase=self.phase,
             question_id=QUESTION_ID,
             question_text="Question?",
-            source="starter_anchor" if self.phase == "starter" else "dropped_reference",
-            dimension="sensory" if self.phase == "starter" else None,
+            source="dropped_reference",
+            dimension=None,
             rationale="fake",
         )
 
@@ -66,38 +67,27 @@ class _AsyncContext:
 
 
 async def test_select_next_question_routes_starter_phase():
-    starter = FakeSelector("starter")
     steady = FakeSelector("steady")
-    gate = PhaseGate(FakePool("starter"), starter, steady)
+    gate = PhaseGate(FakePool("starter"), steady)
 
     result = await gate.select_next_question(PERSON_ID, SESSION_ID)
 
-    assert starter.calls == 1
-    assert steady.calls == 0
+    assert steady.calls == 1
+    assert steady.sources == (
+        "underdeveloped_entity",
+        "life_period_gap",
+        "universal_dimension",
+    )
     assert result.phase == "starter"
     assert result.rationale
 
 
 async def test_select_next_question_routes_steady_phase():
-    starter = FakeSelector("starter")
     steady = FakeSelector("steady")
-    gate = PhaseGate(FakePool("steady"), starter, steady)
+    gate = PhaseGate(FakePool("steady"), steady)
 
     result = await gate.select_next_question(PERSON_ID, SESSION_ID)
 
-    assert starter.calls == 0
     assert steady.calls == 1
     assert result.phase == "steady"
     assert result.rationale
-
-
-async def test_select_starter_question_always_uses_starter_selector():
-    starter = FakeSelector("starter")
-    steady = FakeSelector("steady")
-    gate = PhaseGate(FakePool("steady"), starter, steady)
-
-    result = await gate.select_starter_question(PERSON_ID)
-
-    assert starter.calls == 1
-    assert steady.calls == 0
-    assert result.phase == "starter"

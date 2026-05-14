@@ -24,6 +24,7 @@ class ExtractionQueueProducer:
         rolling_summary: str,
         prior_rolling_summary: str,
         seeded_question_id: UUID | None,
+        candidate_question_ids: list[UUID] | None = None,
         contributor_display_name: str = "",
     ) -> str:
         """Push an extraction job and return the SQS MessageId."""
@@ -39,6 +40,9 @@ class ExtractionQueueProducer:
             "seeded_question_id": (
                 str(seeded_question_id) if seeded_question_id else None
             ),
+            "candidate_question_ids": [
+                str(question_id) for question_id in (candidate_question_ids or [])
+            ],
             "contributor_display_name": contributor_display_name or "",
         }
         return await self._sqs.send_message(self._url, payload)

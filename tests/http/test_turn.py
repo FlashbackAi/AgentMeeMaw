@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
+from flashback.orchestrator import Tap
 from flashback.orchestrator import TurnResult
 from flashback.working_memory.keys import segment_key, transcript_key
 from tests.http.conftest import (
@@ -34,6 +37,7 @@ class TestTurn:
             intent="story",
             emotional_temperature="medium",
             segment_boundary=False,
+            taps=[],
         )
 
         resp = await client.post(
@@ -52,6 +56,7 @@ class TestTurn:
         assert body["metadata"]["intent"] == "story"
         assert body["metadata"]["emotional_temperature"] == "medium"
         assert body["metadata"]["segment_boundary"] is False
+        assert body["metadata"]["taps"] == []
 
         # WM has 3 entries: the opener, the user message, the assistant reply.
         items = await fake_redis.lrange(transcript_key(session_id), 0, -1)
@@ -59,6 +64,38 @@ class TestTurn:
         assert b"opener" not in items[0]  # opener content varies
         assert b"She loved making pasta" in items[1]
         assert b"That sounds wonderful" in items[2]
+
+    async def test_taps_shape(self, client, fake_orchestrator: FakeOrchestrator):
+        session_id, person_id, role_id = new_uuids()
+        await _start_session(client, session_id, person_id, role_id)
+        qid = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        fake_orchestrator.turn_result = TurnResult(
+            reply="We can go there.",
+            intent="switch",
+            emotional_temperature="medium",
+            segment_boundary=False,
+            taps=[Tap(question_id=qid, text="What was her work like?", dimension="era")],
+        )
+
+        resp = await client.post(
+            "/turn",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "message": "Let's switch.",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["metadata"]["taps"] == [
+            {
+                "question_id": str(qid),
+                "text": "What was her work like?",
+                "dimension": "era",
+            }
+        ]
 
     async def test_unstarted_session_returns_409(self, client):
         session_id, person_id, role_id = new_uuids()

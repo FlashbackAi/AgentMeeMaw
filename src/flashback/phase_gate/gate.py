@@ -8,27 +8,17 @@ from psycopg_pool import AsyncConnectionPool
 
 from flashback.phase_gate.queries import READ_PERSON_PHASE
 from flashback.phase_gate.schema import Phase, PhaseGateError, SelectionResult
-from flashback.phase_gate.starter_selector import StarterSelector
-from flashback.phase_gate.steady_selector import SteadySelector
+from flashback.phase_gate.steady_selector import STARTER_FALLBACK_SOURCES, SteadySelector
 
 
 class PhaseGate:
     def __init__(
         self,
         db_pool: AsyncConnectionPool,
-        starter_selector: StarterSelector,
         steady_selector: SteadySelector,
     ) -> None:
         self._pool = db_pool
-        self._starter = starter_selector
         self._steady = steady_selector
-
-    async def select_starter_question(self, person_id: UUID) -> SelectionResult:
-        """Always use starter selection, regardless of stored phase."""
-        result = await self._starter.select(person_id)
-        result.rationale = result.rationale or "starter selection"
-        result.phase = "starter"
-        return result
 
     async def select_next_question(
         self,
@@ -36,18 +26,18 @@ class PhaseGate:
         session_id: UUID,
         recently_asked_ids: list[UUID] | None = None,
     ) -> SelectionResult:
-        """Read ``persons.phase`` and route to starter or steady selection.
+        """Read ``persons.phase`` and select from the runtime question bank.
 
         ``recently_asked_ids`` carries the session-scoped Working Memory
-        register so neither starter nor steady selection re-serves a
-        question already asked this session. The steady selector also
-        reads the same list internally for theme diversity, so for now
-        pass it explicitly to keep call-sites symmetric.
+        register for callers that still pass it. The steady selector reads
+        the same list internally for duplicate avoidance and diversity.
         """
         phase = await self._read_phase(person_id)
         if phase == "starter":
-            result = await self._starter.select(
-                person_id, recently_asked_ids=recently_asked_ids
+            result = await self._steady.select(
+                person_id,
+                session_id,
+                sources=STARTER_FALLBACK_SOURCES,
             )
         else:
             result = await self._steady.select(person_id, session_id)

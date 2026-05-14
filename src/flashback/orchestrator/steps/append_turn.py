@@ -27,3 +27,6 @@ async def append_user_turn(state: TurnState, deps: OrchestratorDeps) -> None:
         await deps.working_memory.increment_user_turns_since_segment_check(
             str(state.session_id),
         )
+        await deps.working_memory.increment_user_turns_since_last_tap(
+            str(state.session_id),
+        )

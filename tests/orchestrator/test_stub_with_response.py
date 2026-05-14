@@ -64,6 +64,9 @@ class FakeRetrieval:
         self.moment.person_id = person_id
         return [self.moment]
 
+    async def search_entities(self, *, query, person_id):
+        return []
+
     async def get_entities(self, person_id):
         return []
 
@@ -107,6 +110,9 @@ class FakeCursor:
         if "FROM active_questions" in self.sql:
             return (QUESTION_ID, self.pool.question_text)
         raise AssertionError(f"unexpected SQL: {self.sql}")
+
+    async def fetchall(self):
+        return []
 
 
 class _AsyncContext:
@@ -212,7 +218,8 @@ async def test_session_start_returns_generated_opener_with_person_name(
     assert resp.status_code == 200
     body = resp.json()
     assert "Maya" in body["opener"]
-    assert body["metadata"]["selected_question_id"] == str(QUESTION_ID)
+    assert body["metadata"]["selected_question_id"] is None
+    assert body["metadata"]["taps"] == []
 
 
 async def test_turn_recall_passes_retrieval_results_to_response_prompt(

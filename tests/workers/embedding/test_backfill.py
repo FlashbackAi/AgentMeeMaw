@@ -66,7 +66,7 @@ def test_dry_run_calls_no_sqs() -> None:
 
 
 def test_seed_migration_yields_15_question_rows(db_pool):
-    """The 0002 seed inserts the 15 starter_anchor rows we expect."""
+    """The starter seed now surfaces as 15 coverage_tap rows."""
     sqs = _CapturingSQS()
     results = backfill(
         pool=db_pool, sqs=sqs,

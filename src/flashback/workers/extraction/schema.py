@@ -232,6 +232,7 @@ class SegmentTurn(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     timestamp: str  # kept as string; ordering is positional in the list
+    metadata: dict = Field(default_factory=dict)
 
 
 class ExtractionMessage(BaseModel):
@@ -250,4 +251,5 @@ class ExtractionMessage(BaseModel):
     rolling_summary: str = ""
     prior_rolling_summary: str = ""
     seeded_question_id: UUID | None = None
+    candidate_question_ids: list[UUID] = Field(default_factory=list)
     contributor_display_name: str = ""

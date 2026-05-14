@@ -149,7 +149,8 @@ def persist_extraction(
     person: PersonRow,
     extraction: ExtractionResult,
     moment_decisions: list[MomentDecision],
-    seeded_question_id: str | None,
+    seeded_question_id: str | None = None,
+    seeded_question_ids: list[str] | None = None,
     llm_provenance: LLMProvenance | None = None,
     trait_merge_resolutions: list[TraitMergeResolution | None] | None = None,
 ) -> PersistenceResult:
@@ -252,12 +253,14 @@ def persist_extraction(
         llm_provenance=llm_provenance,
     )
 
-    if seeded_question_id is not None and moment_ids:
-        _insert_answered_by_edges(
-            cursor,
-            question_id=seeded_question_id,
-            moment_ids=moment_ids,
-        )
+    answered_question_ids = _dedupe_question_ids(seeded_question_id, seeded_question_ids)
+    if answered_question_ids and moment_ids:
+        for question_id in answered_question_ids:
+            _insert_answered_by_edges(
+                cursor,
+                question_id=question_id,
+                moment_ids=moment_ids,
+            )
 
     merge_suggestion_ids = create_entity_merge_suggestions(
         cursor,
@@ -276,6 +279,23 @@ def persist_extraction(
         dropped_entities_count=dropped_count,
         moment_signals=moment_signals,
     )
+
+
+def _dedupe_question_ids(
+    seeded_question_id: str | None,
+    seeded_question_ids: list[str] | None,
+) -> list[str]:
+    ids: list[str] = []
+    if seeded_question_id:
+        ids.append(seeded_question_id)
+    ids.extend(seeded_question_ids or [])
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for question_id in ids:
+        if question_id not in seen:
+            deduped.append(question_id)
+            seen.add(question_id)
+    return deduped
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ async def test_extraction_push_uses_architecture_payload_shape():
         "rolling_summary": "New summary.",
         "prior_rolling_summary": "Old summary.",
         "seeded_question_id": str(question_id),
+        "candidate_question_ids": [],
         "contributor_display_name": "",
     }
 
@@ -79,6 +80,25 @@ async def test_extraction_push_serializes_missing_seeded_question_as_null():
     )
 
     assert sqs.body["seeded_question_id"] is None
+    assert sqs.body["candidate_question_ids"] == []
+
+
+async def test_extraction_push_serializes_candidate_question_ids():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+    qid = uuid4()
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=qid,
+        candidate_question_ids=[qid],
+    )
+
+    assert sqs.body["candidate_question_ids"] == [str(qid)]
 
 
 async def test_extraction_push_serializes_turns_as_json_ready_objects():
@@ -95,6 +115,6 @@ async def test_extraction_push_serializes_turns_as_json_ready_objects():
     )
 
     first_turn = sqs.body["segment_turns"][0]
-    assert set(first_turn) == {"role", "content", "timestamp"}
+    assert set(first_turn) == {"role", "content", "timestamp", "metadata"}
     assert first_turn["role"] == "user"
     assert isinstance(first_turn["timestamp"], str)

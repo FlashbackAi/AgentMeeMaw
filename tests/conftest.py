@@ -99,7 +99,7 @@ def make_person(db_pool):
 @pytest.fixture
 def reset_questions(db_pool):
     """
-    The seed migration left 15 starter_anchor rows. Some tests want a
+    The seed migration left 15 coverage_tap rows. Some tests want a
     clean slate; this fixture truncates the questions table for them.
     """
 

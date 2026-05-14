@@ -13,6 +13,7 @@ Two shapes:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,6 +30,7 @@ class Turn(BaseModel):
     role: Role
     content: str
     timestamp: datetime
+    metadata: dict = Field(default_factory=dict)
 
     @field_validator("timestamp")
     @classmethod
@@ -80,6 +82,19 @@ class WorkingMemoryState(BaseModel):
 
     last_opener: str = ""
     last_seeded_question_id: str = ""
+    taps_emitted_this_session: int = 0
+    emitted_tap_question_ids: list[str] = Field(default_factory=list)
+    # User turns since the last tap was emitted. Initialised high so the
+    # very first tap can fire. Incremented in append_user_turn, reset to
+    # 0 by record_tap_emitted. Coverage_tap + promote_seeded_to_tap gate
+    # on this so consecutive switch turns don't surface back-to-back taps
+    # for the same gap dim (coverage_state lags real-time because
+    # extraction is async).
+    user_turns_since_last_tap: int = 999
+    # Question text of the most-recently-emitted tap, if any. Read by
+    # the Intent Classifier so a terse tap-accepted reply ("Friendly
+    # greeting") gets classified as story / deepen, not switch.
+    signal_pending_tap_question: str = ""
 
     @field_validator("started_at")
     @classmethod
@@ -96,6 +111,8 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "signal_user_turns_since_segment_check",
         "signal_last_user_message_length",
         "segments_pushed_this_session",
+        "taps_emitted_this_session",
+        "user_turns_since_last_tap",
     }
 )
 
@@ -120,6 +137,8 @@ def parse_state_hash(raw: dict[str, str | bytes]) -> WorkingMemoryState:
             parsed[key] = datetime.fromisoformat(value)
         elif key in _INT_FIELDS:
             parsed[key] = int(value)
+        elif key == "emitted_tap_question_ids":
+            parsed[key] = json.loads(value) if value else []
         else:
             parsed[key] = value
     return WorkingMemoryState.model_validate(parsed)
@@ -143,4 +162,8 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "signal_last_intent": state.signal_last_intent,
         "last_opener": state.last_opener,
         "last_seeded_question_id": state.last_seeded_question_id,
+        "taps_emitted_this_session": str(state.taps_emitted_this_session),
+        "emitted_tap_question_ids": json.dumps(state.emitted_tap_question_ids),
+        "user_turns_since_last_tap": str(state.user_turns_since_last_tap),
+        "signal_pending_tap_question": state.signal_pending_tap_question,
     }

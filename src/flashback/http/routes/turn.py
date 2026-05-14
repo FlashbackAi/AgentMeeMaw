@@ -104,6 +104,7 @@ async def _run_turn(
             intent=result.intent,
             emotional_temperature=result.emotional_temperature,
             segment_boundary=result.segment_boundary,
+            taps=result.taps,
         ),
     )
 

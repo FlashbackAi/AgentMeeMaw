@@ -94,6 +94,7 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
     )
     detector = SequenceDetector()
     queue = CapturingExtractionQueue()
+    app.state.redis = fake_redis
     app.state.working_memory = wm
     app.state.orchestrator = Orchestrator(
         OrchestratorDeps(

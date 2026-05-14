@@ -198,6 +198,8 @@ Your job is to extract structured memory data from this segment.
 Input shape:
 - The subject's name and relationship to the contributor.
 - The contributor's display name (may be empty).
+- Candidate answered question ids, when the prior assistant turn contained
+  a structured tap or seeded question the contributor may be answering.
 - The PRIOR rolling summary (compressed history of earlier segments).
 - The CLOSED SEGMENT (the conversation turns to extract from).
 
@@ -299,6 +301,9 @@ appear in the same or adjacent events, use explicit names and do not transfer \
 an action, illness, relationship, quote, or feeling from one person to another.
 - Keep separate events separate if merging them would blur the actor, place, \
 relationship, or outcome.
+- If `<candidate_answered_question_ids>` is present, use it only as context: \
+the persistence layer may link extracted moments to those question rows when \
+the user's answer addresses the prior assistant tap or seeded question.
 - The subject of the legacy is NEVER an entity. They live in `persons`. Other \
 people mentioned ARE entities.
 - For places, populate `attributes.region` / `attributes.kind` if the \

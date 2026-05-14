@@ -47,7 +47,7 @@ async def async_db_pool(schema_applied: str):
                 await cur.execute("DELETE FROM entities")
                 await cur.execute("DELETE FROM threads")
                 await cur.execute("DELETE FROM traits")
-                await cur.execute("DELETE FROM questions WHERE source <> 'starter_anchor'")
+                await cur.execute("DELETE FROM questions WHERE source <> 'coverage_tap'")
                 await cur.execute("DELETE FROM persons")
                 await conn.commit()
         await pool.close()

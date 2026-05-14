@@ -28,6 +28,8 @@ class Policy(str, Enum):
 TURN_POLICIES: dict[str, Policy] = {
     "append_user_turn": Policy.PROPAGATE,
     "intent_classify": Policy.DEGRADE,
+    "entity_mention_scan": Policy.DEGRADE,
+    "select_coverage_tap": Policy.DEGRADE,
     "retrieve": Policy.DEGRADE,
     "select_question": Policy.DEGRADE,
     "generate_response": Policy.PROPAGATE,
@@ -38,7 +40,6 @@ TURN_POLICIES: dict[str, Policy] = {
 SESSION_START_POLICIES: dict[str, Policy] = {
     "load_person": Policy.PROPAGATE,
     "load_continuity_context": Policy.DEGRADE,
-    "select_starter_anchor": Policy.PROPAGATE,
     "generate_opener": Policy.PROPAGATE,
     "init_working_memory": Policy.PROPAGATE,
     "append_opener": Policy.PROPAGATE,

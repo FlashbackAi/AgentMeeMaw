@@ -45,13 +45,14 @@ from flashback.orchestrator.steps import (
     init_working_memory,
     load_continuity_context,
     load_person,
+    promote_seeded_to_tap,
     retrieve,
     scan_entity_mentions,
+    select_coverage_tap,
     select_question,
-    select_starter_anchor,
 )
 from flashback.orchestrator.steps.wrap_session import wrap_session
-from flashback.phase_gate import PhaseGate, StarterSelector, SteadySelector
+from flashback.phase_gate import PhaseGate, SteadySelector
 from flashback.queues.producers_per_session import ProducersPerSessionQueueProducer
 from flashback.queues.profile_summary import ProfileSummaryQueueProducer
 from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
@@ -107,12 +108,6 @@ class Orchestrator:
                 )
                 await execute(
                     policies=SESSION_START_POLICIES,
-                    step_name="select_starter_anchor",
-                    fn=lambda: select_starter_anchor(state, self._deps),
-                    state=state,
-                )
-                await execute(
-                    policies=SESSION_START_POLICIES,
                     step_name="generate_opener",
                     fn=lambda: generate_opener(state, self._deps),
                     state=state,
@@ -154,6 +149,7 @@ class Orchestrator:
                 selected_question_id=(
                     state.selection.question_id if state.selection else None
                 ),
+                taps=[],
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -197,12 +193,6 @@ class Orchestrator:
             if self._deps.response_generator is not None:
                 await execute(
                     policies=SESSION_START_POLICIES,
-                    step_name="select_starter_anchor",
-                    fn=lambda: select_starter_anchor(state, self._deps),
-                    state=state,
-                )
-                await execute(
-                    policies=SESSION_START_POLICIES,
                     step_name="generate_first_time_opener",
                     fn=lambda: generate_first_time_opener(state, self._deps),
                     state=state,
@@ -244,6 +234,7 @@ class Orchestrator:
                 selected_question_id=(
                     state.selection.question_id if state.selection else None
                 ),
+                taps=[],
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -289,6 +280,12 @@ class Orchestrator:
                 fn=lambda: scan_entity_mentions(state, self._deps),
                 state=state,
             )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="select_coverage_tap",
+                fn=lambda: select_coverage_tap(state, self._deps),
+                state=state,
+            )
             if state.effective_intent in {"recall", "clarify", "switch"}:
                 await execute(
                     policies=TURN_POLICIES,
@@ -299,11 +296,23 @@ class Orchestrator:
             if (
                 state.effective_intent == "switch"
                 and self._deps.response_generator is not None
+                and not state.taps
             ):
+                # Skip seeded-question selection when a coverage tap is
+                # being surfaced — the tap IS the next question, and we
+                # don't want the bot to also ask one of its own.
                 await execute(
                     policies=TURN_POLICIES,
                     step_name="select_question",
                     fn=lambda: select_question(state, self._deps),
+                    state=state,
+                )
+                # In starter phase, render the seeded question itself as
+                # a tap card so the archetype-style UX continues mid-chat.
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="promote_seeded_to_tap",
+                    fn=lambda: promote_seeded_to_tap(state, self._deps),
                     state=state,
                 )
             await execute(
@@ -388,6 +397,7 @@ def _build_turn_result(state: TurnState) -> TurnResult:
             state.intent_result.emotional_temperature if state.intent_result else None
         ),
         segment_boundary=state.segment_boundary_detected,
+        taps=state.taps,
     )
 
 
@@ -425,7 +435,6 @@ def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:
     if phase_gate is None and db_pool is not None and wm is not None:
         phase_gate = PhaseGate(
             db_pool=db_pool,
-            starter_selector=StarterSelector(db_pool),
             steady_selector=SteadySelector(db_pool, wm),
         )
     if session_summary_generator is None and settings is not None:

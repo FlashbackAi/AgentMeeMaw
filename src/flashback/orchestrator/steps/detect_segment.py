@@ -47,7 +47,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         return
 
     wm_state = await deps.working_memory.get_state(str(state.session_id))
-    cadence = deps.settings.segment_detector_user_turn_cadence
+    cadence = getattr(deps.settings, "segment_detector_user_turn_cadence", 1)
     user_turns_since_check = wm_state.signal_user_turns_since_segment_check
     is_switch_turn = state.effective_intent == "switch"
     if user_turns_since_check < cadence and not is_switch_turn:
@@ -62,6 +62,16 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         return
 
     segment_turns = await deps.working_memory.get_segment(str(state.session_id))
+    min_segment_turns = getattr(deps.settings, "segment_detector_min_turns", None)
+    if min_segment_turns is not None and len(segment_turns) < int(min_segment_turns):
+        log.info(
+            "step_skipped",
+            step="detect_segment",
+            reason="below_min_segment_turns",
+            segment_turns=len(segment_turns),
+            min_segment_turns=int(min_segment_turns),
+        )
+        return
     prior_rolling_summary = wm_state.rolling_summary or ""
 
     result = await deps.segment_detector.detect(
@@ -85,11 +95,10 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         )
         return
 
-    seeded_question_id = (
-        UUID(wm_state.last_seeded_question_id)
-        if wm_state.last_seeded_question_id
-        else None
-    )
+    candidate_question_ids = _answered_question_candidates(segment_turns)
+    if not candidate_question_ids and wm_state.last_seeded_question_id:
+        candidate_question_ids = [UUID(wm_state.last_seeded_question_id)]
+    seeded_question_id = candidate_question_ids[0] if candidate_question_ids else None
 
     try:
         message_id = await deps.extraction_queue.push(
@@ -99,6 +108,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
             rolling_summary=result.rolling_summary or "",
             prior_rolling_summary=prior_rolling_summary,
             seeded_question_id=seeded_question_id,
+            candidate_question_ids=candidate_question_ids,
             contributor_display_name=wm_state.contributor_display_name or "",
         )
     except Exception as exc:
@@ -129,3 +139,25 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         sqs_message_id=message_id,
         seeded_question_id=str(seeded_question_id) if seeded_question_id else None,
     )
+
+
+def _answered_question_candidates(segment_turns) -> list[UUID]:
+    """Question ids from assistant turns before the current assistant reply."""
+
+    candidates: list[UUID] = []
+    assistant_turns = [turn for turn in segment_turns if turn.role == "assistant"]
+    answered_assistant_turns = assistant_turns[:-1]
+    for turn in answered_assistant_turns:
+        metadata = getattr(turn, "metadata", {}) or {}
+        selected = metadata.get("selected_question_id")
+        if selected:
+            candidates.append(UUID(str(selected)))
+        for tap_id in metadata.get("tap_question_ids", []) or []:
+            candidates.append(UUID(str(tap_id)))
+    deduped: list[UUID] = []
+    seen: set[UUID] = set()
+    for question_id in candidates:
+        if question_id not in seen:
+            deduped.append(question_id)
+            seen.add(question_id)
+    return deduped

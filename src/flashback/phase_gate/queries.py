@@ -26,10 +26,11 @@ FROM active_moments
 WHERE person_id = %(person_id)s
 """
 
-SELECT_UNANSWERED_STARTER = """
+SELECT_UNANSWERED_COVERAGE_TAP = """
 SELECT q.id, q.text
 FROM active_questions q
-WHERE q.source = 'starter_anchor'
+WHERE q.source = 'coverage_tap'
+  AND q.person_id IS NULL
   AND q.attributes->>'dimension' = %(dimension)s
   AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
   AND NOT EXISTS (
@@ -46,10 +47,11 @@ ORDER BY random()
 LIMIT 1
 """
 
-SELECT_ANY_STARTER_FOR_DIMENSION = """
+SELECT_ANY_COVERAGE_TAP_FOR_DIMENSION = """
 SELECT q.id, q.text
 FROM active_questions q
-WHERE q.source = 'starter_anchor'
+WHERE q.source = 'coverage_tap'
+  AND q.person_id IS NULL
   AND q.attributes->>'dimension' = %(dimension)s
   AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
 ORDER BY random()
@@ -67,7 +69,7 @@ SELECT_STEADY_CANDIDATES = """
 SELECT q.id, q.text, q.source, q.attributes, q.created_at
 FROM active_questions q
 WHERE q.person_id = %(person_id)s
-  AND q.source <> 'starter_anchor'
+  AND q.source = ANY(%(sources)s::text[])
   AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
 ORDER BY
   CASE q.source

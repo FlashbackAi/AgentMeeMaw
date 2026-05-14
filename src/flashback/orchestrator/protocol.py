@@ -6,12 +6,31 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Tap(BaseModel):
+    """A tappable question chip surfaced beneath an agent reply.
+
+    `options` are short tappable answer chips generated per-turn by a
+    small LLM call. Empty list when generation failed or was skipped —
+    the UI falls back to free-text input only.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    question_id: UUID
+    text: str
+    dimension: str
+    options: list[str] = Field(default_factory=list)
+
 
 @dataclass(frozen=True)
 class SessionStartResult:
     opener: str
     phase: str
     selected_question_id: UUID | None
+    taps: list[Tap]
 
 
 @dataclass(frozen=True)
@@ -20,6 +39,7 @@ class TurnResult:
     intent: str | None
     emotional_temperature: str | None
     segment_boundary: bool
+    taps: list[Tap]
 
 
 @dataclass(frozen=True)

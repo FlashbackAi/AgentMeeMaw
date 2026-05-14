@@ -43,19 +43,9 @@ class FakePhaseGate:
     def __init__(
         self,
         *,
-        starter_result: SelectionResult | None = None,
         next_result: SelectionResult | None = None,
-        starter_raises: Exception | None = None,
         next_raises: Exception | None = None,
     ) -> None:
-        self.starter_result = starter_result or SelectionResult(
-            phase="starter",
-            question_id=STARTER_Q,
-            question_text="What's a smell that brings them right back?",
-            source="starter_anchor",
-            dimension="sensory",
-            rationale="test starter",
-        )
         self.next_result = next_result or SelectionResult(
             phase="steady",
             question_id=STEADY_Q,
@@ -63,18 +53,10 @@ class FakePhaseGate:
             source="dropped_reference",
             rationale="test steady",
         )
-        self.starter_raises = starter_raises
         self.next_raises = next_raises
-        self.starter_calls = 0
         self.next_calls = 0
 
-    async def select_starter_question(self, person_id):
-        self.starter_calls += 1
-        if self.starter_raises:
-            raise self.starter_raises
-        return self.starter_result
-
-    async def select_next_question(self, person_id, session_id):
+    async def select_next_question(self, person_id, session_id, recently_asked_ids=None):
         self.next_calls += 1
         if self.next_raises:
             raise self.next_raises
@@ -191,8 +173,8 @@ async def _init_wm(app, session_id, person_id, role_id):
     )
 
 
-async def test_session_start_selects_starter_and_records_question(fake_redis, monkeypatch):
-    call = AsyncMock(return_value="Flashback here. That smell question is a good place to begin.")
+async def test_session_start_opens_without_question_selection(fake_redis, monkeypatch):
+    call = AsyncMock(return_value="Tell me about Maya.")
     monkeypatch.setattr(generator_module, "call_text", call)
     phase_gate = FakePhaseGate()
     app = await _app(fake_redis, classifier=FixedClassifier("story"), phase_gate=phase_gate)
@@ -211,17 +193,16 @@ async def test_session_start_selects_starter_and_records_question(fake_redis, mo
         )
 
     assert resp.status_code == 200
-    assert phase_gate.starter_calls == 1
-    assert "What's a smell that brings them right back?" in call.await_args.kwargs["user_message"]
+    assert phase_gate.next_calls == 0
+    assert "<anchor_question" not in call.await_args.kwargs["user_message"]
+    assert "<seeded_question>" not in call.await_args.kwargs["user_message"]
     state = await app.state.working_memory.get_state(session_id)
-    assert state.last_seeded_question_id == str(STARTER_Q)
-    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == [
-        str(STARTER_Q)
-    ]
+    assert state.last_seeded_question_id == ""
+    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == []
 
 
-async def test_session_start_steady_selects_next_question(fake_redis, monkeypatch):
-    call = AsyncMock(return_value="Last time we talked about the porch. What did she keep on the porch?")
+async def test_session_start_steady_opens_without_question_selection(fake_redis, monkeypatch):
+    call = AsyncMock(return_value="Last time we talked about the porch.")
     monkeypatch.setattr(generator_module, "call_text", call)
     phase_gate = FakePhaseGate()
     app = await _app(
@@ -245,15 +226,11 @@ async def test_session_start_steady_selects_next_question(fake_redis, monkeypatc
         )
 
     assert resp.status_code == 200
-    assert phase_gate.starter_calls == 0
-    assert phase_gate.next_calls == 1
-    assert "<seeded_question>" in call.await_args.kwargs["user_message"]
-    assert "What did she keep on the porch?" in call.await_args.kwargs["user_message"]
+    assert phase_gate.next_calls == 0
+    assert "<seeded_question>" not in call.await_args.kwargs["user_message"]
     state = await app.state.working_memory.get_state(session_id)
-    assert state.last_seeded_question_id == str(STEADY_Q)
-    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == [
-        str(STEADY_Q)
-    ]
+    assert state.last_seeded_question_id == ""
+    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == []
 
 
 async def test_turn_switch_fires_phase_gate_and_records_selection(fake_redis, monkeypatch):
@@ -335,30 +312,6 @@ async def test_turn_switch_empty_bank_generates_without_seed(fake_redis, monkeyp
     assert "<seeded_question>" not in call.await_args.kwargs["user_message"]
     state = await app.state.working_memory.get_state(session_id)
     assert state.last_seeded_question_id == ""
-
-
-async def test_session_start_phase_gate_error_maps_to_503(fake_redis, monkeypatch):
-    monkeypatch.setattr(generator_module, "call_text", AsyncMock(return_value="unused"))
-    app = await _app(
-        fake_redis,
-        classifier=FixedClassifier("story"),
-        phase_gate=FakePhaseGate(starter_raises=PhaseGateError("missing seed")),
-    )
-
-    async with await _client(app) as client:
-        session_id, person_id, role_id = new_uuids()
-        resp = await client.post(
-            "/session/start",
-            headers=auth_headers(),
-            json={
-                "session_id": session_id,
-                "person_id": person_id,
-                "role_id": role_id,
-                "session_metadata": {},
-            },
-        )
-
-    assert resp.status_code == 503
 
 
 async def test_turn_switch_phase_gate_error_degrades_gracefully(fake_redis, monkeypatch):

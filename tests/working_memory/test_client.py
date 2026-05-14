@@ -37,7 +37,9 @@ class TestInitialize:
         assert raw[b"role_id"] == ROLE_ID.encode()
         assert raw[b"rolling_summary"] == b""
         assert raw[b"prior_rolling_summary"] == b""
-        assert raw[b"signal_turns_in_current_segment"] == b"0"
+        assert raw[b"signal_user_turns_since_segment_check"] == b"0"
+        assert raw[b"taps_emitted_this_session"] == b"0"
+        assert raw[b"emitted_tap_question_ids"] == b"[]"
 
     async def test_idempotent_does_not_overwrite(self, wm: WorkingMemory):
         """A second initialize call with a different person_id must not
@@ -200,7 +202,7 @@ class TestUpdateSignals:
         assert state.signal_last_intent == "recall"
         assert state.signal_emotional_temperature_estimate == "medium"
         # Other signals unchanged.
-        assert state.signal_turns_in_current_segment == 0
+        assert state.signal_user_turns_since_segment_check == 0
         # Identity unchanged.
         assert state.person_id == PERSON_ID
 
