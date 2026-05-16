@@ -66,6 +66,13 @@ class ExtractedMoment(BaseModel):
     happened_at_entity_index: int | None = None
     exemplifies_trait_indexes: list[int] = Field(default_factory=list)
 
+    themes: list[str] = Field(default_factory=list)
+    """Theme slugs this moment is "about" — drawn from the catalog passed
+    to the extraction prompt (universal slugs + active emergent slugs for
+    this person). Multi-tag allowed and expected: a wedding moment may
+    carry both 'family' and 'milestones'. Unknown slugs are dropped at
+    persistence time."""
+
 
 class ExtractedEntity(BaseModel):
     model_config = ConfigDict(extra="forbid")

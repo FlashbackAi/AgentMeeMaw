@@ -52,8 +52,11 @@ from .compatibility_llm import (
 from .extraction_llm import (
     EXTRACTION_PROMPT_VERSION,
     ExtractionLLMConfig,
+    ThemeCatalogEntry,
     run_extraction,
 )
+from flashback.themes.repository import fetch_active_themes_for_person_sync
+from flashback.themes.universal import get_universal_theme
 from .idempotency import is_processed, mark_processed
 from .persistence import (
     LLMProvenance,
@@ -85,6 +88,30 @@ from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 from uuid import UUID as _UUID
 
 log = structlog.get_logger("flashback.workers.extraction")
+
+
+def _build_theme_catalog(theme_rows) -> list[ThemeCatalogEntry]:
+    """Map active theme rows into the catalog entries the extraction LLM
+    consumes. Universal themes use their canonical descriptions from
+    :mod:`flashback.themes.universal`; emergent themes use the LLM-
+    generated description on the row (falling back to display name)."""
+    out: list[ThemeCatalogEntry] = []
+    for row in theme_rows:
+        if row.kind == "universal":
+            universal = get_universal_theme(row.slug)
+            description = (
+                universal.description if universal is not None else row.display_name
+            )
+        else:
+            description = row.description or row.display_name
+        out.append(
+            ThemeCatalogEntry(
+                slug=row.slug,
+                display_name=row.display_name,
+                description=description,
+            )
+        )
+    return out
 
 
 def _candidate_question_ids(payload: ExtractionMessage) -> list[str]:
@@ -229,6 +256,11 @@ class ExtractionWorker:
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
                 person = fetch_person(cur, str(payload.person_id))
+                theme_rows = fetch_active_themes_for_person_sync(
+                    cur, person_id=str(payload.person_id)
+                )
+
+        theme_catalog = _build_theme_catalog(theme_rows)
 
         # 2. Extraction LLM call (slow; outside the transaction).
         extraction = run_extraction(
@@ -242,6 +274,7 @@ class ExtractionWorker:
             candidate_question_ids=[
                 str(question_id) for question_id in payload.candidate_question_ids
             ],
+            theme_catalog=theme_catalog,
         )
 
         # 2b. Invariant #18: drop orphan traits with no exemplifying moment
@@ -286,6 +319,7 @@ class ExtractionWorker:
                             prompt_version=EXTRACTION_PROMPT_VERSION,
                         ),
                         trait_merge_resolutions=trait_merge_resolutions,
+                        theme_slug_to_id={r.slug: r.id for r in theme_rows},
                     )
                     run_coverage_tracker(
                         cur,

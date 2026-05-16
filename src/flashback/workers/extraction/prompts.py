@@ -76,6 +76,20 @@ EXTRACTION_TOOL = ToolSpec(
                             "type": "array",
                             "items": {"type": "integer", "minimum": 0},
                         },
+                        "themes": {
+                            "type": "array",
+                            "description": (
+                                "Theme slugs this moment is about. Pick "
+                                "ANY that apply from the <theme_catalog> "
+                                "in the user message. Multi-tag is "
+                                "expected — a wedding moment is BOTH "
+                                "'family' AND 'milestones'. If none of "
+                                "the catalog slugs fit the moment, "
+                                "return an empty array. Do not invent "
+                                "slugs not in the catalog."
+                            ),
+                            "items": {"type": "string"},
+                        },
                         "generation_prompt": {"type": "string"},
                     },
                     "required": ["title", "narrative", "generation_prompt"],
@@ -284,6 +298,15 @@ PROPERTY and a concrete behavior that shows it. No speaker attribution.
 
 4. DROPPED_REFERENCES — named entities the contributor mentioned in passing \
 but did not explore. Generate a question that would open them up next time.
+
+5. THEME TAGS — for each moment, pick the theme slugs that describe what \
+the moment is ABOUT. The available themes are listed in <theme_catalog> in \
+the user message; each entry has a slug, display name, and a short \
+description of what it covers. Multi-tag is expected — a wedding moment is \
+both 'family' AND 'milestones'; a story about a friend's funeral is \
+'friendships' AND 'milestones'. If none of the catalog slugs honestly fit, \
+return an empty themes array — do NOT force a tag. Do NOT invent slugs that \
+are not in the catalog; unknown slugs are dropped silently.
 
 CRITICAL RULES:
 - UNDER-EXTRACT. If uncertain whether something is a moment, drop it. Better \

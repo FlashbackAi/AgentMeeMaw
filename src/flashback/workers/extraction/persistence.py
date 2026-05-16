@@ -153,8 +153,16 @@ def persist_extraction(
     seeded_question_ids: list[str] | None = None,
     llm_provenance: LLMProvenance | None = None,
     trait_merge_resolutions: list[TraitMergeResolution | None] | None = None,
+    theme_slug_to_id: dict[str, str] | None = None,
 ) -> PersistenceResult:
-    """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK."""
+    """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK.
+
+    ``theme_slug_to_id`` is the active {slug: theme_id} map for this
+    person, captured by the worker just before the LLM call. For each
+    moment, the LLM-emitted ``themes`` slugs are resolved against this
+    map and ``themed_as`` edges are written. Slugs not present in the
+    map are dropped silently (under-extract per invariant #6).
+    """
 
     if len(moment_decisions) != len(extraction.moments):
         raise ValueError(
@@ -230,6 +238,12 @@ def persist_extraction(
             entity_index_to_id=entity_index_to_id,
             entity_kinds=[e.kind for e in surviving_entities],
             trait_ids=trait_ids,
+        )
+        _insert_themed_as_edges(
+            cursor,
+            moment_id=moment_id,
+            theme_slugs=decision.moment.themes,
+            theme_slug_to_id=theme_slug_to_id or {},
         )
         moment_signals.append(
             _coverage_signal_for(
@@ -672,6 +686,46 @@ def _insert_moment_edges(
             to_kind="trait",
             to_id=trait_ids[idx],
             edge_type="exemplifies",
+        )
+
+
+def _insert_themed_as_edges(
+    cursor,
+    *,
+    moment_id: str,
+    theme_slugs: list[str],
+    theme_slug_to_id: dict[str, str],
+) -> None:
+    """Write one ``themed_as`` edge per resolvable slug.
+
+    Unknown slugs (not in the map) are dropped silently — they may be
+    LLM hallucinations or slugs for a theme that was superseded between
+    the LLM call and the transaction. Duplicates within the moment's
+    own list collapse on the UNIQUE edge constraint.
+    """
+    if not theme_slugs:
+        return
+    seen: set[str] = set()
+    for slug in theme_slugs:
+        normalized = (slug or "").strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        theme_id = theme_slug_to_id.get(normalized)
+        if theme_id is None:
+            log.info(
+                "extraction.theme_slug_unknown",
+                moment_id=moment_id,
+                slug=slug,
+            )
+            continue
+        _insert_edge(
+            cursor,
+            from_kind="moment",
+            from_id=moment_id,
+            to_kind="theme",
+            to_id=theme_id,
+            edge_type="themed_as",
         )
 
 

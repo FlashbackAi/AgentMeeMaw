@@ -37,6 +37,15 @@ class ExtractionLLMConfig:
     max_tokens: int
 
 
+@dataclass(frozen=True)
+class ThemeCatalogEntry:
+    """One row of the theme catalog passed into the extraction prompt."""
+
+    slug: str
+    display_name: str
+    description: str
+
+
 def run_extraction(
     *,
     cfg: ExtractionLLMConfig,
@@ -47,6 +56,7 @@ def run_extraction(
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
+    theme_catalog: Iterable[ThemeCatalogEntry] = (),
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -61,6 +71,7 @@ def run_extraction(
         segment_turns=segment_turns,
         contributor_display_name=contributor_display_name,
         candidate_question_ids=candidate_question_ids,
+        theme_catalog=theme_catalog,
     )
 
     args = asyncio.run(
@@ -94,6 +105,7 @@ def _build_user_message(
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
+    theme_catalog: Iterable[ThemeCatalogEntry] = (),
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -114,6 +126,19 @@ def _build_user_message(
     candidate_ids = [qid for qid in candidate_question_ids if qid]
     if candidate_ids:
         lines.append(tagged("candidate_answered_question_ids", "\n".join(candidate_ids)))
+
+    catalog = list(theme_catalog)
+    if catalog:
+        lines.append("")
+        lines.append("<theme_catalog>")
+        for entry in catalog:
+            lines.append(
+                f"- slug: {xml_text(entry.slug)} | "
+                f"display: {xml_text(entry.display_name)} | "
+                f"covers: {xml_text(entry.description)}"
+            )
+        lines.append("</theme_catalog>")
+
     lines.extend(
         [
             "",
