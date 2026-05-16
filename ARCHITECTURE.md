@@ -224,13 +224,41 @@ Writes intent + emotional temperature into Working Memory signals.
 
 ### 3.6 Retrieval Service
 
-Called by the Orchestrator only when the intent demands more context
-(typically `recall`, `clarify`, or `switch`). Wraps a fixed tool
-surface over the canonical graph:
+Semantic (vector) retrieval surface over the canonical graph, gated
+by intent per invariant #19. The orchestrator's `retrieve` step
+dispatches on `effective_intent`:
 
-- `search_moments(query, person_id)` — vector similarity over recent
-  moments.
-- `get_entities(person_id)` — list of entities for the legacy.
+| intent  | search_moments | search_entities | get_entities | get_threads | Voyage |
+|---------|----------------|-----------------|--------------|-------------|--------|
+| recall  | yes            | yes             | —            | —           | 2      |
+| switch  | —              | —               | yes          | yes         | 0      |
+| clarify | —              | —               | —            | —           | 0      |
+| deepen  | —              | —               | —            | —           | 0      |
+| story   | —              | —               | —            | —           | 0      |
+
+The `query` argument to vector searches is `state.user_message`; it
+is only meaningfully a retrieval anchor on `recall` (where the user
+is literally referencing existing memory). `clarify` skips retrieval
+entirely because vector search on ambiguous text returns noise;
+`switch` uses the entity/thread catalog directly because the
+SWITCH_PROMPT consumes those, not similarity-matched moments;
+`deepen` and `story` skip retrieval to leave space for the user.
+
+Tool surface:
+
+- `search_moments(query, person_id)` — vector similarity over active
+  moments. Filters by `embedding_model` + `embedding_model_version`
+  (invariant #3).
+- `search_entities(query, person_id)` — vector similarity over active
+  entity descriptions. Same model-identity filter. Used together with
+  `search_moments` on `recall` so thin-entity mentions (a name dropped
+  once, never fleshed out) still surface.
+- `get_entities(person_id)` — full active-entity catalog for the
+  legacy.
+- `get_entities_by_ids(person_id, entity_ids)` — fetch entities by
+  id, scoped to a person. Used by the entity-mention scanner
+  (§3.6a) which already knows the ids it wants and just needs the
+  full descriptions.
 - `get_related_moments(entity_id)` — graph traversal: moments linked
   to this entity via `involves`.
 - `get_threads(person_id)` — threads for the legacy.
@@ -243,6 +271,47 @@ surface over the canonical graph:
   Session Wrap.
 
 Every call filters by `person_id` and `status='active'`.
+
+### 3.6a Entity Mention Scanner
+
+Deterministic, intent-independent retrieval surface that sits between
+the Intent Classifier and the Retrieval Service (invariant #20). The
+agent's most common real-world pattern is the contributor mentioning
+a known entity mid-narrative ("Chaitanya called me yesterday"); on
+`story` turns the intent-gated matrix would skip retrieval entirely
+and miss the reference. The scanner closes that gap without burning
+a Voyage call.
+
+Pipeline:
+
+- **Cache.** `entity_names:{person_id}` in Valkey, JSON list of
+  `{id, name, aliases[], kind}`. Loaded by `EntityNameCache.get`
+  cache-aside: read on every user turn, repopulate from
+  `active_entities` on miss. Kind filter excludes `object`
+  entities — common nouns ("bottle", "table") would false-positive
+  too often.
+- **Matcher.** Word-boundary regex (`\b(name|alias|...)\b`,
+  case-insensitive) against `user_message`. Entries are tested in
+  descending name-length order so "Chaitanya Reddy" wins over a
+  bare "Chaitanya" alias when both could match the same span. One
+  hit per entry per turn.
+- **Disambiguation flag.** If the same matched surface form (e.g.
+  "Priya") resolves to two or more distinct entity ids, the step
+  sets `state.ambiguous_mention = True`. The response generator's
+  context renders `<mentioned_entities ambiguous="true">` so the
+  prompt can ask the contributor to disambiguate. Deepen-intent
+  turns still win — the disambiguation waits.
+- **Invalidation.** The Extraction Worker holds a sync
+  `redis.Redis` client (separate from the agent's async client)
+  and `DEL`s the cache key after entity rows commit, so newly
+  extracted entities become scannable on the next user turn
+  without waiting for TTL. Best-effort: cache hygiene failures are
+  logged and swallowed; the graph state remains correct.
+
+The output (`state.mentioned_entities`) flows into the response
+generator's context as a `<mentioned_entities>` block alongside the
+semantic retrieval blocks; the two surfaces are orthogonal and can
+both populate on the same turn (e.g. `recall` plus a name mention).
 
 ### 3.7 Response Generator (big LLM)
 
@@ -321,8 +390,8 @@ Per closed segment, the Worker performs:
    overlap + LLM compatibility check against existing moments. See
    §8.
 5. **Persist to canonical graph** — moments, entities, edges
-   (`involves`, `happened_at`, `related_to`), explicit traits with
-   `mentioned_once` strength.
+   (`involves`, `happened_at`, `related_to`, `themed_as`), explicit
+   traits with `mentioned_once` strength.
 6. **Write `answered_by`** edges if the segment was seeded by a known
    question.
 7. **Inline P1 `dropped_reference`** — when a named person/place/
@@ -342,6 +411,15 @@ Per closed segment, the Worker performs:
 
 The Worker is intentionally conservative — under-extract rather than
 over-extract.
+
+**Theme tagging.** Just before the LLM call, the worker fetches
+`active_themes` for the subject (universals + emergents) and
+renders the catalog as `<theme_catalog>` in the user message. The
+LLM populates `moment.themes: [<slug>]` per moment as an optional
+output field; persistence resolves slugs through a `{slug:
+theme_id}` map captured at fetch time and writes one `themed_as`
+edge per resolvable slug. Unknown slugs are dropped silently per
+invariant #6. See §3.16a for the full Themes layer.
 
 ### 3.10 Coverage Tracker
 
@@ -394,7 +472,23 @@ Algorithm:
 3. **Trigger P4 inline** at the end — for each detected/updated
    thread, generate questions that would surface new info or deepen
    the thread; tag `thread_deepen`.
-4. Update `persons.moments_at_last_thread_run`.
+4. **Emergent theme decision (new-thread path only).** The naming
+   LLM tool gains three optional fields: `theme_display_name`
+   (2–4 word phrase), `theme_slug` (snake_case), `theme_description`
+   (one sentence). The prompt instructs the LLM to set these only
+   when the cluster is a discrete passion / practice / place that
+   universals don't already cover. When all three are set, the
+   worker eagerly generates archetype MC questions (small LLM
+   call, outside the transaction), then inside the existing per-
+   cluster tx inserts an `emergent` `themes` row linked to the new
+   thread (carrying the cached `archetype_questions` JSONB), and
+   writes `themed_as` edges from every cluster member moment to
+   the new theme. On the existing-match path (cluster latched
+   onto a prior thread), the worker looks up that thread's
+   emergent theme (if any) and back-tags the new cluster's
+   moments to it — covering the gap where extraction couldn't
+   see the emergent yet because the cluster predated it.
+5. Update `persons.moments_at_last_thread_run`.
 
 ### 3.14 Trait Synthesizer (small LLM)
 
@@ -481,6 +575,93 @@ Pull active questions for the person, rank by source priority, theme
 diversity, and recency. **Cap `universal_dimension` at 1 per top-5**
 to avoid the survey feel.
 
+`combined_score = source_priority + DIVERSITY_WEIGHT * diversity
++ THEME_BIAS_WEIGHT * theme_bias`. `theme_bias_score` returns 1.0
+when the candidate's `attributes.themes` overlaps the active
+deepen-session `current_theme_slug` (read off Working Memory by
+the `select_question` step), 0.0 otherwise. `THEME_BIAS_WEIGHT =
+1.5` — enough to break ties in favor of theme-aligned questions,
+not enough to override a high-priority `dropped_reference` on a
+different theme (priority gap = 4.0). Soft bias only; the
+producer ranker never hard-filters by theme. When no theme is
+active the bias term is 0 and ranking behaves as before.
+
+### 3.16a Themes layer (user-facing)
+
+User-visible thematic groupings of moments. The hard rules live in
+`CLAUDE.md` invariant #22 + §7. Architectural shape:
+
+**Storage.** `themes` table holds two kinds of rows:
+
+- `kind='universal'` — five rows seeded at person creation
+  (`family`, `career`, `friendships`, `beliefs`, `milestones`).
+  `thread_id` is NULL.
+- `kind='emergent'` — written by the Thread Detector when a new
+  thread maps to a discrete passion / practice that universals
+  don't cover. `thread_id` points to the originating thread
+  (1:1 in v1; no merging or splitting later).
+
+Both start `state='locked'`. Partial unique index on
+`(person_id, slug) WHERE status='active'` makes seeding and the
+back-tag path idempotent. `archetype_questions` (JSONB) and
+`archetype_answers` (JSONB) live on the row. The
+`active_themes_with_tier` view denormalises tier + counters
+(`qualifying_count`, `life_period_count`, `has_rich_sensory`) off
+the live `themed_as` × `active_moments` join — see CLAUDE.md §7.5
+for the rules. Tier is never persisted.
+
+**Edge.** `themed_as` (moment → theme). Multi-tag expected: one
+moment may carry both `family` and `milestones`. Supersession
+already drops outbound edges from a superseded moment as part of
+the existing tx, so refined moments re-acquire tags from the
+fresh LLM emission.
+
+**Writers.**
+
+- **Extraction Worker** — primary tagging surface. The LLM emits
+  `moment.themes: [<slug>]` from a `<theme_catalog>` injected
+  into the user message; persistence writes `themed_as` edges
+  via the slug→id map captured at fetch time. See §3.9.
+- **Thread Detector** — emergent theme creation + back-tagging
+  on the new-thread path; back-tagging only on the existing-match
+  path when a prior thread already has a theme. See §3.13.
+- **`persons.repository.insert_person`** — seeds the five
+  universals in the same transaction as the persons row.
+
+**Unlock flow.**
+
+1. UI taps a `locked` theme → `POST /themes/{id}/unlock_prepare`.
+2. Agent returns archetype questions; lazy-generates + caches on
+   the row when `archetype_questions IS NULL` (universals path).
+   Emergents have these cached eagerly at promotion time.
+3. UI shows 3–4 MC questions × 4 chips each (skip + free-text
+   per question; mirrors onboarding).
+4. UI calls `POST /session/start` with `session_metadata.
+   theme_id` and `session_metadata.archetype_answers`.
+5. The new `apply_theme_unlock` orchestrator step flips the
+   theme `locked → unlocked` atomically, persists answers as
+   JSONB (ephemeral priors only — never written as moments,
+   traits, or profile facts), and stamps `current_theme_id` /
+   `current_theme_slug` / `current_theme_display_name` on
+   Working Memory.
+6. The opener context carries a `<current_theme>` block plus
+   the archetype answers. The bot acknowledges the focus
+   without restarting from scratch.
+
+**Deepen flow.** When the user taps an already-`unlocked` theme,
+the same `/session/start` path runs with `theme_id` but no
+`archetype_answers`. `apply_theme_unlock` is a no-op on the
+state flip but still stamps `current_theme_*` on Working
+Memory. The producer ranker's soft bias and the response
+generator's theme awareness do the rest.
+
+**Reads.** Node consumes `active_themes_with_tier` directly from
+Postgres per the integration contract. The agent does not expose a
+GET themes list — the read surface is the view. Local dev's
+`/memories` mirrors the same query, and self-heals by lazily
+seeding universals when it observes zero active themes for a
+person.
+
 ### 3.17 Session Wrap
 
 Triggered on `POST /session/wrap`. Steps:
@@ -557,6 +738,18 @@ collapses every relationship into one generic `edges` table.
 - **`questions`** — first-class. `text`, `embedding`, `source`,
   `attributes` JSONB (`dropped_phrase`, `life_period`, `dimension`,
   `themes`), `status`.
+- **`themes`** — user-facing thematic groupings of moments. `kind`
+  (`universal | emergent`), `slug` (snake_case; partial unique on
+  active rows per person), `display_name`, `description`, `state`
+  (`locked | unlocked`), `archetype_questions` JSONB,
+  `archetype_answers` JSONB, `unlocked_at`, `thread_id` (set for
+  emergents, NULL for universals), `image_url`, `generation_prompt`,
+  `status`. The `active_themes_with_tier` view denormalises tier
+  + counters from `themed_as` × `active_moments`. See §3.16a.
+- **`profile_facts`** — flat (question, answer) records on the
+  legacy profile. `fact_key` (snake_case, free-form slug),
+  `question_text`, `answer_text`, `source`, `answer_embedding`,
+  embedding model columns, `status`. Cap = 25 active per person.
 
 History tables (`moment_history`, optionally others) capture user
 manual edits for audit.
@@ -575,16 +768,19 @@ Edge types:
 - `involves` — moment ↔ entity (role in `attributes`).
 - `happened_at` — moment ↔ time anchor / place entity.
 - `exemplifies` — moment ↔ trait.
-- `evidences` — moment ↔ thread, entity ↔ thread.
+- `evidences` — moment ↔ thread, entity ↔ thread, thread ↔ trait,
+  entity ↔ trait.
 - `related_to` — entity ↔ entity.
 - `motivated_by` — question ↔ moment / entity / thread that prompted
   it.
 - `targets` — question ↔ entity it's asking about.
 - `answered_by` — question ↔ moment(s) extracted from the segment that
   question seeded.
+- `themed_as` — moment ↔ theme. Multi-tag expected.
 
 `validate_edge()` in app code enforces which `from_kind`/`to_kind`
-combinations are valid for each `edge_type`.
+combinations are valid for each `edge_type`. The full kind enum is
+`{moment, entity, thread, trait, question, person, theme}`.
 
 ### 5.4 Supersession and merges
 
@@ -804,7 +1000,8 @@ Frontend         Node Backend          Agent (Turn loop)         Postgres / Valk
    │                  │                      │
    │                  │                      │── append turn ─▶ Valkey
    │                  │                      │── Intent Classifier (LLM)
-   │                  │                      │── Retrieval ──▶ Postgres (read)
+   │                  │                      │── Entity Mention Scan (det.)
+   │                  │                      │── Retrieval (intent-gated) ─▶ Postgres (read)
    │                  │                      │── Response Generator (LLM)
    │                  │                      │── append response ─▶ Valkey
    │                  │                      │

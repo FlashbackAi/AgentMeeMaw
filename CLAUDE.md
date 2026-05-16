@@ -227,6 +227,108 @@ Every piece of code touching the graph or queues must respect these.
        from the first meeting — made time for a stranger's laptop
        questions without seeming bothered").
 
+19. **Retrieval is intent-gated.** Semantic vector retrieval fires only
+    on intents that benefit from it. The matrix is implemented in
+    `orchestrator/steps/retrieve.py` and mirrored in the Intent
+    Classifier prompt's OUTCOMES section so the classifier reasons
+    over response shape, not just input signal:
+
+    | intent  | search_moments | search_entities | get_entities | get_threads | Voyage |
+    |---------|----------------|-----------------|--------------|-------------|--------|
+    | recall  | yes            | yes             | —            | —           | 2      |
+    | switch  | —              | —               | yes          | yes         | 0      |
+    | clarify | —              | —               | —            | —           | 0      |
+    | deepen  | —              | —               | —            | —           | 0      |
+    | story   | —              | —               | —            | —           | 0      |
+
+    The `query` argument to vector searches is `state.user_message`
+    (the literal text the user typed) — only meaningful on `recall`,
+    which is why the matrix gates it there.
+
+20. **Entity-mention scanning is deterministic and intent-independent.**
+    Sits between `classify` and `retrieve` in the orchestrator pipeline.
+    Every user turn scans `user_message` against a Valkey-cached,
+    per-person catalog of active entity names + aliases. Word-boundary,
+    case-insensitive match; longest-name-first to avoid partial-form
+    collisions. Object-kind entities are excluded (false-positive
+    risk on common nouns). Hits are loaded by id via
+    `get_entities_by_ids` and rendered into `<mentioned_entities>`
+    in the response generator context; when one surface form resolves
+    to two or more distinct active entities the block is rendered
+    with `ambiguous="true"`. Cache key `entity_names:{person_id}` is
+    cache-aside (reload from Postgres on miss) and DEL'd by the
+    Extraction Worker after entity writes commit. This surface is
+    free (no Voyage call) and orthogonal to invariant #19.
+
+21. **Starter-question dedup uses the WM `asked` register, not just
+    `answered_by` edges.** The graph-anchored dedup
+    (`SELECT_UNANSWERED_*` filters by NOT EXISTS over `answered_by`
+    edges to moments) only works once a moment has been extracted —
+    which leaves shallow-content sessions stuck on the same starter
+    template. The fix is the per-session Valkey LIST written by
+    `select_question` and the session-start route, consumed by both
+    starter and steady selectors (`recent_ids` parameter). Three-step
+    fallback: unanswered + not-recent, then drop unanswered, then drop
+    recent — better to repeat than to crash when the bank exhausts.
+
+22. **Themes are the user-facing layer; anchors stay internal.** The
+    `themes` table holds user-visible groupings of moments — five
+    `universal` themes (`family`, `career`, `friendships`, `beliefs`,
+    `milestones`) seeded into every legacy at person creation, plus
+    `emergent` themes auto-promoted by the Thread Detector. Anchor
+    dimensions (sensory / voice / place / relation / era) remain
+    internal cold-start coverage signals and never surface in the UI.
+    Five hard rules govern themes:
+
+    a. **Tagging is multi-tag and LLM-emitted.** The Extraction
+       Worker passes the active theme catalog (universals + active
+       emergents for this subject) into its user message, and the
+       LLM populates `moment.themes: [<slug>]` per moment. A wedding
+       moment carries both `family` and `milestones`; a Sunday
+       church story carries `family` and `beliefs`. Persistence
+       writes one `themed_as` edge per resolvable slug; unknown
+       slugs are dropped silently (invariant #6).
+
+    b. **Emergent themes are 1:1 with new threads.** When the
+       Thread Detector names a new thread, the same naming LLM
+       call decides whether the cluster is also a discrete passion
+       / practice / place that universals don't already cover. If
+       yes, the worker eagerly generates archetype questions
+       outside the transaction and inserts an emergent theme row
+       linked to the thread, then back-tags the cluster moments
+       via `themed_as`. Threads remain internal scaffolding;
+       emergents are the user-facing wrapper.
+
+    c. **Locked themes are always visible; tier is computed.** All
+       themes start `state='locked'` and the `active_themes_with_tier`
+       view derives tier (`tale` / `story` / `testament`) on read
+       from the live `themed_as` × `active_moments` join. Locked
+       themes report `tier=NULL`. There's no denormalised counter
+       to drift. "Qualifying" moment = has any of (`sensory_details`,
+       `time_anchor`, an `involves` edge); "rich sensory" =
+       `len(sensory_details) > 80`. Tunable via the view definition.
+
+    d. **Unlock = lazy archetype gen + atomic flip on session start.**
+       `POST /themes/{id}/unlock_prepare` returns archetype MC
+       questions, generating + caching them via a small LLM on first
+       call. The theme stays locked. The actual lock→unlocked flip
+       happens atomically inside `apply_theme_unlock` (orchestrator
+       step) on the next `/session/start` when `session_metadata`
+       carries `theme_id` (+ optional `archetype_answers`). Answers
+       are ephemeral priors: persisted as JSONB on the theme row,
+       injected into the first-turn opener context, but **never**
+       written as moments/traits/profile_facts. Extraction mines
+       the resulting conversation, not the answers.
+
+    e. **Deepen flow is soft bias, never hard filter.** When
+       `current_theme_slug` is set on Working Memory, the producer
+       ranker adds `THEME_BIAS_WEIGHT * 1.0` to candidates whose
+       `attributes.themes` overlap — large enough to break ties in
+       favor of theme-aligned questions, small enough that a
+       high-priority `dropped_reference` on a different theme still
+       wins. Retrieval and the response generator surface the
+       theme but follow the user when conversation drifts.
+
 ---
 
 ## 5. Schema invariants
@@ -236,7 +338,9 @@ Every piece of code touching the graph or queues must respect these.
   `edges` table** that replaces all link tables and `evidence_*_ids`
   arrays.
 - **Edge types:** `involves`, `happened_at`, `exemplifies`,
-  `evidences`, `related_to`, `motivated_by`, `targets`, `answered_by`.
+  `evidences`, `related_to`, `motivated_by`, `targets`, `answered_by`,
+  `themed_as`. The `theme` kind is added to the edge from_/to_kind
+  enums alongside the existing six.
 - **`validate_edge()` in app code**, not DB constraints. Every write
   goes through it.
 - **Supersession via `status`** (`active` | `superseded` | `merged`),
@@ -264,6 +368,18 @@ Every piece of code touching the graph or queues must respect these.
   The seven seed slugs (`profession`, `birthplace`, `residence`,
   `faith`, `family_role`, `era`, `personality_essence`) are display
   defaults, not a hard registry.
+- **Themes** live in their own table `themes`:
+  `(person_id, kind, slug, display_name, description, state,
+  archetype_questions, archetype_answers, thread_id, unlocked_at,
+  image_url, generation_prompt, status, ...)`. `kind` is
+  `'universal' | 'emergent'`, `state` is `'locked' | 'unlocked'`.
+  Partial unique index on `(person_id, slug) WHERE status='active'`
+  makes seeding idempotent. Emergent rows reference the originating
+  `threads.id`; universals do not. The `active_themes_with_tier`
+  view denormalises tier + counters from `themed_as` edges over
+  `active_moments` as the read surface Node consumes (Node reads
+  it directly per the integration contract; the agent exposes it
+  via `POST /themes/{id}/unlock_prepare` for the unlock flow).
 
 ### Persons cold-start columns
 
@@ -352,7 +468,124 @@ Counters can climb past 1 — that's diagnostic. Only `≥ 1` matters.
 
 ---
 
-## 7. Build order (this repo)
+## 7. Themes layer (user-facing)
+
+Themes are the visible groupings of moments on the legacy/profile
+screen. Five universals are seeded at person creation; emergents
+auto-promote off the Thread Detector. See invariant #22 for the
+hard rules.
+
+### 7.1 Universal seeding
+
+`persons.repository.insert_person` writes the persons row and the
+five universal `themes` rows inside the same transaction (idempotent
+via the partial unique index). Local dev's `/create-person` does the
+same, and `/memories` self-heals by lazily seeding when it observes
+zero active themes for a person — for legacies created on older
+schemas or paths that bypass `insert_person`.
+
+The five universals and their slugs are pinned in
+`flashback.themes.universal`. Slug stability matters: it's part of
+the unique index and gets referenced from the extraction prompt's
+theme catalog. Display names can be tweaked freely.
+
+### 7.2 Tagging
+
+The Extraction Worker fetches the active theme catalog (universals
++ active emergents for this subject) just before its LLM call and
+renders it as `<theme_catalog>` in the user message. The LLM emits
+`themes: [<slug>]` per moment as part of the existing
+`extract_segment` tool output (schema invariant: optional, default
+empty). Persistence resolves slugs through the catalog map and
+writes one `themed_as` edge per resolvable slug. Unknown slugs are
+dropped silently (invariant #6).
+
+The supersession path (moment → superseded) drops outbound edges
+from the old moment as part of its existing tx, so refined moments
+naturally re-acquire their tags from the fresh LLM emission.
+
+### 7.3 Emergent promotion
+
+The Thread Detector's naming LLM tool gains three optional fields —
+`theme_display_name` (2–4 word phrase), `theme_slug` (snake_case),
+`theme_description` (one sentence) — only set when the cluster is a
+discrete passion / practice / place that universals don't already
+cover. When set, the worker:
+
+1. Eagerly generates archetype questions outside the transaction
+   (small LLM call; falls back to empty list on failure).
+2. Inside the existing per-cluster transaction, inserts the
+   emergent theme row linked to the new thread, caches
+   archetype_questions on the row, and writes `themed_as` edges
+   from every cluster member to the new theme.
+3. On the existing-match path (cluster latched onto a prior
+   thread), looks up that thread's emergent theme (if any) and
+   back-tags the new cluster's moments to it.
+
+Threads stay internal scaffolding; emergent themes are the visible
+wrapper.
+
+### 7.4 Unlock + deepen flows
+
+Unlock:
+
+1. UI taps a `locked` card → `POST /themes/{id}/unlock_prepare`.
+2. Agent returns archetype MC questions, generating + caching on
+   the row when `archetype_questions IS NULL` (universals). On
+   subsequent taps the cached payload is returned at no LLM cost.
+3. UI shows 3–4 MC questions × 4 chips each with skip + free-text.
+4. UI calls `POST /session/start` with `session_metadata.theme_id`
+   + `session_metadata.archetype_answers`.
+5. Orchestrator's `apply_theme_unlock` step flips the theme to
+   `unlocked`, persists answers as JSONB, and propagates
+   `current_theme_*` into Working Memory.
+6. The opener carries the theme context. Conversation proceeds via
+   the normal Turn Orchestrator (`/turn`).
+
+Deepen (already-unlocked theme):
+
+1. UI taps an `unlocked` card → straight to `/session/start` with
+   `session_metadata.theme_id` (no archetype answers).
+2. `apply_theme_unlock` is a no-op on the state flip but still
+   stamps `current_theme_*` on Working Memory.
+3. The producer ranker's soft bias kicks in — candidates whose
+   `attributes.themes` overlap the active slug get
+   `THEME_BIAS_WEIGHT * 1.0` added to their `combined_score`.
+4. Retrieval and the response generator surface the theme but
+   never hard-filter; the user can drift naturally and the agent
+   follows.
+
+### 7.5 Tier read surface
+
+`active_themes_with_tier` is the canonical read surface. Node reads
+it directly from Postgres (per the integration contract); the local
+dev's `/memories` endpoint mirrors the same query. Tier rules:
+
+| condition                                                  | tier      |
+|-----------------------------------------------------------|-----------|
+| `state='locked'`                                          | NULL      |
+| qualifying ≥ 5 AND life_periods ≥ 3 AND has_rich_sensory  | testament |
+| qualifying ≥ 3 OR life_periods ≥ 2                         | story     |
+| qualifying ≥ 1                                            | tale      |
+| else                                                      | NULL      |
+
+"Qualifying" = moment has any of (`sensory_details`, `time_anchor`,
+an `involves` edge). "Rich sensory" = `char_length(sensory_details)
+> 80`. Tunable via the view; no denormalised counters drift.
+
+### 7.6 Local-dev integration
+
+`local/server.py`'s `/memories` endpoint includes a `themes` array
+keyed off `active_themes_with_tier`, and self-heals by seeding
+universals when it observes zero active themes. `local/static/
+index.html` adds a fourth column to the memory panel rendering
+cards with locked/tier badges and the unlock modal that calls
+`/api/themes/{id}/unlock_prepare` then `/api/session/start` with
+theme metadata.
+
+---
+
+## 8. Build order (this repo)
 
 We build in this order. Each step gets its own Claude Code prompt; we
 write them together as we go.
@@ -368,7 +601,10 @@ write them together as we go.
    hydration, write-back.
 5. **Intent Classifier** (small LLM) — outputs `intent`, `confidence`,
    `emotional_temperature`.
-6. **Retrieval Service** — tool surface over the canonical graph.
+6. **Retrieval Service** — tool surface over the canonical graph,
+   gated by intent per invariant #19. The deterministic entity-mention
+   scanner (invariant #20) is a separate surface in
+   `flashback.entity_mention` plus `orchestrator/steps/entity_mention_scan`.
 7. **Response Generator + session opener** — big LLM, prompt families
    per intent.
 8. **Phase Gate + question/tap selection** — code; steady question
@@ -411,16 +647,36 @@ write them together as we go.
     `GET /identity_merges/suggestions`, approve/reject endpoints, and
     merge application. Detection is automatic; mutation is
     user-approved.
+21. **Themes layer** — migration 0020 (`themes` table, `themed_as`
+    edge, `theme` kind, `active_themes_with_tier` view, universals
+    backfill); universal seeding inside `insert_person`; extraction-
+    LLM theme tagging via the catalog; Thread Detector emergent
+    promotion with eager archetype generation; `POST /themes/{id}/
+    unlock_prepare`; `apply_theme_unlock` orchestrator step that
+    flips lock state on `/session/start` and propagates
+    `current_theme_*` into Working Memory; producer-ranking soft
+    bias (`THEME_BIAS_WEIGHT`); response generator theme blocks on
+    `StarterContext` + `TurnContext`. See §7 for the full layer.
 
 ---
 
-## 8. API contract with Node
+## 9. API contract with Node
 
 We expose an HTTP service. Node calls us; we never call Node.
 
 - `POST /session/start` — body: `{ session_id, person_id, role_id,
   session_metadata }`. Returns the opener message. We hydrate Working
   Memory and run the Response Generator; `metadata.taps` is always empty.
+  `session_metadata` accepts optional `theme_id` (UUID) and
+  `archetype_answers` (list of `{question_id, question_text,
+  option_id?, option_label?, free_text?}`). When `theme_id` is
+  present, the `apply_theme_unlock` orchestrator step flips the
+  theme `locked → unlocked` atomically and stamps
+  `current_theme_*` on Working Memory so the producer ranker can
+  apply soft bias and the response generator can surface the
+  theme. Answers are ephemeral priors — kept on the theme row's
+  `archetype_answers` JSONB, fed into the first-turn opener
+  context, but never written as moments/traits/profile_facts.
 - `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
   Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
@@ -446,6 +702,15 @@ We expose an HTTP service. Node calls us; we never call Node.
   update survivor aliases/description, and push re-embedding.
 - `POST /identity_merges/suggestions/{id}/reject` — mark a pending
   suggestion rejected without changing graph entities.
+- `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id }`.
+  Returns the cached or lazily-generated archetype MC questions
+  for a locked theme. Does **not** flip the theme to unlocked;
+  that happens atomically inside the next `/session/start` when
+  `theme_id` is carried in `session_metadata`. Repeat calls return
+  cached payload at no LLM cost.
+- `GET /themes/{theme_id}` — debug surface returning the theme row
+  + archetype JSONB. The user-facing list of themes is read
+  directly from `active_themes_with_tier` by Node.
 
 We do **not** auth these endpoints. Node is the auth boundary.
 
@@ -456,7 +721,7 @@ live in `NODE_INTEGRATION.md`.
 
 ---
 
-## 9. Conventions
+## 10. Conventions
 
 - **Source of truth:** Excalidraw diagram for component shape, this
   doc + `ARCHITECTURE.md` for contracts, code for behavior. Update all
@@ -480,7 +745,7 @@ live in `NODE_INTEGRATION.md`.
 
 ---
 
-## 10. When in doubt
+## 11. When in doubt
 
 - Re-read §3 (boundaries) and §4 (invariants).
 - Check the Excalidraw diagram for component shape.
