@@ -46,6 +46,13 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.themes.archetype_llm import (
+    ArchetypeContextMoment,
+    ArchetypeQuestion,
+    generate_archetype_questions_sync,
+)
+from flashback.themes.repository import insert_emergent_theme_sync
+from flashback.themes.universal import UNIVERSAL_THEME_SLUGS
 
 from .matching import fetch_thread_snapshot, match_existing_thread
 from .naming_llm import (
@@ -82,6 +89,11 @@ class ClusterOutcome:
     thread_was_created: bool = False
     new_evidences_edge_count: int = 0
     questions_inserted: list[str] = field(default_factory=list)
+
+    emergent_theme_id: str | None = None
+    """Set when this cluster promoted to a brand-new emergent theme."""
+    themed_as_edge_count: int = 0
+    """Number of themed_as edges (moment -> theme) written for this cluster."""
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +201,33 @@ def process_cluster(
         contributor_display_name=contributor_display_name,
     )
 
-    # 5. Single transaction — thread/evidences/questions/edges.
+    # 4b. Emergent-theme archetype generation (only on the new-thread path
+    # AND when the naming LLM indicated this cluster is a new emergent
+    # theme, not just another instance of a universal). Eager generation
+    # here so the user-facing unlock tap is snappy later.
+    archetype_questions: list[ArchetypeQuestion] = []
+    emergent_slug: str | None = None
+    if (
+        naming is not None
+        and naming.has_emergent_theme()
+        and naming.theme_slug not in UNIVERSAL_THEME_SLUGS  # extra guardrail
+    ):
+        emergent_slug = naming.theme_slug
+        archetype_questions = generate_archetype_questions_sync(
+            settings=settings,
+            theme_slug=naming.theme_slug or "",
+            theme_display_name=naming.theme_display_name or "",
+            theme_description=naming.theme_description or "",
+            theme_kind="emergent",
+            subject_name=person_name,
+            subject_relationship=None,
+            context_moments=[
+                ArchetypeContextMoment(title=m.title, narrative=m.narrative)
+                for m in member_moments
+            ],
+        )
+
+    # 5. Single transaction — thread/theme/evidences/questions/edges.
     question_ids: list[str] = []
     with db_pool.connection() as conn:
         with conn.transaction():
@@ -205,6 +243,48 @@ def process_cluster(
                         llm_model=naming_cfg.model,
                         prompt_version=THREAD_NAMING_PROMPT_VERSION,
                     )
+
+                # Decide which (if any) emergent theme to back-tag cluster
+                # moments to. New-thread + emergent? Insert + tag. Existing
+                # match? Look up the existing thread's emergent theme.
+                target_theme_id: str | None = None
+                if naming is not None and emergent_slug is not None:
+                    new_theme_id = insert_emergent_theme_sync(
+                        cur,
+                        person_id=person_id,
+                        slug=emergent_slug,
+                        display_name=naming.theme_display_name or "",
+                        description=naming.theme_description,
+                        thread_id=thread_id,
+                        archetype_questions=(
+                            [q.to_payload() for q in archetype_questions]
+                            if archetype_questions
+                            else None
+                        ),
+                        generation_prompt=naming.generation_prompt,
+                    )
+                    if new_theme_id is not None:
+                        outcome.emergent_theme_id = new_theme_id
+                        target_theme_id = new_theme_id
+                    else:
+                        # Conflict: another path already created an active
+                        # theme with this slug for this person. Look it up
+                        # and use it as the back-tag target.
+                        target_theme_id = _find_active_theme_id_by_slug(
+                            cur, person_id=person_id, slug=emergent_slug
+                        )
+                elif outcome.matched_existing:
+                    target_theme_id = _find_active_theme_id_by_thread(
+                        cur, person_id=person_id, thread_id=thread_id
+                    )
+
+                if target_theme_id is not None:
+                    outcome.themed_as_edge_count = _insert_themed_as_edges(
+                        cur,
+                        moment_ids=cluster.member_moment_ids,
+                        theme_id=target_theme_id,
+                    )
+
                 outcome.new_evidences_edge_count = _insert_evidences_edges(
                     cur,
                     moment_ids=cluster.member_moment_ids,
@@ -297,6 +377,70 @@ def _insert_thread(
             prompt_version,
         ),
     )
+
+
+def _insert_themed_as_edges(
+    cur,
+    *,
+    moment_ids: list[str],
+    theme_id: str,
+) -> int:
+    """Insert one ``themed_as`` edge per cluster member moment to a theme.
+
+    Uses ``ON CONFLICT DO NOTHING`` on the unique edge constraint so
+    re-runs (and previous extraction-time tags by the LLM) don't
+    collide.
+    """
+    inserted = 0
+    for mid in moment_ids:
+        validate_edge("moment", "theme", "themed_as")
+        cur.execute(
+            """
+            INSERT INTO edges (from_kind, from_id, to_kind, to_id,
+                               edge_type, attributes)
+            VALUES ('moment', %s, 'theme', %s, 'themed_as', %s)
+            ON CONFLICT (from_kind, from_id, to_kind, to_id, edge_type)
+            DO NOTHING
+            RETURNING id
+            """,
+            (mid, theme_id, Json({})),
+        )
+        if cur.fetchone() is not None:
+            inserted += 1
+    return inserted
+
+
+def _find_active_theme_id_by_slug(
+    cur, *, person_id: str, slug: str
+) -> str | None:
+    cur.execute(
+        """
+        SELECT id::text FROM active_themes
+         WHERE person_id = %s AND slug = %s
+         LIMIT 1
+        """,
+        (person_id, slug),
+    )
+    row = cur.fetchone()
+    return row[0] if row is not None else None
+
+
+def _find_active_theme_id_by_thread(
+    cur, *, person_id: str, thread_id: str
+) -> str | None:
+    """Find the active emergent theme (if any) that backs a given thread."""
+    cur.execute(
+        """
+        SELECT id::text FROM active_themes
+         WHERE person_id = %s
+           AND kind = 'emergent'
+           AND thread_id = %s
+         LIMIT 1
+        """,
+        (person_id, thread_id),
+    )
+    row = cur.fetchone()
+    return row[0] if row is not None else None
 
 
 def _insert_evidences_edges(

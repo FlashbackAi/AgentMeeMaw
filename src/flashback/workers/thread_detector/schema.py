@@ -102,6 +102,17 @@ class NamingResult(BaseModel):
     description: str | None = None
     generation_prompt: str | None = None
 
+    theme_display_name: str | None = None
+    theme_slug: str | None = None
+    theme_description: str | None = None
+
+    def has_emergent_theme(self) -> bool:
+        return bool(
+            self.theme_display_name
+            and self.theme_slug
+            and self.theme_description
+        )
+
 
 class P4Question(BaseModel):
     """One ``thread_deepen`` question proposal."""
