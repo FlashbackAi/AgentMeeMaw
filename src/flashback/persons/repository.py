@@ -16,6 +16,8 @@ from uuid import UUID
 
 from psycopg_pool import AsyncConnectionPool
 
+from flashback.themes.repository import seed_universal_themes_async
+
 _INSERT_PERSON = """
 INSERT INTO persons (name, relationship, gender)
 VALUES (%(name)s, %(relationship)s, %(gender)s)
@@ -40,7 +42,11 @@ async def insert_person(
     relationship: str,
     gender: str | None = None,
 ) -> CreatedPerson:
-    """Insert one ``persons`` row and return the persisted shape."""
+    """Insert one ``persons`` row and return the persisted shape.
+
+    The 5 universal themes are seeded in the same transaction so a
+    legacy is never observably created without its theme grid.
+    """
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -49,8 +55,9 @@ async def insert_person(
                     {"name": name, "relationship": relationship, "gender": gender},
                 )
                 row = await cur.fetchone()
+                assert row is not None  # INSERT ... RETURNING always yields a row
+                await seed_universal_themes_async(cur, person_id=row[0])
 
-    assert row is not None  # INSERT ... RETURNING always yields a row
     person_id, returned_name, returned_relationship, returned_gender, phase, created_at = row
     return CreatedPerson(
         person_id=person_id,
