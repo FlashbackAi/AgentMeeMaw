@@ -4,9 +4,11 @@ import pytest
 
 from flashback.phase_gate.ranking import (
     SOURCE_PRIORITY,
+    THEME_BIAS_WEIGHT,
     combined_score,
     diversity_score,
     source_priority_score,
+    theme_bias_score,
 )
 
 
@@ -46,3 +48,53 @@ def test_combined_score():
         {"family", "ritual"},
         {"ritual"},
     ) == 4.0
+
+
+def test_theme_bias_score_no_active_theme():
+    assert theme_bias_score({"family", "ritual"}, None) == 0.0
+    assert theme_bias_score({"family", "ritual"}, "") == 0.0
+
+
+def test_theme_bias_score_with_match():
+    assert theme_bias_score({"family", "ritual"}, "family") == 1.0
+
+
+def test_theme_bias_score_without_match():
+    assert theme_bias_score({"family", "ritual"}, "cricket") == 0.0
+
+
+def test_theme_bias_score_empty_question_themes():
+    assert theme_bias_score(set(), "family") == 0.0
+
+
+def test_combined_score_applies_theme_bias():
+    """Active theme overlapping a candidate's themes adds the bias term."""
+    baseline = combined_score(
+        "thread_deepen",
+        {"family"},
+        set(),  # no recent themes -> diversity = 1.0
+        active_theme_slug=None,
+    )
+    biased = combined_score(
+        "thread_deepen",
+        {"family"},
+        set(),
+        active_theme_slug="family",
+    )
+    assert biased == pytest.approx(baseline + THEME_BIAS_WEIGHT)
+
+
+def test_combined_score_theme_bias_skips_when_no_overlap():
+    score_without_overlap = combined_score(
+        "thread_deepen",
+        {"career"},
+        set(),
+        active_theme_slug="family",
+    )
+    score_no_theme = combined_score(
+        "thread_deepen",
+        {"career"},
+        set(),
+        active_theme_slug=None,
+    )
+    assert score_without_overlap == score_no_theme
