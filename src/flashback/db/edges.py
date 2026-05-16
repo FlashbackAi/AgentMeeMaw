@@ -58,10 +58,13 @@ VALID_EDGE_PATTERNS: dict[str, frozenset[tuple[str, str]]] = {
     "answered_by": frozenset({
         ("question", "moment"),
     }),
+    "themed_as": frozenset({
+        ("moment", "theme"),
+    }),
 }
 
 VALID_KINDS: frozenset[str] = frozenset({
-    "moment", "entity", "thread", "trait", "question", "person",
+    "moment", "entity", "thread", "trait", "question", "person", "theme",
 })
 
 
