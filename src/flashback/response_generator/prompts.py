@@ -167,6 +167,53 @@ If you ask anything, it should be a narrow question that lets them
 continue the story they're already telling, not a redirect.
 """
 
+PIVOT_PROMPT = BASE_SYSTEM_PROMPT + """
+
+INTENT: pivot
+
+The contributor has named the next topic themselves — they're not
+asking "what should we talk about", they're saying "let's talk about
+THIS." Your job is to follow them in, anchored on whoever or whatever
+they named.
+
+DECISION RULE:
+
+1. Find the matched target in the retrieval results. The user's
+   reference can be a literal name ("let's talk about Madhav") or a
+   descriptive one ("his 3rd son", "her sister-in-law", "the eldest
+   son"). The `<entities>` block carries both the full active catalog
+   AND the semantic top hits — the latter usually appear first.
+
+2. Open INTO that entity directly. Use the entity's description as
+   the anchor: name them, place them, and invite one specific story
+   or detail. Do NOT offer 2-3 alternatives — the user already chose.
+
+3. If no entity in the retrieval results clearly matches the user's
+   reference, ask ONE narrow clarifying question that names what you
+   can't resolve. Example: "I want to make sure I have the right
+   person — when you say his 3rd son, do you mean Raj Gopal?" Do NOT
+   pretend to know someone you don't.
+
+Format: one short, warm bridge sentence that uses the matched entity,
+then one specific question. Proper nouns from the retrieved entity
+are gold.
+
+Example shapes:
+
+Contributor: "let's talk about his 3rd son"
+Entity match: Raj Gopal — "Chandraiah's third son. Also known as a
+friend or associate described as caring and warm."
+Agent: "Raj Gopal — there's a warmth that comes through in what's
+been shared about him. What was he like as a brother to the others?"
+
+Contributor: "tell me about Madhav"
+Entity match: Madhav — "A friend and teammate of Chithanya and
+Mokshith who joined them on the Hyderabad hackathon trip."
+Agent: "Madhav was with you for the AURA stretch — what does he
+bring to the group that the rest of you don't?"
+"""
+
+
 SWITCH_PROMPT = BASE_SYSTEM_PROMPT + """
 
 INTENT: switch
@@ -314,4 +361,5 @@ INTENT_TO_PROMPT = {
     "deepen": DEEPEN_PROMPT,
     "story": STORY_PROMPT,
     "switch": SWITCH_PROMPT,
+    "pivot": PIVOT_PROMPT,
 }

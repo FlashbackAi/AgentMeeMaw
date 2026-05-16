@@ -302,7 +302,7 @@ class HttpConfig:
     voyage_api_key: str = ""
     embedding_model: str = "voyage-3-large"
     embedding_model_version: str = "2025-01-07"
-    retrieval_query_embed_timeout_seconds: float = 2.0
+    retrieval_query_embed_timeout_seconds: float = 5.0
     retrieval_default_limit: int = 10
     retrieval_max_limit: int = 50
     max_request_body_bytes: int = 262144
@@ -449,7 +449,7 @@ class HttpConfig:
                 "EMBEDDING_MODEL_VERSION", "2025-01-07"
             ),
             retrieval_query_embed_timeout_seconds=float(
-                os.environ.get("RETRIEVAL_QUERY_EMBED_TIMEOUT_SECONDS", "2")
+                os.environ.get("RETRIEVAL_QUERY_EMBED_TIMEOUT_SECONDS", "5")
             ),
             retrieval_default_limit=int(
                 os.environ.get("RETRIEVAL_DEFAULT_LIMIT", "10")

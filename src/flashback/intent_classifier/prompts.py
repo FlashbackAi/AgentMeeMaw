@@ -48,8 +48,19 @@ INTENTS - definitions and selection rules:
   invites expansion.
 
 - `switch`: The user has exhausted the current topic, or they're
-  explicitly asking to move on. Example: "I don't really remember
-  much else about that. What else?"
+  explicitly asking to move on WITHOUT naming where to go. The
+  assistant picks the next direction. Example: "I don't really
+  remember much else about that. What else?" Also: "you choose",
+  "ask me something", "I don't know, you pick".
+
+- `pivot`: The user is leaving the current topic AND naming the next
+  one. They've already chosen — the assistant follows. The named
+  target may be a proper noun ("let's talk about Madhav") OR a
+  descriptive reference to someone/something in the subject's life
+  ("tell me about his eldest son", "let's talk about his 3rd son",
+  "what about her sister-in-law"). The defining signal is: the user
+  has supplied the destination, so the assistant should not offer
+  alternatives.
 
 OUTCOMES — what each intent triggers downstream:
 
@@ -71,6 +82,12 @@ Your classification routes the next assistant turn. Consider not just
   catalog (or bridges to a seeded question). No moments retrieval.
   Use when the user signals "let's move on" or stalls into
   disengagement.
+- `pivot` → assistant opens DIRECTLY into the target the user named,
+  resolving it against the entity catalog (both literal names and
+  descriptive references). Uses get_entities for the full catalog
+  AND search_entities for semantic match on descriptions. No seeded
+  question, no tap, no alternatives. Use when the user has named the
+  next topic themselves.
 
 EMOTIONAL TEMPERATURE:
 
@@ -89,6 +106,25 @@ A few important rules:
   If the most recent line lands with weight, classify `deepen`.
 - `switch` requires the user to actively signal they're done with
   the topic, not just a brief pause in narration.
+- `pivot` vs `switch` boundary: if the user named WHERE to go,
+  classify `pivot`. If they only said they're done and left the
+  choice to the assistant, classify `switch`. Contrastive examples:
+  * "What else?" → `switch` (no destination named)
+  * "Let's talk about his 3rd son." → `pivot` (destination named)
+  * "I don't know, you pick." → `switch`
+  * "Tell me about Madhav." → `pivot`
+  * "Let's move on." → `switch`
+  * "Let's move on to his sister." → `pivot`
+- `pivot` covers descriptive references too, not just proper nouns.
+  "His eldest son", "her sister-in-law", "the third son" are all
+  valid pivot targets even when the assistant doesn't yet know who
+  they map to in the graph — the retrieval step will try to resolve.
+- "Who is X" / "What do you know about X" with X being a name or a
+  descriptive person/place reference is NOT `clarify`. Classify it
+  as `recall` (asking the agent to surface a known fact) so the
+  vector retrieval step fires. Reserve `clarify` for genuinely
+  ambiguous referents like a bare "she" or "that one" with no clear
+  antecedent.
 - **Tap acceptance.** If `pending_tap_question` is set to a
   non-empty value in the signals block, the prior assistant turn
   surfaced a tappable question and the user's most recent message
@@ -136,7 +172,7 @@ INTENT_TOOL = ToolSpec(
         "properties": {
             "intent": {
                 "type": "string",
-                "enum": ["clarify", "recall", "deepen", "story", "switch"],
+                "enum": ["clarify", "recall", "deepen", "story", "switch", "pivot"],
                 "description": "The single best classification.",
             },
             "confidence": {

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-Intent = Literal["clarify", "recall", "deepen", "story", "switch"]
+Intent = Literal["clarify", "recall", "deepen", "story", "switch", "pivot"]
 Confidence = Literal["low", "medium", "high"]
 Temperature = Literal["low", "medium", "high"]
 

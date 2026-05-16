@@ -293,7 +293,7 @@ class Orchestrator:
                 fn=lambda: select_coverage_tap(state, self._deps),
                 state=state,
             )
-            if state.effective_intent in {"recall", "clarify", "switch"}:
+            if state.effective_intent in {"recall", "clarify", "switch", "pivot"}:
                 await execute(
                     policies=TURN_POLICIES,
                     step_name="retrieve",
