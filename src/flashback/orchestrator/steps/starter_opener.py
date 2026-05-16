@@ -90,6 +90,11 @@ async def generate_opener(
             state.response = None
             log.info("response_generator.skipped", reason="not_configured")
             return
+        theme_archetype_answers = state.session_metadata.get(
+            "theme_archetype_answers"
+        ) or []
+        if not isinstance(theme_archetype_answers, list):
+            theme_archetype_answers = []
         ctx = StarterContext(
             person_name=state.person_name,
             person_relationship=state.person_relationship,
@@ -106,6 +111,15 @@ async def generate_opener(
             prior_session_summary=_string_or_none(
                 state.session_metadata.get("prior_session_summary")
             ),
+            current_theme_display_name=_string_or_none(
+                state.session_metadata.get("current_theme_display_name")
+            ),
+            current_theme_kind=_string_or_none(
+                state.session_metadata.get("current_theme_kind")
+            ),
+            theme_archetype_answers=[
+                a for a in theme_archetype_answers if isinstance(a, dict)
+            ],
         )
         state.response = await deps.response_generator.generate_starter_opener(ctx)
         log.info("starter_opener.completed", opener_length=len(state.response.text))
@@ -164,6 +178,15 @@ async def init_working_memory(
             started_at=state.started_at,
             seed_prior_session_summary=str(seed_summary),
             contributor_display_name=str(contributor_display_name).strip(),
+            current_theme_id=str(
+                state.session_metadata.get("current_theme_id") or ""
+            ),
+            current_theme_slug=str(
+                state.session_metadata.get("current_theme_slug") or ""
+            ),
+            current_theme_display_name=str(
+                state.session_metadata.get("current_theme_display_name") or ""
+            ),
         )
 
 

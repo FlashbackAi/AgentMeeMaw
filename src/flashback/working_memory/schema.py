@@ -96,6 +96,15 @@ class WorkingMemoryState(BaseModel):
     # greeting") gets classified as story / deepen, not switch.
     signal_pending_tap_question: str = ""
 
+    # ---- Theme deepen-session context (invariant: soft bias only) --------
+    # Set when /session/start is called with a theme_id in session_metadata.
+    # Producer ranker reads ``current_theme_slug`` to bump matching
+    # candidates; response generator reads display_name to flavor turns.
+    # Empty strings = no active theme.
+    current_theme_id: str = ""
+    current_theme_slug: str = ""
+    current_theme_display_name: str = ""
+
     @field_validator("started_at")
     @classmethod
     def _ensure_tz(cls, v: datetime) -> datetime:
@@ -166,4 +175,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "emitted_tap_question_ids": json.dumps(state.emitted_tap_question_ids),
         "user_turns_since_last_tap": str(state.user_turns_since_last_tap),
         "signal_pending_tap_question": state.signal_pending_tap_question,
+        "current_theme_id": state.current_theme_id,
+        "current_theme_slug": state.current_theme_slug,
+        "current_theme_display_name": state.current_theme_display_name,
     }

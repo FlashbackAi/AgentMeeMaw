@@ -19,6 +19,13 @@ TIEBREAKER_DIMENSIONS: tuple[str, ...] = (
     "sensory",
 )
 
+# Bonus added to a candidate's combined_score when its themes overlap
+# with the active deepen-session theme. Soft bias only — large enough
+# to break ties in favor of theme-aligned questions but small enough
+# that a high-priority source (dropped_reference) on a different theme
+# still wins.
+THEME_BIAS_WEIGHT: float = 1.5
+
 
 def source_priority_score(source: str) -> float:
     """Higher is better. ``dropped_reference`` = 4.0; unknowns = 0.0."""
@@ -37,12 +44,27 @@ def diversity_score(question_themes: set[str], recent_themes: set[str]) -> float
     return 1.0 - (overlap / len(question_themes))
 
 
+def theme_bias_score(
+    question_themes: set[str], active_theme_slug: str | None
+) -> float:
+    """Return 1.0 when any of the question's themes match the active
+    deepen-session theme slug, else 0.0. Multiplied by THEME_BIAS_WEIGHT
+    in :func:`combined_score`."""
+    if not active_theme_slug:
+        return 0.0
+    if not question_themes:
+        return 0.0
+    return 1.0 if active_theme_slug in question_themes else 0.0
+
+
 def combined_score(
     source: str,
     question_themes: set[str],
     recent_themes: set[str],
+    active_theme_slug: str | None = None,
 ) -> float:
     return (
         source_priority_score(source)
         + DIVERSITY_WEIGHT * diversity_score(question_themes, recent_themes)
+        + THEME_BIAS_WEIGHT * theme_bias_score(question_themes, active_theme_slug)
     )

@@ -92,6 +92,9 @@ class WorkingMemory:
         started_at: datetime,
         seed_prior_session_summary: str = "",
         contributor_display_name: str = "",
+        current_theme_id: str = "",
+        current_theme_slug: str = "",
+        current_theme_display_name: str = "",
     ) -> None:
         """
         Create WM for a new session.
@@ -130,6 +133,9 @@ class WorkingMemory:
             started_at=started_at,
             prior_session_summary=seed_prior_session_summary,
             contributor_display_name=contributor_display_name,
+            current_theme_id=current_theme_id,
+            current_theme_slug=current_theme_slug,
+            current_theme_display_name=current_theme_display_name,
         )
         mapping = serialise_state_for_init(state)
         async with self._redis.pipeline(transaction=True) as p:

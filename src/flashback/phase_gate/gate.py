@@ -25,12 +25,17 @@ class PhaseGate:
         person_id: UUID,
         session_id: UUID,
         recently_asked_ids: list[UUID] | None = None,
+        active_theme_slug: str | None = None,
     ) -> SelectionResult:
         """Read ``persons.phase`` and select from the runtime question bank.
 
         ``recently_asked_ids`` carries the session-scoped Working Memory
         register for callers that still pass it. The steady selector reads
         the same list internally for duplicate avoidance and diversity.
+
+        ``active_theme_slug`` (if set, e.g. during a deepen session) adds
+        a soft bias to candidates whose ``attributes.themes`` overlaps.
+        Never a hard filter — see CLAUDE.md theme spec.
         """
         phase = await self._read_phase(person_id)
         if phase == "starter":
@@ -38,9 +43,14 @@ class PhaseGate:
                 person_id,
                 session_id,
                 sources=STARTER_FALLBACK_SOURCES,
+                active_theme_slug=active_theme_slug,
             )
         else:
-            result = await self._steady.select(person_id, session_id)
+            result = await self._steady.select(
+                person_id,
+                session_id,
+                active_theme_slug=active_theme_slug,
+            )
         result.phase = phase
         result.rationale = result.rationale or f"{phase} selection"
         return result

@@ -40,6 +40,7 @@ class SteadySelector:
         session_id: UUID,
         *,
         sources: tuple[str, ...] = STEADY_SOURCES,
+        active_theme_slug: str | None = None,
     ) -> SelectionResult:
         """Pick the next-best question from the person's bank.
 
@@ -70,6 +71,7 @@ class SteadySelector:
                     candidate.source,
                     candidate.themes,
                     recent_themes,
+                    active_theme_slug=active_theme_slug,
                 ),
             )
             for candidate in candidates

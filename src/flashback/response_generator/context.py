@@ -87,6 +87,14 @@ def render_turn_context(ctx: TurnContext) -> str:
         body = xml_text(ctx.tap_question_text or "")
         sections.append(f"<tap_pending{dim_attr}>{body}</tap_pending>")
 
+    if ctx.current_theme_display_name:
+        sections.append(
+            _block(
+                "current_theme",
+                xml_text(ctx.current_theme_display_name),
+            )
+        )
+
     return "\n\n".join(sections)
 
 
@@ -94,6 +102,20 @@ def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
     if ctx.contributor_display_name:
         sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
+    if ctx.current_theme_display_name:
+        theme_block_lines: list[str] = [
+            f'<current_theme kind="{xml_text(ctx.current_theme_kind or "")}">',
+            xml_text(ctx.current_theme_display_name),
+        ]
+        if ctx.theme_archetype_answers:
+            theme_block_lines.append("<archetype_answers>")
+            for ans in ctx.theme_archetype_answers:
+                text = _format_theme_archetype_answer(ans)
+                if text:
+                    theme_block_lines.append(f"- {xml_text(text)}")
+            theme_block_lines.append("</archetype_answers>")
+        theme_block_lines.append("</current_theme>")
+        sections.append("\n".join(theme_block_lines))
     if ctx.anchor_dimension and ctx.anchor_question_text:
         sections.append(
             "\n".join(
@@ -111,6 +133,28 @@ def render_starter_context(ctx: StarterContext) -> str:
             _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
         )
     return "\n\n".join(sections)
+
+
+def _format_theme_archetype_answer(answer: dict) -> str:
+    """Render a single archetype answer row as a short readable line.
+
+    Expected shape: ``{'question_id', 'question_text'?, 'option_id'?,
+    'option_label'?, 'free_text'?}``. Node decides what to pack; we
+    accept several layouts gracefully.
+    """
+    question = (
+        answer.get("question_text") or answer.get("text") or answer.get("question") or ""
+    )
+    chosen = (
+        answer.get("option_label")
+        or answer.get("label")
+        or answer.get("free_text")
+        or answer.get("answer")
+        or ""
+    )
+    if question and chosen:
+        return f"{question.strip()} — {chosen.strip()}"
+    return chosen.strip() or question.strip()
 
 
 def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:

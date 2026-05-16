@@ -33,10 +33,16 @@ async def select_question(state: TurnState, deps: OrchestratorDeps) -> None:
                 str(state.session_id)
             )
             recently_asked_ids = [UUID(qid) for qid in raw_ids if qid]
+        active_theme_slug: str | None = None
+        if state.working_memory_state is not None:
+            slug = state.working_memory_state.current_theme_slug
+            if slug:
+                active_theme_slug = slug
         state.selection = await deps.phase_gate.select_next_question(
             person_id=state.person_id,
             session_id=state.session_id,
             recently_asked_ids=recently_asked_ids,
+            active_theme_slug=active_theme_slug,
         )
         log.info(
             "phase_gate.selected",

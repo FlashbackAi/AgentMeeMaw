@@ -66,6 +66,11 @@ async def generate_response(state: TurnState, deps: OrchestratorDeps) -> None:
                 if state.taps and state.taps[0].dimension
                 else None
             ),
+            current_theme_display_name=(
+                wm_state.current_theme_display_name
+                if wm_state.current_theme_display_name
+                else None
+            ),
         )
         state.response = await deps.response_generator.generate_turn_response(ctx)
         log.info(

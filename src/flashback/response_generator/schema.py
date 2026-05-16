@@ -40,6 +40,13 @@ class StarterContext(BaseModel):
     anchor_dimension: AnchorDimension | None = None
     prior_session_summary: str | None = None
 
+    # Theme deepen context (optional). When set, the opener should
+    # acknowledge that this is a theme-focused session — without
+    # turning into a survey.
+    current_theme_display_name: str | None = None
+    current_theme_kind: str | None = None  # 'universal' | 'emergent'
+    theme_archetype_answers: list[dict] = Field(default_factory=list)
+
 
 class FirstTimeOpenerContext(BaseModel):
     """Context for the very first opener, right after archetype onboarding.
@@ -84,6 +91,10 @@ class TurnContext(BaseModel):
     # Free-form: usually one of AnchorDimension but may be empty / non-anchor
     # when a steady-selector seeded question is promoted to a tap.
     tap_dimension: str | None = None
+
+    # Active deepen-session theme, if any. Soft bias: the agent should
+    # tilt toward this theme but follow the user when conversation drifts.
+    current_theme_display_name: str | None = None
 
 
 class ResponseResult(BaseModel):
