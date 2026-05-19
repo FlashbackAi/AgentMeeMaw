@@ -25,6 +25,7 @@ from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.protocol import Tap
 from flashback.orchestrator.state import TurnState
 from flashback.orchestrator.tap_options import generate_tap_options
+from flashback.phase_gate.steady_selector import PRODUCER_SOURCES
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -35,6 +36,18 @@ async def promote_seeded_to_tap(state: TurnState, deps: OrchestratorDeps) -> Non
             return
         selection = state.selection
         if selection is None or selection.question_id is None or not selection.question_text:
+            return
+        # Producer-bank questions (P1-P5) carry the new chip surface inline,
+        # not the tap-card surface. Coverage taps (P0) use their own path
+        # via select_coverage_tap. See CLAUDE.md cold-start machinery + the
+        # question_decisions plan. Skipping here keeps us from rendering
+        # two competing skip surfaces on the same question.
+        if selection.source in PRODUCER_SOURCES:
+            log.info(
+                "promote_seeded_to_tap.skipped",
+                reason="producer_bank_uses_chip_surface",
+                source=selection.source,
+            )
             return
 
         wm_state = state.working_memory_state or await deps.working_memory.get_state(

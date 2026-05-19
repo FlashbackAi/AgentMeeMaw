@@ -12,6 +12,7 @@ from flashback.http.auth import require_service_token
 from flashback.http.deps import get_orchestrator, get_redis, get_working_memory
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.http.models import (
+    QuestionChipsOut,
     SessionStartMetadata,
     SessionStartRequest,
     SessionStartResponse,
@@ -83,6 +84,14 @@ async def session_start(
             )
 
     log.info("session.start", phase=result.phase)
+    chips_out = (
+        QuestionChipsOut(
+            question_id=result.chips.question_id,
+            actions=list(result.chips.actions),
+        )
+        if result.chips
+        else None
+    )
     return SessionStartResponse(
         session_id=body.session_id,
         opener=result.opener,
@@ -90,6 +99,7 @@ async def session_start(
             phase=result.phase,
             selected_question_id=result.selected_question_id,
             taps=result.taps,
+            question_chips=chips_out,
         ),
     )
 

@@ -34,15 +34,20 @@ async def select_question(state: TurnState, deps: OrchestratorDeps) -> None:
             )
             recently_asked_ids = [UUID(qid) for qid in raw_ids if qid]
         active_theme_slug: str | None = None
+        last_seeded_source: str | None = None
         if state.working_memory_state is not None:
             slug = state.working_memory_state.current_theme_slug
             if slug:
                 active_theme_slug = slug
+            src = state.working_memory_state.last_seeded_source
+            if src:
+                last_seeded_source = src
         state.selection = await deps.phase_gate.select_next_question(
             person_id=state.person_id,
             session_id=state.session_id,
             recently_asked_ids=recently_asked_ids,
             active_theme_slug=active_theme_slug,
+            last_seeded_source=last_seeded_source,
         )
         log.info(
             "phase_gate.selected",
@@ -53,6 +58,7 @@ async def select_question(state: TurnState, deps: OrchestratorDeps) -> None:
                 else None
             ),
             source=state.selection.source,
+            last_seeded_source=last_seeded_source,
             rationale=state.selection.rationale,
             recently_asked_n=len(recently_asked_ids),
         )

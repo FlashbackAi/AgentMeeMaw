@@ -81,6 +81,50 @@ async def load_continuity_context(
             state.session_metadata["prior_session_summary"] = summary
 
 
+async def select_starter_question(
+    state: SessionStartState,
+    deps: OrchestratorDeps,
+) -> None:
+    """Pick a producer-bank question for the starter-phase opener.
+
+    Only runs in starter phase. If the bank is empty (very first session
+    post-onboarding), ``state.selection`` stays None and the opener is
+    purely LLM-generated from StarterContext without an anchor question.
+    """
+    with timed_step(log, "select_starter_question"):
+        if state.person_phase != "starter":
+            return
+        phase_gate = getattr(deps, "phase_gate", None)
+        if phase_gate is None:
+            log.info("select_starter_question.skipped", reason="no_phase_gate")
+            return
+        try:
+            state.selection = await phase_gate.select_next_question(
+                person_id=state.person_id,
+                session_id=state.session_id,
+                recently_asked_ids=[],
+                active_theme_slug=None,
+                last_seeded_source=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # The opener must not fail just because question selection
+            # couldn't run. Leave state.selection unset and continue with
+            # an LLM-only opener.
+            log.warning(
+                "select_starter_question.degraded",
+                error=type(exc).__name__,
+                detail=str(exc),
+            )
+            return
+        if state.selection and state.selection.question_id is not None:
+            log.info(
+                "starter_question.selected",
+                question_id=str(state.selection.question_id),
+                source=state.selection.source,
+                rationale=state.selection.rationale,
+            )
+
+
 async def generate_opener(
     state: SessionStartState,
     deps: OrchestratorDeps,
@@ -95,6 +139,9 @@ async def generate_opener(
         ) or []
         if not isinstance(theme_archetype_answers, list):
             theme_archetype_answers = []
+        anchor_text: str | None = None
+        if state.selection and state.selection.question_text:
+            anchor_text = state.selection.question_text
         ctx = StarterContext(
             person_name=state.person_name,
             person_relationship=state.person_relationship,
@@ -106,7 +153,7 @@ async def generate_opener(
                 state.session_metadata.get("contributor_role")
                 or state.session_metadata.get("role")
             ),
-            anchor_question_text=None,
+            anchor_question_text=anchor_text,
             anchor_dimension=None,
             prior_session_summary=_string_or_none(
                 state.session_metadata.get("prior_session_summary")
@@ -212,6 +259,7 @@ async def append_opener(state: SessionStartState, deps: OrchestratorDeps) -> Non
             await deps.working_memory.set_seeded_question(
                 session_id=str(state.session_id),
                 question_id=question_id,
+                source=state.selection.source,
             )
             await deps.working_memory.append_asked_question(
                 session_id=str(state.session_id),

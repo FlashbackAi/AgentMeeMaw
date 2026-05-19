@@ -11,16 +11,28 @@ from redis.asyncio import Redis
 from flashback.config import HttpConfig
 from flashback.http.auth import require_service_token
 from flashback.http.deps import (
+    get_db_pool,
     get_http_config,
     get_orchestrator,
     get_redis,
     get_working_memory,
 )
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
-from flashback.http.models import TurnMetadata, TurnRequest, TurnResponse
+from flashback.http.models import (
+    QuestionChipsOut,
+    TurnMetadata,
+    TurnRequest,
+    TurnResponse,
+)
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
+from flashback.question_decisions import QuestionDecisionRepository
 from flashback.working_memory import WorkingMemory
+
+try:  # AsyncConnectionPool is a runtime dependency; type-only here.
+    from psycopg_pool import AsyncConnectionPool
+except ImportError:  # pragma: no cover - imported by app at boot
+    AsyncConnectionPool = None  # type: ignore[assignment]
 
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.turn")
@@ -34,6 +46,7 @@ async def turn(
     redis: Redis = Depends(get_redis),
     wm: WorkingMemory = Depends(get_working_memory),
     orch: OrchestratorProtocol = Depends(get_orchestrator),
+    db_pool: "AsyncConnectionPool" = Depends(get_db_pool),
 ) -> TurnResponse:
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
@@ -51,6 +64,30 @@ async def turn(
         session_id=str(body.session_id),
         limit_per_minute=cfg.turn_rate_limit_per_minute,
     )
+
+    if body.question_decision is not None:
+        # Persist before the pipeline runs so the steady selector's
+        # eligibility query reads the new decision in the same /turn call.
+        repo = QuestionDecisionRepository(db_pool)
+        await repo.record(
+            person_id=body.person_id,
+            question_id=body.question_decision.question_id,
+            action=body.question_decision.action,
+        )
+        # Stamp the decision target into the session's recently-asked
+        # window so the in-memory same-turn select_question call also
+        # treats it as recently surfaced. This defends against the LEFT
+        # JOIN race where the SELECT sees the decision row but a small
+        # number of in-flight transactions might not.
+        await wm.append_asked_question(
+            session_id=str(body.session_id),
+            question_id=str(body.question_decision.question_id),
+        )
+        log.info(
+            "question_decision.recorded",
+            question_id=str(body.question_decision.question_id),
+            action=body.question_decision.action,
+        )
 
     return await run_idempotent(
         redis,
@@ -98,6 +135,14 @@ async def _run_turn(
         emotional_temperature=result.emotional_temperature,
         segment_boundary=result.segment_boundary,
     )
+    chips_out = (
+        QuestionChipsOut(
+            question_id=result.chips.question_id,
+            actions=list(result.chips.actions),
+        )
+        if result.chips
+        else None
+    )
     return TurnResponse(
         reply=result.reply,
         metadata=TurnMetadata(
@@ -105,6 +150,7 @@ async def _run_turn(
             emotional_temperature=result.emotional_temperature,
             segment_boundary=result.segment_boundary,
             taps=result.taps,
+            question_chips=chips_out,
         ),
     )
 

@@ -82,6 +82,7 @@ class WorkingMemoryState(BaseModel):
 
     last_opener: str = ""
     last_seeded_question_id: str = ""
+    last_seeded_source: str = ""
     taps_emitted_this_session: int = 0
     emitted_tap_question_ids: list[str] = Field(default_factory=list)
     # User turns since the last tap was emitted. Initialised high so the
@@ -171,6 +172,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "signal_last_intent": state.signal_last_intent,
         "last_opener": state.last_opener,
         "last_seeded_question_id": state.last_seeded_question_id,
+        "last_seeded_source": state.last_seeded_source,
         "taps_emitted_this_session": str(state.taps_emitted_this_session),
         "emitted_tap_question_ids": json.dumps(state.emitted_tap_question_ids),
         "user_turns_since_last_tap": str(state.user_turns_since_last_tap),

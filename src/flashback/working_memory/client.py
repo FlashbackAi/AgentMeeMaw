@@ -323,11 +323,20 @@ class WorkingMemory:
         self,
         session_id: str,
         question_id: str | None,
+        *,
+        source: str | None = None,
     ) -> None:
-        """Set or clear the last seeded question id."""
+        """Set or clear the last seeded question id and its source.
+
+        ``source`` is the producer-bank source string (e.g.
+        ``"underdeveloped_entity"``) used by the steady selector to
+        apply a same-source cooldown on the next turn. Always pass it
+        alongside the question id; pass ``None`` to clear both.
+        """
         await self.update_signals(
             session_id,
             last_seeded_question_id=question_id or "",
+            last_seeded_source=source or "",
         )
 
     async def append_asked_question(

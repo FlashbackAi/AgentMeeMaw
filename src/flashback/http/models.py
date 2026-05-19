@@ -15,6 +15,29 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from flashback.orchestrator.protocol import Tap
 
 
+class QuestionChipsOut(BaseModel):
+    """Chip metadata for a seeded producer-bank question.
+
+    Rendered as Skip / Don't ask again / I'll tell you later beneath
+    the bot reply. The Node UI POSTs a chosen action back on the next
+    `/turn` via :class:`QuestionDecisionInput`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: UUID
+    actions: list[Literal["skip", "suppress", "defer"]]
+
+
+class QuestionDecisionInput(BaseModel):
+    """User decision on a producer-bank question carried on the next /turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: UUID
+    action: Literal["skip", "suppress", "defer"]
+
+
 # --- /session/start --------------------------------------------------------
 
 
@@ -34,6 +57,7 @@ class SessionStartMetadata(BaseModel):
     phase: Literal["starter", "steady"]
     selected_question_id: UUID | None = None
     taps: list[Tap] = Field(default_factory=list)
+    question_chips: QuestionChipsOut | None = None
 
 
 class SessionStartResponse(BaseModel):
@@ -54,6 +78,7 @@ class TurnRequest(BaseModel):
     person_id: UUID
     role_id: UUID
     message: str = Field(min_length=1, max_length=8000)
+    question_decision: QuestionDecisionInput | None = None
 
 
 class TurnMetadata(BaseModel):
@@ -63,6 +88,7 @@ class TurnMetadata(BaseModel):
     emotional_temperature: Literal["low", "medium", "high"] | None = None
     segment_boundary: bool = False
     taps: list[Tap] = Field(default_factory=list)
+    question_chips: QuestionChipsOut | None = None
 
 
 class TurnResponse(BaseModel):

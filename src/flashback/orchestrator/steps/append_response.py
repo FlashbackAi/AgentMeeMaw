@@ -40,4 +40,5 @@ async def append_assistant(state: TurnState, deps: OrchestratorDeps) -> None:
             await deps.working_memory.set_seeded_question(
                 str(state.session_id),
                 question_id,
+                source=state.selection.source,
             )

@@ -23,6 +23,7 @@ from flashback.orchestrator.failure_policy import (
     TURN_POLICIES,
     execute,
 )
+from flashback.orchestrator.protocol import QuestionChips
 from flashback.orchestrator.protocol import (
     SessionStartResult,
     SessionWrapResult,
@@ -51,9 +52,11 @@ from flashback.orchestrator.steps import (
     scan_entity_mentions,
     select_coverage_tap,
     select_question,
+    select_starter_question,
 )
 from flashback.orchestrator.steps.wrap_session import wrap_session
 from flashback.phase_gate import PhaseGate, SteadySelector
+from flashback.phase_gate.steady_selector import PRODUCER_SOURCES
 from flashback.queues.producers_per_session import ProducersPerSessionQueueProducer
 from flashback.queues.profile_summary import ProfileSummaryQueueProducer
 from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
@@ -115,6 +118,12 @@ class Orchestrator:
                 )
                 await execute(
                     policies=SESSION_START_POLICIES,
+                    step_name="select_starter_question",
+                    fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
                     step_name="generate_opener",
                     fn=lambda: generate_opener(state, self._deps),
                     state=state,
@@ -157,6 +166,7 @@ class Orchestrator:
                     state.selection.question_id if state.selection else None
                 ),
                 taps=[],
+                chips=_chips_for_selection(state.selection),
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -242,6 +252,7 @@ class Orchestrator:
                     state.selection.question_id if state.selection else None
                 ),
                 taps=[],
+                chips=_chips_for_selection(state.selection),
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -405,7 +416,22 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         ),
         segment_boundary=state.segment_boundary_detected,
         taps=state.taps,
+        chips=_chips_for_selection(state.selection),
     )
+
+
+def _chips_for_selection(selection) -> QuestionChips | None:
+    """Return the chip row for a producer-bank question, else None.
+
+    The chip surface fires only when a producer-bank question is inlined
+    in the bot reply. Coverage taps (P0) keep their existing tap-card UI;
+    archetype questions (onboarding + theme unlock) never get chips.
+    """
+    if selection is None or selection.question_id is None:
+        return None
+    if selection.source not in PRODUCER_SOURCES:
+        return None
+    return QuestionChips(question_id=selection.question_id)
 
 
 def _deps_from_legacy_kwargs(**kwargs) -> OrchestratorDeps:

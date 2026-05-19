@@ -18,6 +18,7 @@ from flashback.orchestrator.steps.starter_opener import (
     init_working_memory,
     load_continuity_context,
     load_person,
+    select_starter_question,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "scan_entity_mentions",
     "select_coverage_tap",
     "select_question",
+    "select_starter_question",
 ]

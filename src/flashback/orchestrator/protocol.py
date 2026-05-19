@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,12 +25,31 @@ class Tap(BaseModel):
     options: list[str] = Field(default_factory=list)
 
 
+class QuestionChips(BaseModel):
+    """Skip / Don't ask again / I'll tell you later — chip surface for
+    producer-bank questions.
+
+    Rendered inline below the bot reply. Distinct from :class:`Tap`,
+    which is the P0 coverage-tap surface (those carry answer-option
+    chips). These chips capture *meta-intent* about whether to be
+    asked again, not a substantive answer.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    question_id: UUID
+    actions: list[Literal["skip", "suppress", "defer"]] = Field(
+        default_factory=lambda: ["skip", "suppress", "defer"]
+    )
+
+
 @dataclass(frozen=True)
 class SessionStartResult:
     opener: str
     phase: str
     selected_question_id: UUID | None
     taps: list[Tap]
+    chips: QuestionChips | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +59,7 @@ class TurnResult:
     emotional_temperature: str | None
     segment_boundary: bool
     taps: list[Tap]
+    chips: QuestionChips | None = None
 
 
 @dataclass(frozen=True)
