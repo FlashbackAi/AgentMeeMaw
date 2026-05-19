@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -15,13 +15,14 @@ from flashback.phase_gate.schema import SelectionResult
 from flashback.working_memory import WorkingMemory
 
 UNIVERSAL_DIMENSION_DEMOTION_GAP = 1.5
-STEADY_SOURCES: tuple[str, ...] = (
+PRODUCER_SOURCES: tuple[str, ...] = (
     "dropped_reference",
     "underdeveloped_entity",
     "thread_deepen",
     "life_period_gap",
     "universal_dimension",
 )
+STEADY_SOURCES: tuple[str, ...] = PRODUCER_SOURCES
 STARTER_FALLBACK_SOURCES: tuple[str, ...] = (
     "underdeveloped_entity",
     "life_period_gap",
@@ -41,14 +42,20 @@ class SteadySelector:
         *,
         sources: tuple[str, ...] = STEADY_SOURCES,
         active_theme_slug: str | None = None,
+        last_seeded_source: str | None = None,
     ) -> SelectionResult:
         """Pick the next-best question from the person's bank.
 
-        The docs express the universal cap as "1 universal_dimension per top-5".
-        Step 8 only returns a single question, so this implements the chosen
-        single-pick interpretation: if the top candidate is universal and a
-        non-universal candidate is within 1.5 score points, prefer the
-        non-universal to keep the next few turns from feeling survey-like.
+        Three-step fallback for the candidate pool:
+          1. Try the requested sources minus ``last_seeded_source`` (same-
+             source cooldown), with skipped questions excluded.
+          2. If empty, drop the same-source cooldown.
+          3. If still empty, drop the skipped-exclusion (skip fallback per
+             invariant: better to repeat than crash when the bank exhausts).
+
+        The recency term in :func:`combined_score` is fed
+        ``datetime.now(timezone.utc)`` so older questions decay against
+        fresh ones. Deferred questions get an additive ``DEFER_BOOST``.
         """
         recent_ids = [
             UUID(question_id)
@@ -56,14 +63,34 @@ class SteadySelector:
                 str(session_id)
             )
         ]
+        effective_sources: tuple[str, ...] = (
+            tuple(s for s in sources if s != last_seeded_source) or sources
+        )
         recent_themes = await self._fetch_recent_themes(recent_ids)
-        candidates = await self._fetch_candidates(person_id, recent_ids, sources)
+
+        used_source_cooldown_fallback = False
+        used_skip_fallback = False
+
+        candidates = await self._fetch_candidates(
+            person_id, recent_ids, effective_sources, exclude_skipped=True
+        )
+        if not candidates and effective_sources != sources:
+            candidates = await self._fetch_candidates(
+                person_id, recent_ids, sources, exclude_skipped=True
+            )
+            used_source_cooldown_fallback = bool(candidates)
+        if not candidates:
+            candidates = await self._fetch_candidates(
+                person_id, recent_ids, sources, exclude_skipped=False
+            )
+            used_skip_fallback = bool(candidates)
         if not candidates:
             return SelectionResult(
                 phase="steady",
                 rationale="steady bank empty; no seeded question",
             )
 
+        now = datetime.now(timezone.utc)
         scored = [
             _ScoredCandidate(
                 candidate=candidate,
@@ -72,13 +99,24 @@ class SteadySelector:
                     candidate.themes,
                     recent_themes,
                     active_theme_slug=active_theme_slug,
+                    created_at=candidate.created_at,
+                    now=now,
+                    is_deferred=candidate.decision_action == "defer",
                 ),
             )
             for candidate in candidates
         ]
-        scored.sort(key=lambda item: (item.score, item.candidate.created_at), reverse=True)
+        scored.sort(
+            key=lambda item: (item.score, item.candidate.created_at),
+            reverse=True,
+        )
         selected = _apply_universal_dimension_demotion(scored)
         candidate = selected.candidate
+        rationale_suffix = ""
+        if used_skip_fallback:
+            rationale_suffix = " (fallback to skipped)"
+        elif used_source_cooldown_fallback:
+            rationale_suffix = " (fallback: source cooldown dropped)"
         return SelectionResult(
             phase="steady",
             question_id=candidate.id,
@@ -88,6 +126,7 @@ class SteadySelector:
             rationale=(
                 f"steady selected {candidate.source}; "
                 f"score={selected.score:.3f}; recent_themes={len(recent_themes)}"
+                f"{rationale_suffix}"
             ),
         )
 
@@ -110,6 +149,8 @@ class SteadySelector:
         person_id: UUID,
         recent_ids: list[UUID],
         sources: tuple[str, ...],
+        *,
+        exclude_skipped: bool,
     ) -> list["_Candidate"]:
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -119,6 +160,7 @@ class SteadySelector:
                         "person_id": person_id,
                         "recent_ids": recent_ids,
                         "sources": list(sources),
+                        "exclude_skipped": exclude_skipped,
                     },
                 )
                 rows = await cur.fetchall()
@@ -129,6 +171,8 @@ class SteadySelector:
                 source=row[2],
                 attributes=row[3] if isinstance(row[3], dict) else {},
                 created_at=row[4],
+                decision_action=row[5],
+                decision_decided_at=row[6],
             )
             for row in rows
         ]
@@ -141,6 +185,8 @@ class _Candidate:
     source: str
     attributes: dict[str, Any]
     created_at: datetime
+    decision_action: str | None = None
+    decision_decided_at: datetime | None = None
 
     @property
     def themes(self) -> set[str]:

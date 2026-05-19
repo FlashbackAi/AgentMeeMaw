@@ -35,6 +35,13 @@ WHERE q.source = 'coverage_tap'
   AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
   AND NOT EXISTS (
     SELECT 1
+    FROM active_question_decisions d
+    WHERE d.question_id = q.id
+      AND d.person_id   = %(person_id)s
+      AND d.action      = 'suppress'
+  )
+  AND NOT EXISTS (
+    SELECT 1
     FROM active_edges e
     JOIN active_moments m ON m.id = e.to_id
     WHERE e.from_kind = 'question'
@@ -66,11 +73,22 @@ WHERE q.id = ANY(%(question_ids)s::uuid[])
 """
 
 SELECT_STEADY_CANDIDATES = """
-SELECT q.id, q.text, q.source, q.attributes, q.created_at
+SELECT q.id, q.text, q.source, q.attributes, q.created_at,
+       d.action       AS decision_action,
+       d.decided_at   AS decision_decided_at
 FROM active_questions q
+LEFT JOIN active_question_decisions d
+  ON d.question_id = q.id
+ AND d.person_id   = %(person_id)s
 WHERE q.person_id = %(person_id)s
-  AND q.source = ANY(%(sources)s::text[])
-  AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
+  AND q.source    = ANY(%(sources)s::text[])
+  AND NOT (q.id   = ANY(%(recent_ids)s::uuid[]))
+  AND (d.action IS NULL OR d.action != 'suppress')
+  AND (
+        NOT %(exclude_skipped)s
+        OR d.action IS NULL
+        OR d.action != 'skip'
+      )
 ORDER BY
   CASE q.source
     WHEN 'dropped_reference' THEN 0

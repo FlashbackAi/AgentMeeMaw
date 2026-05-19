@@ -75,6 +75,8 @@ def _row(
     *,
     created_at: datetime,
     text: str = "Question?",
+    decision_action: str | None = None,
+    decision_decided_at: datetime | None = None,
 ):
     return (
         question_id,
@@ -82,6 +84,8 @@ def _row(
         source,
         {"themes": themes},
         created_at,
+        decision_action,
+        decision_decided_at,
     )
 
 
@@ -163,6 +167,39 @@ async def test_universal_dimension_demotion_does_not_fire_when_gap_is_large():
 
     result = await SteadySelector(pool, FakeWM()).select(PERSON_ID, SESSION_ID)
 
+    assert result.question_id == Q1
+
+
+async def test_last_seeded_source_is_excluded_when_alternative_exists():
+    pool = FakeSteadyPool(
+        candidates=[
+            _row(Q1, "life_period_gap", ["family"], created_at=BASE + timedelta(2)),
+        ]
+    )
+    result = await SteadySelector(pool, FakeWM()).select(
+        PERSON_ID,
+        SESSION_ID,
+        last_seeded_source="universal_dimension",
+    )
+    # universal_dimension is excluded but life_period_gap remains — fine.
+    assert result.question_id == Q1
+
+
+async def test_deferred_flag_is_passed_through_score_for_boost():
+    """A deferred candidate at equal source tier and age outranks a non-deferred peer."""
+    pool = FakeSteadyPool(
+        candidates=[
+            _row(
+                Q1,
+                "universal_dimension",
+                ["family"],
+                created_at=BASE,
+                decision_action="defer",
+            ),
+            _row(Q2, "universal_dimension", ["family"], created_at=BASE),
+        ]
+    )
+    result = await SteadySelector(pool, FakeWM()).select(PERSON_ID, SESSION_ID)
     assert result.question_id == Q1
 
 
