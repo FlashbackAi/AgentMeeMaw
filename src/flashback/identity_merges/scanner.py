@@ -290,11 +290,16 @@ def _source_target_by_detail(left, right):
 
 def _reason(candidate: IdentityMergeCandidate, verifier_reason: str) -> str:
     basis = {
-        "same_name": "The entities have the same normalized name.",
-        "alias_or_description": "One entity label appears as an alias or description detail for the other.",
-        "embedding_similarity": "The entity descriptions are close in embedding space.",
-    }.get(candidate.reason_kind, "The entities matched identity-merge heuristics.")
-    return f"{basis} Verifier: {verifier_reason}"
+        "same_name": f"Both rows are named {candidate.target_name!r}.",
+        "alias_or_description": (
+            f"{candidate.proposed_alias!r} appears in the other row's details."
+        ),
+        "embedding_similarity": "The descriptions are very similar.",
+    }.get(candidate.reason_kind, "The rows matched identity-merge checks.")
+    reason = verifier_reason.strip()
+    if reason:
+        return f"{basis} {reason}"
+    return basis
 
 
 def _norm(value: str | None) -> str:

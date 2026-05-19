@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 
 from flashback.db.connection import make_async_pool
-from flashback.identity_merges.repository import approve_merge_async
+from flashback.identity_merges.repository import approve_merge_async, list_suggestions_async
 
 
 @pytest_asyncio.fixture
@@ -125,10 +125,52 @@ async def test_approve_merge_repoints_edges_marks_source_and_requeues_embedding(
             "record_type": "entity",
             "record_id": target_id,
             "source_text": (
-                "A close mutual friend. Also known from earlier context as: "
+                "A close mutual friend. "
                 "Initially identified by an earlier label."
             ),
             "embedding_model": "voyage-3",
             "embedding_model_version": "v1",
         }
     ]
+
+
+async def test_list_suggestions_includes_descriptions(async_pool):
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO persons (name) VALUES ('Test Subject') RETURNING id::text"
+                )
+                person_id = (await cur.fetchone())[0]
+                await cur.execute(
+                    """
+                    INSERT INTO entities
+                          (person_id, kind, name, description, aliases)
+                    VALUES
+                          (%s, 'place', 'Old track',
+                           'Original track description.', '{}'),
+                          (%s, 'place', 'Bidadi Racing Track',
+                           'New track description.', '{}')
+                    RETURNING id::text
+                    """,
+                    (person_id, person_id),
+                )
+                source_id, target_id = [row[0] for row in await cur.fetchall()]
+                await cur.execute(
+                    """
+                    INSERT INTO identity_merge_suggestions
+                          (person_id, source_entity_id, target_entity_id,
+                           proposed_alias, reason)
+                    VALUES (%s, %s, %s, 'Old track',
+                            'The rows may describe the same place.')
+                    """,
+                    (person_id, source_id, target_id),
+                )
+
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            suggestions = await list_suggestions_async(cur, person_id=person_id)
+
+    assert len(suggestions) == 1
+    assert suggestions[0].source_entity_description == "Original track description."
+    assert suggestions[0].target_entity_description == "New track description."

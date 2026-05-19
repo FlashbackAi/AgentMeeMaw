@@ -19,8 +19,10 @@ class IdentityMergeSuggestion(BaseModel):
     person_id: UUID
     source_entity_id: UUID
     source_entity_name: str
+    source_entity_description: str | None = None
     target_entity_id: UUID
     target_entity_name: str
+    target_entity_description: str | None = None
     proposed_alias: str | None = None
     reason: str
     source: str

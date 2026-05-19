@@ -164,12 +164,12 @@ def _suggestion_reason(
 ) -> str:
     if _norm(source_name) == _norm(target_name):
         return (
-            f"Extraction created another active entity named {target_name!r}; "
-            f"existing entity {source_name!r} may be the same identity."
+            f"Both rows are named {target_name!r}. Review whether they refer "
+            "to the same entity before merging."
         )
     return (
-        f"Extraction treated {match_label!r} as an alias or description for "
-        f"{target_name!r}; existing entity {source_name!r} matches that label."
+        f"{match_label!r} appears in the details for {target_name!r}, so "
+        "these rows may describe the same entity."
     )
 
 
@@ -187,7 +187,9 @@ async def list_suggestions_async(
         """
         SELECT s.id, s.person_id,
                s.source_entity_id, src.name AS source_entity_name,
+               src.description AS source_entity_description,
                s.target_entity_id, tgt.name AS target_entity_name,
+               tgt.description AS target_entity_description,
                s.proposed_alias, s.reason, s.source, s.status, s.created_at
           FROM identity_merge_suggestions s
           JOIN entities src ON src.id = s.source_entity_id
@@ -207,13 +209,15 @@ async def list_suggestions_async(
             person_id=row[1],
             source_entity_id=row[2],
             source_entity_name=row[3],
-            target_entity_id=row[4],
-            target_entity_name=row[5],
-            proposed_alias=row[6],
-            reason=row[7],
-            source=row[8],
-            status=row[9],
-            created_at=row[10],
+            source_entity_description=row[4],
+            target_entity_id=row[5],
+            target_entity_name=row[6],
+            target_entity_description=row[7],
+            proposed_alias=row[8],
+            reason=row[9],
+            source=row[10],
+            status=row[11],
+            created_at=row[12],
         )
         for row in rows
     ]
@@ -487,10 +491,19 @@ def _merge_aliases(
 
 
 def _merge_description(target_description: str | None, source_description: str | None) -> str | None:
-    if not source_description:
-        return target_description
-    if not target_description:
-        return source_description
-    if source_description.lower() in target_description.lower():
-        return target_description
-    return f"{target_description} Also known from earlier context as: {source_description}"
+    target = _clean_description(target_description)
+    source = _clean_description(source_description)
+    if not source:
+        return target
+    if not target:
+        return source
+    if _norm(source) in _norm(target):
+        return target
+    if _norm(target) in _norm(source):
+        return source
+    return f"{target} {source}"
+
+
+def _clean_description(value: str | None) -> str | None:
+    cleaned = " ".join((value or "").split())
+    return cleaned or None
