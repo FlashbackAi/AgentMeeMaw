@@ -329,6 +329,39 @@ Every piece of code touching the graph or queues must respect these.
        wins. Retrieval and the response generator surface the
        theme but follow the user when conversation drifts.
 
+23. **Question decisions are explicit and durable.** The
+    `question_decisions` table captures per-(person, question) user
+    intent surfaced via the chip row beneath producer-bank questions.
+    Three actions: `skip`, `suppress`, `defer`. Eligibility queries
+    (`SELECT_STEADY_CANDIDATES` and `SELECT_UNANSWERED_COVERAGE_TAP`)
+    exclude `suppress` permanently and `skip` via a 3-step fallback —
+    skip-excluded first, then drop the same-source cooldown if that
+    empties the pool, then drop the skip exclusion entirely. `defer`
+    is *not* excluded by the SQL; it stays in the candidate set and
+    receives an additive `DEFER_BOOST` from `combined_score` so the
+    next session bumps it up. The chip surface fires only for
+    producer-bank sources (`dropped_reference`,
+    `underdeveloped_entity`, `thread_deepen`, `life_period_gap`,
+    `universal_dimension`); coverage taps (P0) keep their own
+    tap-card chip surface with answer options + skip, and archetype
+    questions (onboarding + theme unlock) are exempt. Decisions
+    arrive on the next `/turn` via the optional `question_decision`
+    field; the route persists them before the pipeline runs so the
+    same-call selector sees the new exclusion.
+
+24. **`combined_score` includes a recency term and a defer-boost.**
+    Source priority remains the dominant signal at equal age, but a
+    fresh lower-tier question can outrank an old higher-tier one when
+    the age gap is large. `RECENCY_WEIGHT = 2.5` with a 30-day
+    exponential half-life means a freshly produced `life_period_gap`
+    (tier 1) outranks a 90-day-old `underdeveloped_entity` (tier 3).
+    `DEFER_BOOST = 2.0` is constant and large enough that a deferred
+    question reliably outranks a same-tier fresh peer. The selector
+    additionally applies a session-scoped same-source cooldown via
+    Working Memory's `last_seeded_source` — it drops the previous
+    turn's source from the candidate sources, falling back when the
+    cooldown would empty the pool.
+
 ---
 
 ## 5. Schema invariants

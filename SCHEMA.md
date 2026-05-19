@@ -294,6 +294,49 @@ handler marks the source entity `merged`, sets `merged_into`, repoints
 entity edges, updates target aliases/description, clears target
 embedding fields, and queues a fresh entity embedding job.
 
+### 3.2 `question_decisions`
+
+Explicit user decisions on producer-bank questions, captured by the
+chip surface (Skip / Don't ask again / I'll tell you later) rendered
+beneath the bot reply. Supersession via status flip + new row, mirroring
+moments / entities / threads / profile facts.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | `gen_random_uuid()` |
+| `question_id` | UUID NOT NULL FK→questions | |
+| `person_id` | UUID NOT NULL FK→persons | Legacy scope |
+| `action` | TEXT NOT NULL | CHECK in (`'skip'`, `'suppress'`, `'defer'`) |
+| `decided_at` | TIMESTAMPTZ NOT NULL DEFAULT `now()` | When the user tapped |
+| `status` | TEXT NOT NULL DEFAULT `'active'` | CHECK in (`'active'`, `'superseded'`) |
+| `superseded_by` | UUID FK→question_decisions | Points at the row that replaced this one |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT `now()` | |
+
+**Constraints and indexes:**
+- partial UNIQUE `(question_id, person_id) WHERE status='active'` — at
+  most one active decision per (person, question)
+- `(person_id, action, decided_at) WHERE status='active'` — fast lookup
+  for the steady selector's LEFT JOIN
+
+**View:** `active_question_decisions` filters to `status='active'`.
+
+**Read paths:**
+- `SELECT_STEADY_CANDIDATES` LEFT-JOINs `active_question_decisions` on
+  `(question_id, person_id)`, hard-filters `action='suppress'`, and
+  conditionally filters `action='skip'` via the `exclude_skipped` SQL
+  param so the selector can drop the skip exclusion in the 3-step
+  fallback when the pool would otherwise empty.
+- `SELECT_UNANSWERED_COVERAGE_TAP` excludes suppressed coverage taps
+  per-person via `NOT EXISTS`. Coverage taps are global rows
+  (`person_id IS NULL`); the decision row scopes the exclusion to a
+  single contributor.
+
+**Write path:** `POST /turn` body's optional `question_decision` field
+is persisted by `QuestionDecisionRepository.record()` before the turn
+pipeline runs. The repository inserts a new active row and supersedes
+any prior active row for the same `(person_id, question_id)` in a
+single CTE statement.
+
 ---
 
 ## 4. The `edges` table

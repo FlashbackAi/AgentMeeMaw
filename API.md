@@ -289,14 +289,31 @@ are:
   "metadata": {
     "phase": "starter | steady",
     "selected_question_id": "uuid | null",
-    "taps": []
+    "taps": [],
+    "question_chips": {
+      "question_id": "uuid",
+      "actions": ["skip", "suppress", "defer"]
+    }
   }
 }
 ```
 
-`selected_question_id` is retained for compatibility and is always null
-for v1 session openers. `metadata.taps` is reserved for the tap-chip
-shape and is always an empty list on `/session/start`.
+`selected_question_id` is the producer-bank question the opener was
+asked to weave into its prose. In **starter phase**, the agent seeds a
+question from the per-person bank via `select_starter_question` so the
+opener carries an anchor question with chips. In **steady phase**, no
+question is seeded at session start (the first `/turn` does the
+selection) — `selected_question_id` is `null` and so is
+`question_chips`.
+
+`metadata.taps` is reserved for the coverage-tap surface and is always
+an empty list on `/session/start`.
+
+`metadata.question_chips` follows the same rule as on `/turn` — present
+only when the seeded question's source is in the producer-bank set.
+Coverage-tap and archetype questions never produce chips. UI renders
+the listed actions beneath the opener and POSTs the chosen action back
+in the next `/turn`'s `question_decision`.
 
 **Errors**
 - `404` — `person_id` not found
@@ -315,9 +332,18 @@ One user message in, one assistant reply out. Idempotent on
   "session_id": "uuid",
   "person_id": "uuid",
   "role_id": "uuid",
-  "message": "string (1..8000 chars)"
+  "message": "string (1..8000 chars)",
+  "question_decision": {
+    "question_id": "uuid",
+    "action": "skip | suppress | defer"
+  }
 }
 ```
+
+`question_decision` is **optional**. When present, the agent records the
+decision in the `question_decisions` table before the turn pipeline
+runs, so the same call's selector excludes the decided question. See
+CLAUDE.md invariant 23.
 
 **Headers**
 - `Idempotency-Key` *(optional)*
@@ -336,7 +362,11 @@ One user message in, one assistant reply out. Idempotent on
         "text": "string",
         "dimension": "era | relation | place | voice | sensory"
       }
-    ]
+    ],
+    "question_chips": {
+      "question_id": "uuid",
+      "actions": ["skip", "suppress", "defer"]
+    }
   }
 }
 ```
@@ -345,6 +375,14 @@ One user message in, one assistant reply out. Idempotent on
 decided to close a segment and push it onto the extraction queue.
 `metadata.taps` is always present. v1 emits at most one coverage-gap tap
 on eligible `switch` or `clarify` turns; otherwise it is `[]`.
+
+`metadata.question_chips` is set when the agent inlines a producer-bank
+question (sources `dropped_reference`, `underdeveloped_entity`,
+`thread_deepen`, `life_period_gap`, `universal_dimension`) in this
+reply. The UI renders the listed actions as chips beneath the message;
+on click, the next `/turn` request carries the chosen action in
+`question_decision`. Absent (or `null`) on turns where no producer-bank
+question is surfaced — e.g. when a coverage tap fires instead.
 
 **Errors**
 - `409` — no working memory for `session_id` (did `/session/start` succeed?)
@@ -454,8 +492,10 @@ as an out-of-band review pane, not inside the memorial conversation.
     "person_id": "uuid",
     "source_entity_id": "uuid",
     "source_entity_name": "string",
+    "source_entity_description": "string | null",
     "target_entity_id": "uuid",
     "target_entity_name": "string",
+    "target_entity_description": "string | null",
     "proposed_alias": "string | null",
     "reason": "string",
     "source": "string",
