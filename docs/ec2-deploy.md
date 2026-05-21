@@ -58,6 +58,7 @@ flashback-trait-synthesizer
 flashback-profile-summary
 flashback-producers-per-session
 flashback-producers-weekly
+flashback_agent-profile-picture
 ```
 
 Attach an IAM role to the EC2 instance with:
@@ -126,6 +127,7 @@ TRAIT_SYNTHESIZER_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/fla
 PROFILE_SUMMARY_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/flashback-profile-summary
 PRODUCERS_PER_SESSION_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/flashback-producers-per-session
 PRODUCERS_WEEKLY_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/flashback-producers-weekly
+PROFILE_PICTURE_QUEUE_URL=https://sqs.ap-south-1.amazonaws.com/768699754860/flashback_agent-profile-picture
 
 VOYAGE_API_KEY=replace-with-voyage-key
 OPENAI_API_KEY=replace-with-openai-key

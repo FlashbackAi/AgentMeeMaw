@@ -34,6 +34,7 @@ from flashback.http.routes.identity_merges import router as identity_merges_rout
 from flashback.http.routes.nodes import router as nodes_router
 from flashback.http.routes.onboarding import router as onboarding_router
 from flashback.http.routes.persons import router as persons_router
+from flashback.http.routes.profile_picture import router as profile_picture_router
 from flashback.http.routes.profile_facts import router as profile_facts_router
 from flashback.http.routes.session import router as session_router
 from flashback.http.routes.themes import router as themes_router
@@ -47,6 +48,7 @@ from flashback.queues import (
     AsyncSQSClient,
     ExtractionQueueProducer,
     ProducersPerSessionQueueProducer,
+    ProfilePictureQueueProducer,
     ProfileSummaryQueueProducer,
     TraitSynthesizerQueueProducer,
 )
@@ -157,6 +159,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             sqs_client=sqs_client,
             queue_url=cfg.producers_per_session_queue_url,
         )
+        profile_picture_queue = ProfilePictureQueueProducer(
+            sqs_client=sqs_client,
+            queue_url=cfg.profile_picture_queue_url,
+        )
+        app.state.profile_picture_queue = profile_picture_queue
         session_summary_generator = SessionSummaryGenerator(settings=cfg)
         phase_gate = PhaseGate(
             db_pool=db_pool,
@@ -233,6 +240,7 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
     app.include_router(identity_merges_router)
     app.include_router(nodes_router)
     app.include_router(persons_router)
+    app.include_router(profile_picture_router)
     app.include_router(onboarding_router)
     app.include_router(themes_router)
 

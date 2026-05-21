@@ -232,6 +232,43 @@ class ArchetypeQuestionsResponse(BaseModel):
     questions: list[dict[str, Any]]
 
 
+# --- /persons/{person_id}/profile-picture ---------------------------------
+
+
+class ProfilePictureGenerateRequest(BaseModel):
+    """Body for ``POST /persons/{person_id}/profile-picture``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reference_s3_key: str | None = Field(default=None, max_length=500)
+
+
+class ProfilePictureEditRequest(BaseModel):
+    """Body for ``POST /persons/{person_id}/profile-picture/edit``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instructions: str = Field(min_length=1, max_length=500)
+    reference_s3_key: str | None = Field(default=None, max_length=500)
+
+    @field_validator("instructions", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class ProfilePictureJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    person_id: UUID
+    mode: Literal["no_reference", "with_reference"]
+    source: Literal["onboarding", "regenerate", "edit"]
+    enqueued: bool
+
+
 # --- /health ---------------------------------------------------------------
 
 

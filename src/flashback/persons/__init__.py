@@ -7,6 +7,6 @@ the row-creation path used by ``POST /persons`` during legacy
 onboarding.
 """
 
-from .repository import CreatedPerson, insert_person
+from .repository import CreatedPerson, PersonProfile, get_person_by_id, insert_person
 
-__all__ = ["CreatedPerson", "insert_person"]
+__all__ = ["CreatedPerson", "PersonProfile", "get_person_by_id", "insert_person"]

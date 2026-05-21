@@ -286,6 +286,7 @@ class HttpConfig:
     producers_per_session_queue_url: str = ""
     embedding_queue_url: str = ""
     artifact_queue_url: str = ""
+    profile_picture_queue_url: str = ""
     llm_node_edit_provider: str = "anthropic"
     llm_node_edit_model: str = "claude-sonnet-4-6"
     llm_node_edit_timeout_seconds: float = 30.0
@@ -403,6 +404,7 @@ class HttpConfig:
             ),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
             artifact_queue_url=os.environ.get("ARTIFACT_QUEUE_URL", ""),
+            profile_picture_queue_url=os.environ.get("PROFILE_PICTURE_QUEUE_URL", ""),
             llm_node_edit_provider=os.environ.get(
                 "LLM_NODE_EDIT_PROVIDER",
                 os.environ.get("LLM_BIG_PROVIDER", "anthropic"),

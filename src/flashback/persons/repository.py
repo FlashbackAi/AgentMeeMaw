@@ -24,6 +24,21 @@ VALUES (%(name)s, %(relationship)s, %(gender)s)
 RETURNING id, name, relationship, gender, phase, created_at
 """
 
+_SELECT_PERSON_BY_ID = """
+SELECT id, name, relationship, gender, phase
+FROM persons
+WHERE id = %s AND status = 'active'
+"""
+
+
+@dataclass(frozen=True)
+class PersonProfile:
+    person_id: UUID
+    name: str
+    relationship: str
+    gender: str | None
+    phase: str
+
 
 @dataclass(frozen=True)
 class CreatedPerson:
@@ -66,4 +81,26 @@ async def insert_person(
         gender=returned_gender,
         phase=phase,
         created_at=created_at,
+    )
+
+
+async def get_person_by_id(
+    db_pool: AsyncConnectionPool,
+    *,
+    person_id: UUID,
+) -> PersonProfile | None:
+    """Fetch a minimal persons row by id. Returns None if not found or inactive."""
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(_SELECT_PERSON_BY_ID, (str(person_id),))
+            row = await cur.fetchone()
+    if row is None:
+        return None
+    pid, name, relationship, gender, phase = row
+    return PersonProfile(
+        person_id=pid,
+        name=name,
+        relationship=relationship,
+        gender=gender,
+        phase=phase,
     )

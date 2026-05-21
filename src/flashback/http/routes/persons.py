@@ -19,16 +19,22 @@ is the only retry-safety mechanism.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
 from fastapi import APIRouter, Depends
 from psycopg_pool import AsyncConnectionPool
 from redis.asyncio import Redis
 
 from flashback.http.auth import require_service_token
-from flashback.http.deps import get_db_pool, get_redis
+from flashback.http.deps import get_db_pool, get_profile_picture_queue, get_redis
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.http.models import PersonCreateRequest, PersonCreateResponse
 from flashback.persons import insert_person
+from flashback.profile_picture import compose_image_prompt, map_gender
+
+if TYPE_CHECKING:
+    from flashback.queues.profile_picture import ProfilePictureQueueProducer
 
 router = APIRouter(
     prefix="/persons",
@@ -43,6 +49,9 @@ async def create(
     idempotency_key: str | None = Depends(idempotency_key_header),
     redis: Redis = Depends(get_redis),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    profile_picture_queue: ProfilePictureQueueProducer | None = Depends(
+        get_profile_picture_queue
+    ),
 ) -> PersonCreateResponse:
     """Insert one ``persons`` row from onboarding data."""
     return await run_idempotent(
@@ -56,6 +65,7 @@ async def create(
             contributor_display_name=body.contributor_display_name,
             gender=body.gender,
             db_pool=db_pool,
+            profile_picture_queue=profile_picture_queue,
         ),
     )
 
@@ -67,6 +77,7 @@ async def _create_once(
     contributor_display_name: str,
     gender: str | None,
     db_pool: AsyncConnectionPool,
+    profile_picture_queue: ProfilePictureQueueProducer | None,
 ) -> PersonCreateResponse:
     created = await insert_person(
         db_pool,
@@ -81,6 +92,29 @@ async def _create_once(
         phase=created.phase,
         contributor_display_name=contributor_display_name,
     )
+    if profile_picture_queue is not None:
+        try:
+            image_prompt = compose_image_prompt(
+                name=created.name,
+                gender=created.gender,
+                relationship=created.relationship,
+            )
+            await profile_picture_queue.push(
+                job_id=str(created.person_id),
+                person_id=created.person_id,
+                mode="no_reference",
+                image_prompt=image_prompt,
+                source="onboarding",
+                name=created.name,
+                gender=map_gender(created.gender),
+                relationship=created.relationship,
+            )
+        except Exception:
+            log.warning(
+                "profile_picture.enqueue_failed",
+                person_id=str(created.person_id),
+                exc_info=True,
+            )
     return PersonCreateResponse(
         person_id=created.person_id,
         name=created.name,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from tests.http.conftest import auth_headers
+from tests.http.conftest import FakeProfilePictureQueue, auth_headers
 
 
 def person_payload(**overrides):
@@ -112,6 +112,24 @@ class TestCreateHappyPath:
         body = resp.json()
         assert body["name"] == "Robert Smith"
         assert body["relationship"] == "father"
+
+    async def test_enqueues_profile_picture_job_on_create(
+        self, client_with_db, fake_profile_picture_queue: FakeProfilePictureQueue
+    ):
+        resp = await client_with_db.post(
+            "/persons",
+            headers=auth_headers(),
+            json=person_payload(name="Priya Nair", gender="she"),
+        )
+        assert resp.status_code == 200
+        assert len(fake_profile_picture_queue.calls) == 1
+        call = fake_profile_picture_queue.calls[0]
+        assert call["name"] == "Priya Nair"
+        assert call["gender"] == "female"
+        assert call["mode"] == "no_reference"
+        assert call["source"] == "onboarding"
+        assert "Pixar-style" in call["image_prompt"]
+        assert call["job_id"] == resp.json()["person_id"]
 
     async def test_two_legacies_with_same_name_both_succeed(
         self, client_with_db

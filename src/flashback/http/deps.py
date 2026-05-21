@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
     from redis.asyncio import Redis
     from flashback.queues import AsyncSQSClient
+    from flashback.queues.profile_picture import ProfilePictureQueueProducer
     from flashback.identity_merges import IdentityMergeVerifier
 
 
@@ -61,3 +62,9 @@ def get_sqs_client(request: Request) -> "AsyncSQSClient":
 
 def get_identity_merge_verifier(request: Request) -> "IdentityMergeVerifier":
     return request.app.state.identity_merge_verifier
+
+
+def get_profile_picture_queue(
+    request: Request,
+) -> "ProfilePictureQueueProducer | None":
+    return getattr(request.app.state, "profile_picture_queue", None)

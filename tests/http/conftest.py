@@ -37,6 +37,41 @@ from flashback.working_memory import WorkingMemory
 SERVICE_TOKEN = "test-token"
 
 
+class FakeProfilePictureQueue:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def push(
+        self,
+        *,
+        job_id,
+        person_id,
+        mode,
+        image_prompt,
+        source,
+        name,
+        gender,
+        relationship=None,
+        reference_s3_key=None,
+        user_prompt=None,
+    ) -> str:
+        self.calls.append(
+            {
+                "job_id": job_id,
+                "person_id": person_id,
+                "mode": mode,
+                "image_prompt": image_prompt,
+                "source": source,
+                "name": name,
+                "gender": gender,
+                "relationship": relationship,
+                "reference_s3_key": reference_s3_key,
+                "user_prompt": user_prompt,
+            }
+        )
+        return "fake-message-id"
+
+
 def _make_test_config() -> HttpConfig:
     return HttpConfig(
         database_url="postgresql://unused-in-no-db-tests/x",
@@ -129,8 +164,13 @@ def fake_orchestrator() -> FakeOrchestrator:
     return FakeOrchestrator()
 
 
+@pytest.fixture
+def fake_profile_picture_queue() -> FakeProfilePictureQueue:
+    return FakeProfilePictureQueue()
+
+
 @pytest_asyncio.fixture
-async def app(fake_redis, fake_orchestrator):
+async def app(fake_redis, fake_orchestrator, fake_profile_picture_queue):
     """A FastAPI app with mocked dependencies on ``app.state``.
 
     The lifespan is *not* run — we populate state directly so the
@@ -151,6 +191,7 @@ async def app(fake_redis, fake_orchestrator):
         transcript_limit=cfg.working_memory_transcript_limit,
     )
     application.state.orchestrator = fake_orchestrator
+    application.state.profile_picture_queue = fake_profile_picture_queue
     return application
 
 
@@ -231,7 +272,9 @@ def _ensure_schema(url: str) -> None:
 
 
 @pytest_asyncio.fixture
-async def app_with_db(fake_redis, fake_orchestrator, async_db_pool):
+async def app_with_db(
+    fake_redis, fake_orchestrator, async_db_pool, fake_profile_picture_queue
+):
     cfg = _make_test_config()
     application = create_app(cfg)
     application.state.redis = fake_redis
@@ -242,6 +285,7 @@ async def app_with_db(fake_redis, fake_orchestrator, async_db_pool):
         transcript_limit=cfg.working_memory_transcript_limit,
     )
     application.state.orchestrator = fake_orchestrator
+    application.state.profile_picture_queue = fake_profile_picture_queue
     return application
 
 
@@ -267,6 +311,7 @@ def new_uuids() -> tuple[str, str, str]:
 
 __all__ = [
     "FakeOrchestrator",
+    "FakeProfilePictureQueue",
     "SERVICE_TOKEN",
     "auth_headers",
     "new_uuids",
