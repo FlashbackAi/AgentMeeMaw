@@ -27,7 +27,7 @@ RETURNING id, name, relationship, gender, phase, created_at
 _SELECT_PERSON_BY_ID = """
 SELECT id, name, relationship, gender, phase
 FROM persons
-WHERE id = %s AND status = 'active'
+WHERE id = %s
 """
 
 
