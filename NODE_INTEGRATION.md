@@ -165,11 +165,18 @@ AGENT_BASE_URL=https://agent.internal.flashbacklabs.com   # example
 |---|---|
 | `GET /health` | 5s |
 | `POST /session/start` | 30s — runs phase gate + LLM opener |
+| `POST /session/start/stream` | 60s (overall); 15s to first byte |
 | `POST /turn` | 45s — intent + retrieval + response LLM |
+| `POST /turn/stream` | 90s (overall); 20s to first byte |
 | `POST /session/wrap` | 60s — segment flush + summary LLM |
 | `POST /nodes/.../edit` | 45s — edit-LLM call |
 | `POST /identity_merges/scan` | 60s — small LLM per candidate |
 | All other writes | 15s |
+
+For the streaming endpoints, configure your HTTP client so the
+**overall** timeout is long (streams can legitimately stay open for
+tens of seconds) but the **time-to-first-byte** check is tight — that's
+the signal that the upstream LLM stalled before producing anything.
 
 These are *client* timeouts. The agent has its own server-side LLM
 timeouts; on hitting them it returns `504` for `/nodes/.../edit` and
@@ -187,6 +194,8 @@ The agent is **not** retry-safe by default. Endpoints that accept
 | `POST /identity_merges/.../approve` | yes | only with same key |
 | `POST /nodes/.../edit` | yes | only with same key |
 | `POST /session/start` | no | no — would create a duplicate opener turn |
+| `POST /turn/stream` | no | no — partial reply already committed; let the user continue instead |
+| `POST /session/start/stream` | no | no — would create a duplicate opener turn |
 | `POST /profile_facts/upsert` | no | yes — natural idempotency: identical `answer_text` is a no-op |
 | `POST /identity_merges/scan` | no | no — scan can be re-run, but it's a costly LLM fan-out |
 | `POST /admin/reset_phase` | no | yes — single SQL statement, deterministic |
@@ -213,6 +222,88 @@ vs the LLM/dependency-failure shape:
 
 In Node, treat `5xx` as transient (retry with backoff if idempotent),
 `4xx` as terminal (surface to the user or log as a bug).
+
+### Streaming (SSE) endpoints
+
+Two endpoints expose the assistant text as Server-Sent Events so the
+frontend can render tokens as they arrive instead of waiting for the
+full JSON response:
+
+- `POST /turn/stream` — streaming twin of `/turn`
+- `POST /session/start/stream` — streaming twin of `/session/start`
+
+The non-streaming JSON variants are unchanged and still supported.
+Migrate per route; nothing forces you to convert both at once.
+
+**Wire format.** Each response is `Content-Type: text/event-stream`,
+status `200`, with named events in this order:
+
+1. exactly one `meta` event — pre-LLM metadata available before the
+   LLM call begins (intent, taps, question chips on `/turn/stream`;
+   phase, selected question, chips on `/session/start/stream`).
+2. zero or more `text_delta` events — `{"text": "..."}` chunks.
+   Append in arrival order; no pre-trim on individual chunks.
+3. exactly one terminal event:
+   - `done` on success — carries the assembled `reply`/`opener` text
+     plus post-LLM bits like `segment_boundary`.
+   - `error` on failure — `{"code", "message", "partial_text"}`.
+
+Full payload shapes live in `API.md` §3 under `POST /turn/stream` and
+`POST /session/start/stream`.
+
+**What Node does with each event:**
+
+- `meta` — render chip rows / tap cards in the UI immediately so they
+  are on screen by the time text arrives. Don't wait for `done`.
+- `text_delta` — append to the visible assistant bubble. Don't try to
+  normalise whitespace per chunk; do it once on `done`.
+- `done` — persist the per-turn transcript entry to DynamoDB using
+  the `reply`/`opener` field. Replace the streamed UI text with the
+  canonical (whitespace-stripped) version if you want exact parity
+  with what the agent stored to working memory.
+- `error` — close the UI bubble. If `partial_text` is non-empty, keep
+  it visible; the agent has already written it to working memory so
+  the next turn will treat the conversation as having received that
+  partial reply. Surface a soft error to the user ("connection
+  hiccup — keep going") rather than retrying.
+
+**Idempotency.** Not supported on the streaming endpoints. Do not
+retry on disconnect — partial assistant text is committed on the
+agent side, so the next `/turn` or `/turn/stream` call will pick up
+naturally.
+
+**Disconnect handling.** If the frontend disconnects mid-stream,
+cancel the upstream Node→Agent connection. Closing the TCP socket is
+sufficient; the agent does not need a separate notification. Any
+text that streamed before the disconnect is already in working
+memory.
+
+**Re-emit to the frontend.** The simplest path is pass-through SSE:
+re-emit each agent event to the frontend with the same `event:` name
+and `data:` payload, after flushing. If your frontend wants a
+different transport (WebSocket, your existing realtime channel),
+translate event-by-event — do **not** buffer the agent stream and
+re-emit only at `done`.
+
+**Auth + frontend session validation** runs unchanged before opening
+the upstream connection. The agent's `X-Service-Token` is added on
+the Node→Agent leg, never exposed to the browser.
+
+**HTTP client recommendations:**
+
+- `undici` (Node 18+ built-in) — body is an async iterator, fastest
+  zero-copy path.
+- `node-fetch` v3+ — also fine.
+- `axios` — set `responseType: 'stream'`, disable automatic retry.
+
+Parse SSE with `eventsource-parser` rather than hand-splitting on
+`\n` — the spec allows `\r\n` line endings, multi-line `data:`
+fields, and comment lines that begin with `:`.
+
+**Backpressure.** The frontend's read rate eventually backpressures
+into the Node→Agent connection. That's fine — the agent will pause
+the LLM stream until your reader catches up. Don't add buffering on
+either leg.
 
 ---
 

@@ -8,7 +8,7 @@ import random
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Literal
 
 import anthropic
@@ -98,6 +98,47 @@ async def call_text(
             timeout=timeout,
             settings=settings,
         )
+    raise LLMError(f"unknown provider: {provider!r}")
+
+
+async def call_text_stream(
+    *,
+    provider: Provider,
+    model: str,
+    system_prompt: str,
+    user_message: str,
+    max_tokens: int,
+    timeout: float,
+    settings,
+) -> AsyncIterator[str]:
+    """Stream prose chunks from an LLM. Yields text deltas as they arrive.
+
+    Errors before the first delta land in the circuit breaker but are
+    not retried — once we've started yielding to the caller, we can't
+    safely restart the stream.
+    """
+    if provider == "anthropic":
+        async for chunk in _call_anthropic_text_stream(
+            model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            settings=settings,
+        ):
+            yield chunk
+        return
+    if provider == "openai":
+        async for chunk in _call_openai_text_stream(
+            model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            settings=settings,
+        ):
+            yield chunk
+        return
     raise LLMError(f"unknown provider: {provider!r}")
 
 
@@ -317,6 +358,95 @@ async def _call_openai_text(
     if not content:
         raise LLMMalformedResponse(f"expected message content, got: {content!r}")
     return str(content)
+
+
+async def _call_anthropic_text_stream(
+    *,
+    model,
+    system_prompt,
+    user_message,
+    max_tokens,
+    timeout,
+    settings,
+) -> AsyncIterator[str]:
+    """Anthropic Messages API streaming. Yields text deltas as they arrive."""
+    client = get_anthropic_client(settings)
+    _raise_if_circuit_open("Anthropic")
+    first_chunk_seen = False
+    try:
+        async with client.messages.stream(
+            model=model,
+            system=_anthropic_cached_system(system_prompt),
+            messages=[{"role": "user", "content": user_message}],
+            max_tokens=max_tokens,
+            timeout=timeout,
+            **_anthropic_request_kwargs(settings),
+        ) as stream:
+            async for chunk in stream.text_stream:
+                if chunk:
+                    if not first_chunk_seen:
+                        _record_provider_success("Anthropic")
+                        first_chunk_seen = True
+                    yield chunk
+    except anthropic.APITimeoutError as e:
+        if not first_chunk_seen:
+            _record_provider_failure("Anthropic", settings=settings)
+        raise LLMTimeout(str(e)) from e
+    except anthropic.APIError as e:
+        if not first_chunk_seen:
+            _record_provider_failure("Anthropic", settings=settings)
+        raise LLMError(f"Anthropic API error: {e}") from e
+    if not first_chunk_seen:
+        _record_provider_failure("Anthropic", settings=settings)
+        raise LLMMalformedResponse("anthropic stream produced no text")
+
+
+async def _call_openai_text_stream(
+    *,
+    model,
+    system_prompt,
+    user_message,
+    max_tokens,
+    timeout,
+    settings,
+) -> AsyncIterator[str]:
+    """OpenAI Chat Completions streaming. Yields content deltas as they arrive."""
+    client = get_openai_client(settings)
+    _raise_if_circuit_open("OpenAI")
+    first_chunk_seen = False
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_completion_tokens=max_tokens,
+            timeout=timeout,
+            stream=True,
+            **_openai_request_kwargs(settings),
+        )
+        async for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta.content
+            except (AttributeError, IndexError):
+                continue
+            if delta:
+                if not first_chunk_seen:
+                    _record_provider_success("OpenAI")
+                    first_chunk_seen = True
+                yield delta
+    except openai.APITimeoutError as e:
+        if not first_chunk_seen:
+            _record_provider_failure("OpenAI", settings=settings)
+        raise LLMTimeout(str(e)) from e
+    except openai.APIError as e:
+        if not first_chunk_seen:
+            _record_provider_failure("OpenAI", settings=settings)
+        raise LLMError(f"OpenAI API error: {e}") from e
+    if not first_chunk_seen:
+        _record_provider_failure("OpenAI", settings=settings)
+        raise LLMMalformedResponse("openai stream produced no text")
 
 
 def _anthropic_cached_system(system_prompt: str) -> list[dict]:

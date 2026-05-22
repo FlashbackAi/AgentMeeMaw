@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import cast
 from uuid import UUID, uuid4
@@ -27,8 +28,10 @@ from flashback.orchestrator.protocol import QuestionChips
 from flashback.orchestrator.protocol import (
     SessionStartResult,
     SessionWrapResult,
+    StreamEvent,
     TurnResult,
 )
+from flashback.response_generator import ResponseResult
 from flashback.orchestrator.state import (
     SessionStartState,
     SessionWrapState,
@@ -53,6 +56,11 @@ from flashback.orchestrator.steps import (
     select_coverage_tap,
     select_question,
     select_starter_question,
+)
+from flashback.orchestrator.steps.generate_response import build_turn_context
+from flashback.orchestrator.steps.starter_opener import (
+    build_first_time_opener_context,
+    build_starter_context,
 )
 from flashback.orchestrator.steps.wrap_session import wrap_session
 from flashback.phase_gate import PhaseGate, SteadySelector
@@ -374,6 +382,404 @@ class Orchestrator:
         finally:
             structlog.contextvars.reset_contextvars(**token)
 
+    async def handle_turn_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        user_message: str,
+    ) -> AsyncIterator[StreamEvent]:
+        """Streaming twin of :meth:`handle_turn`.
+
+        Runs pre-LLM steps, yields a ``meta`` event, streams text deltas
+        as the LLM emits them, then runs post-LLM steps and yields a
+        ``done`` event. On LLM failure, yields an ``error`` event and
+        commits any partial text to working memory so transcript
+        continuity is preserved.
+        """
+        state = TurnState(
+            turn_id=uuid4(),
+            session_id=session_id,
+            person_id=person_id,
+            role_id=role_id,
+            user_message=user_message,
+            started_at=datetime.now(timezone.utc),
+        )
+        token = structlog.contextvars.bind_contextvars(
+            turn_id=str(state.turn_id),
+            session_id=str(state.session_id),
+            person_id=str(state.person_id),
+            role_id=str(state.role_id),
+            transport="stream",
+        )
+        started = time.perf_counter()
+        try:
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="append_user_turn",
+                fn=lambda: append_user_turn(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="intent_classify",
+                fn=lambda: classify(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="entity_mention_scan",
+                fn=lambda: scan_entity_mentions(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="select_coverage_tap",
+                fn=lambda: select_coverage_tap(state, self._deps),
+                state=state,
+            )
+            if state.effective_intent in {"recall", "clarify", "switch", "pivot"}:
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="retrieve",
+                    fn=lambda: retrieve(state, self._deps),
+                    state=state,
+                )
+            if (
+                state.effective_intent == "switch"
+                and self._deps.response_generator is not None
+                and not state.taps
+            ):
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_question",
+                    fn=lambda: select_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="promote_seeded_to_tap",
+                    fn=lambda: promote_seeded_to_tap(state, self._deps),
+                    state=state,
+                )
+
+            yield StreamEvent(type="meta", data=_turn_meta_payload(state))
+
+            accumulated = ""
+            try:
+                if self._deps.response_generator is None:
+                    accumulated = "I hear you. Tell me more."
+                    yield StreamEvent(
+                        type="text_delta", data={"text": accumulated}
+                    )
+                else:
+                    ctx = await build_turn_context(state, self._deps)
+                    async for chunk in self._deps.response_generator.stream_turn_response(
+                        ctx
+                    ):
+                        accumulated += chunk
+                        yield StreamEvent(
+                            type="text_delta", data={"text": chunk}
+                        )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "turn_stream.generation_failed",
+                    error=type(exc).__name__,
+                    detail=str(exc),
+                    partial_chars=len(accumulated),
+                )
+                state.response = ResponseResult(text=accumulated.strip())
+                if accumulated.strip():
+                    # Best-effort: persist partial text so the transcript
+                    # stays coherent for the next turn.
+                    try:
+                        await append_assistant(state, self._deps)
+                    except Exception as persist_exc:  # noqa: BLE001
+                        log.warning(
+                            "turn_stream.partial_persist_failed",
+                            error=type(persist_exc).__name__,
+                            detail=str(persist_exc),
+                        )
+                yield StreamEvent(
+                    type="error",
+                    data={
+                        "code": type(exc).__name__,
+                        "message": str(exc),
+                        "partial_text": accumulated,
+                    },
+                )
+                return
+
+            state.response = ResponseResult(text=accumulated.strip())
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="append_assistant",
+                fn=lambda: append_assistant(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="detect_segment",
+                fn=lambda: detect_segment(state, self._deps),
+                state=state,
+            )
+
+            duration_ms = max(1, round((time.perf_counter() - started) * 1000))
+            log.info(
+                "turn_stream_complete",
+                turn_id=str(state.turn_id),
+                session_id=str(state.session_id),
+                person_id=str(state.person_id),
+                role_id=str(state.role_id),
+                duration_ms=duration_ms,
+                intent=(
+                    state.intent_result.intent if state.intent_result else None
+                ),
+                question_seeded=(
+                    state.selection.question_id is not None
+                    if state.selection is not None
+                    else False
+                ),
+                degraded_steps=list(state.failures.keys()),
+            )
+            yield StreamEvent(
+                type="done",
+                data={
+                    "reply": state.response.text,
+                    "segment_boundary": state.segment_boundary_detected,
+                },
+            )
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
+
+    async def handle_session_start_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> AsyncIterator[StreamEvent]:
+        """Streaming twin of :meth:`handle_session_start`."""
+        state = SessionStartState(
+            session_id=session_id,
+            person_id=person_id,
+            role_id=role_id,
+            session_metadata=session_metadata,
+            started_at=datetime.now(timezone.utc),
+        )
+        token = structlog.contextvars.bind_contextvars(
+            session_id=str(state.session_id),
+            person_id=str(state.person_id),
+            role_id=str(state.role_id),
+            transport="stream",
+        )
+        started = time.perf_counter()
+        try:
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="load_person",
+                fn=lambda: load_person(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="apply_theme_unlock",
+                fn=lambda: apply_theme_unlock(state, self._deps),
+                state=state,
+            )
+            if self._deps.response_generator is not None:
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="load_continuity_context",
+                    fn=lambda: load_continuity_context(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="select_starter_question",
+                    fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+
+            yield StreamEvent(
+                type="meta", data=_session_start_meta_payload(state)
+            )
+
+            async for event in self._stream_opener(
+                state, build_starter_context(state)
+                if self._deps.response_generator is not None
+                else None,
+                opener_kind="starter",
+            ):
+                yield event
+            duration_ms = max(1, round((time.perf_counter() - started) * 1000))
+            log.info(
+                "session_start_stream_complete",
+                session_id=str(state.session_id),
+                person_id=str(state.person_id),
+                role_id=str(state.role_id),
+                duration_ms=duration_ms,
+                phase=state.person_phase,
+                question_seeded=(
+                    state.selection.question_id is not None
+                    if state.selection is not None
+                    else False
+                ),
+                degraded_steps=list(state.failures.keys()),
+            )
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
+
+    async def handle_first_time_opener_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> AsyncIterator[StreamEvent]:
+        """Streaming twin of :meth:`handle_first_time_opener`."""
+        state = SessionStartState(
+            session_id=session_id,
+            person_id=person_id,
+            role_id=role_id,
+            session_metadata=session_metadata,
+            started_at=datetime.now(timezone.utc),
+        )
+        token = structlog.contextvars.bind_contextvars(
+            session_id=str(state.session_id),
+            person_id=str(state.person_id),
+            role_id=str(state.role_id),
+            opener_path="first_time",
+            transport="stream",
+        )
+        started = time.perf_counter()
+        try:
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="load_person",
+                fn=lambda: load_person(state, self._deps),
+                state=state,
+            )
+
+            yield StreamEvent(
+                type="meta", data=_session_start_meta_payload(state)
+            )
+
+            ctx_or_none = (
+                await build_first_time_opener_context(state, self._deps)
+                if self._deps.response_generator is not None
+                else None
+            )
+            async for event in self._stream_opener(
+                state, ctx_or_none, opener_kind="first_time"
+            ):
+                yield event
+            duration_ms = max(1, round((time.perf_counter() - started) * 1000))
+            log.info(
+                "first_time_opener_stream_complete",
+                session_id=str(state.session_id),
+                person_id=str(state.person_id),
+                role_id=str(state.role_id),
+                duration_ms=duration_ms,
+                phase=state.person_phase,
+                degraded_steps=list(state.failures.keys()),
+            )
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
+
+    async def _stream_opener(
+        self,
+        state: SessionStartState,
+        ctx,
+        *,
+        opener_kind: str,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream the opener text, persist final state, yield done/error.
+
+        Shared by :meth:`handle_session_start_stream` and
+        :meth:`handle_first_time_opener_stream`. ``ctx`` is None when no
+        response generator is configured — falls back to a deterministic
+        opener string.
+        """
+        accumulated = ""
+        try:
+            if ctx is None or self._deps.response_generator is None:
+                accumulated = f"Tell me about {state.person_name}."
+                yield StreamEvent(
+                    type="text_delta", data={"text": accumulated}
+                )
+            else:
+                if opener_kind == "first_time":
+                    streamer = (
+                        self._deps.response_generator.stream_first_time_opener(ctx)
+                    )
+                else:
+                    streamer = (
+                        self._deps.response_generator.stream_starter_opener(ctx)
+                    )
+                async for chunk in streamer:
+                    accumulated += chunk
+                    yield StreamEvent(
+                        type="text_delta", data={"text": chunk}
+                    )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "session_start_stream.generation_failed",
+                opener_kind=opener_kind,
+                error=type(exc).__name__,
+                detail=str(exc),
+                partial_chars=len(accumulated),
+            )
+            yield StreamEvent(
+                type="error",
+                data={
+                    "code": type(exc).__name__,
+                    "message": str(exc),
+                    "partial_text": accumulated,
+                },
+            )
+            return
+
+        state.response = ResponseResult(text=accumulated.strip()) if accumulated else None
+        await execute(
+            policies=SESSION_START_POLICIES,
+            step_name="init_working_memory",
+            fn=lambda: init_working_memory(state, self._deps),
+            state=state,
+        )
+        await execute(
+            policies=SESSION_START_POLICIES,
+            step_name="append_opener",
+            fn=lambda: append_opener(state, self._deps),
+            state=state,
+        )
+        opener_text = (
+            state.response.text
+            if state.response is not None
+            else f"Tell me about {state.person_name}."
+        )
+        chips = _chips_for_selection(state.selection)
+        yield StreamEvent(
+            type="done",
+            data={
+                "opener": opener_text,
+                "phase": state.person_phase,
+                "selected_question_id": (
+                    str(state.selection.question_id)
+                    if state.selection and state.selection.question_id
+                    else None
+                ),
+                "question_chips": (
+                    {
+                        "question_id": str(chips.question_id),
+                        "actions": list(chips.actions),
+                    }
+                    if chips
+                    else None
+                ),
+            },
+        )
+
     async def handle_session_wrap(
         self,
         session_id: UUID,
@@ -418,6 +824,52 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         taps=state.taps,
         chips=_chips_for_selection(state.selection),
     )
+
+
+def _turn_meta_payload(state) -> dict:
+    """Pre-LLM metadata sent as the first SSE 'meta' event on /turn/stream."""
+    chips = _chips_for_selection(state.selection)
+    return {
+        "intent": (
+            state.intent_result.intent if state.intent_result else None
+        ),
+        "emotional_temperature": (
+            state.intent_result.emotional_temperature
+            if state.intent_result
+            else None
+        ),
+        "taps": [tap.model_dump(mode="json") for tap in state.taps],
+        "question_chips": (
+            {
+                "question_id": str(chips.question_id),
+                "actions": list(chips.actions),
+            }
+            if chips
+            else None
+        ),
+    }
+
+
+def _session_start_meta_payload(state) -> dict:
+    """Pre-LLM metadata sent on /session/start/stream."""
+    chips = _chips_for_selection(state.selection)
+    return {
+        "phase": state.person_phase,
+        "selected_question_id": (
+            str(state.selection.question_id)
+            if state.selection and state.selection.question_id
+            else None
+        ),
+        "taps": [],
+        "question_chips": (
+            {
+                "question_id": str(chips.question_id),
+                "actions": list(chips.actions),
+            }
+            if chips
+            else None
+        ),
+    }
 
 
 def _chips_for_selection(selection) -> QuestionChips | None:

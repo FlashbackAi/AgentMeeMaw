@@ -94,6 +94,7 @@ class TestTurn:
                 "question_id": str(qid),
                 "text": "What was her work like?",
                 "dimension": "era",
+                "options": [],
             }
         ]
 

@@ -52,13 +52,21 @@ Endpoints that support it:
 
 For everything else, omit the header.
 
+The SSE streaming variants (`POST /turn/stream`, `POST /session/start/stream`)
+**do not support `Idempotency-Key`**. Partial assistant text is committed
+to working memory on mid-stream failure, so transcript continuity is
+preserved across retries by simply letting the next user turn continue
+the conversation.
+
 ### Request size limit
 Bodies above `MAX_REQUEST_BODY_BYTES` (configured) are rejected with
 `413 Payload Too Large`.
 
 ### Rate limiting
-`POST /turn` enforces a per-session rate limit (`turn_rate_limit_per_minute`
-config). Exceeding it returns `429 Too Many Requests`.
+`POST /turn` and `POST /turn/stream` share the same per-session rate
+limit (`turn_rate_limit_per_minute` config). Exceeding it returns
+`429 Too Many Requests`. The check runs before either endpoint
+streams.
 
 ### Error envelope
 Domain errors use:
@@ -102,7 +110,9 @@ rejected with `422`.
 | `GET` | `/api/v1/onboarding/archetype-questions` | Return relationship-tailored tappable onboarding questions |
 | `POST` | `/api/v1/onboarding/archetype-answers` | Persist archetype answers, seed entities/coverage, return first `session_id` |
 | `POST` | `/session/start` | Open a session, return the agent's opener |
+| `POST` | `/session/start/stream` | Same as above, streamed as SSE |
 | `POST` | `/turn` | One user message → one assistant reply |
+| `POST` | `/turn/stream` | Same as above, streamed as SSE |
 | `POST` | `/session/wrap` | Force-close the open segment, run post-session sequencing |
 | `POST` | `/profile_facts/upsert` | Node-driven edit of one profile fact |
 | `GET` | `/identity_merges/suggestions` | List pending entity merge suggestions |
@@ -388,6 +398,172 @@ question is surfaced — e.g. when a coverage tap fires instead.
 - `409` — no working memory for `session_id` (did `/session/start` succeed?)
 - `429` — per-session rate limit
 - `503` — LLM / phase gate / dependency error
+
+---
+
+### `POST /turn/stream`
+
+Streaming twin of `POST /turn`. Same request shape, same pre-stream
+checks (working memory existence, rate limit, optional
+`question_decision` persistence), and same orchestrator pipeline —
+the only difference is transport. The response is `text/event-stream`,
+status `200`, with named events in this order:
+
+1. exactly one `meta` event (pre-LLM metadata),
+2. zero or more `text_delta` events (assistant text chunks),
+3. exactly one terminal event — either `done` (success) or `error`
+   (failure). No further events follow the terminal event.
+
+`Idempotency-Key` is **not** supported (see §1 idempotency note).
+
+**Request** — identical to `POST /turn`:
+
+```json
+{
+  "session_id": "uuid",
+  "person_id": "uuid",
+  "role_id": "uuid",
+  "message": "string (1..8000 chars)",
+  "question_decision": {
+    "question_id": "uuid",
+    "action": "skip | suppress | defer"
+  }
+}
+```
+
+**Headers**
+- `X-Service-Token` *(required)*
+- `Accept: text/event-stream` *(recommended)*
+
+**Response headers**
+- `Content-Type: text/event-stream`
+- `Cache-Control: no-cache`
+- `X-Accel-Buffering: no` (asks nginx-style proxies not to buffer)
+
+**Event payloads**
+
+```
+event: meta
+data: { ...meta payload... }
+
+event: text_delta
+data: { "text": "..." }
+
+event: text_delta
+data: { "text": "..." }
+
+...
+
+event: done
+data: { ...done payload... }
+```
+
+`meta` payload:
+```json
+{
+  "intent": "story | switch | recall | clarify | deepen | pivot | null",
+  "emotional_temperature": "low | medium | high | null",
+  "taps": [
+    {
+      "question_id": "uuid",
+      "text": "string",
+      "dimension": "era | relation | place | voice | sensory",
+      "options": ["chip 1", "chip 2", "chip 3", "chip 4"]
+    }
+  ],
+  "question_chips": {
+    "question_id": "uuid",
+    "actions": ["skip", "suppress", "defer"]
+  }
+}
+```
+
+`text_delta` payload — `{ "text": "..." }`. Append in arrival order to
+build the streamed reply. Chunks are not pre-trimmed; the agent strips
+whitespace only on the assembled `reply` in `done`.
+
+`done` payload — terminal on success:
+```json
+{
+  "reply": "full assistant reply (whitespace-stripped)",
+  "segment_boundary": false
+}
+```
+
+`error` payload — terminal on failure (replaces `done`):
+```json
+{
+  "code": "LLMTimeout | LLMError | LLMMalformedResponse | <ExceptionClass>",
+  "message": "human-readable",
+  "partial_text": "text streamed before the failure (may be empty)"
+}
+```
+
+When `error` fires with non-empty `partial_text`, the agent has already
+appended the partial reply to working memory so the transcript stays
+coherent — the next `/turn` or `/turn/stream` call sees it. Callers
+should **not** retry the failed turn.
+
+**Pre-stream errors** — these surface as ordinary HTTP error responses
+(no SSE body), the same way `POST /turn` does:
+
+- `409` — no working memory for `session_id`
+- `429` — per-session rate limit
+- `401` — bad service token
+
+Once the SSE body has started, any failure is reported as a terminal
+`error` event with status `200`.
+
+---
+
+### `POST /session/start/stream`
+
+Streaming twin of `POST /session/start`. Same request shape, same
+pipeline (load person → apply theme unlock → continuity context →
+select starter question → opener). Response is SSE with the same
+event types as `/turn/stream`.
+
+`Idempotency-Key` is not applicable (`/session/start` doesn't accept
+it either).
+
+**Request** — identical to `POST /session/start`.
+
+**Response headers** — identical to `/turn/stream`.
+
+**Event payloads**
+
+`meta` payload (pre-LLM metadata, available before the opener streams):
+```json
+{
+  "phase": "starter | steady",
+  "selected_question_id": "uuid | null",
+  "taps": [],
+  "question_chips": {
+    "question_id": "uuid",
+    "actions": ["skip", "suppress", "defer"]
+  }
+}
+```
+
+`taps` is always `[]` on `/session/start/stream` — coverage taps only
+fire on `/turn`.
+
+`text_delta` — same as `/turn/stream`.
+
+`done` payload (terminal on success):
+```json
+{
+  "opener": "full opener text",
+  "phase": "starter | steady",
+  "selected_question_id": "uuid | null",
+  "question_chips": {
+    "question_id": "uuid",
+    "actions": ["skip", "suppress", "defer"]
+  }
+}
+```
+
+`error` payload — same shape as `/turn/stream`.
 
 ---
 

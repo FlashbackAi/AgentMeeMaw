@@ -713,6 +713,18 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
   Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
+- `POST /turn/stream` and `POST /session/start/stream` — SSE twins of
+  the JSON endpoints above. Same request bodies, same pre-stream
+  checks (working memory existence, rate limit, optional
+  `question_decision` persistence), same orchestrator pipeline.
+  Response is `text/event-stream` with three named events: `meta`
+  (pre-LLM metadata — intent/taps/chips, or phase/chips for session
+  start), `text_delta` (`{"text": "..."}` chunks), and a terminal
+  `done` (full reply + post-LLM bits) or `error` (`{"code",
+  "message", "partial_text"}`). `Idempotency-Key` is not supported;
+  partial assistant text is committed to working memory on
+  mid-stream failure so the next turn picks up naturally. The
+  non-streaming variants remain available — migrate per route.
 - `POST /session/wrap` — body: `{ session_id, person_id }`. Force-
   closes the open segment, generates session summary, kicks off
   post-session sequencing. Returns the session summary.

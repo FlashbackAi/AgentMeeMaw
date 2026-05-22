@@ -125,6 +125,48 @@ async def select_starter_question(
             )
 
 
+def build_starter_context(state: SessionStartState) -> StarterContext:
+    """Build the StarterContext from SessionStartState.
+
+    Shared between the JSON ``generate_opener`` step and the streaming
+    orchestrator path.
+    """
+    theme_archetype_answers = state.session_metadata.get(
+        "theme_archetype_answers"
+    ) or []
+    if not isinstance(theme_archetype_answers, list):
+        theme_archetype_answers = []
+    anchor_text: str | None = None
+    if state.selection and state.selection.question_text:
+        anchor_text = state.selection.question_text
+    return StarterContext(
+        person_name=state.person_name,
+        person_relationship=state.person_relationship,
+        person_gender=state.person_gender,
+        contributor_display_name=_string_or_none(
+            state.session_metadata.get("contributor_display_name")
+        ),
+        contributor_role=_string_or_none(
+            state.session_metadata.get("contributor_role")
+            or state.session_metadata.get("role")
+        ),
+        anchor_question_text=anchor_text,
+        anchor_dimension=None,
+        prior_session_summary=_string_or_none(
+            state.session_metadata.get("prior_session_summary")
+        ),
+        current_theme_display_name=_string_or_none(
+            state.session_metadata.get("current_theme_display_name")
+        ),
+        current_theme_kind=_string_or_none(
+            state.session_metadata.get("current_theme_kind")
+        ),
+        theme_archetype_answers=[
+            a for a in theme_archetype_answers if isinstance(a, dict)
+        ],
+    )
+
+
 async def generate_opener(
     state: SessionStartState,
     deps: OrchestratorDeps,
@@ -134,40 +176,7 @@ async def generate_opener(
             state.response = None
             log.info("response_generator.skipped", reason="not_configured")
             return
-        theme_archetype_answers = state.session_metadata.get(
-            "theme_archetype_answers"
-        ) or []
-        if not isinstance(theme_archetype_answers, list):
-            theme_archetype_answers = []
-        anchor_text: str | None = None
-        if state.selection and state.selection.question_text:
-            anchor_text = state.selection.question_text
-        ctx = StarterContext(
-            person_name=state.person_name,
-            person_relationship=state.person_relationship,
-            person_gender=state.person_gender,
-            contributor_display_name=_string_or_none(
-                state.session_metadata.get("contributor_display_name")
-            ),
-            contributor_role=_string_or_none(
-                state.session_metadata.get("contributor_role")
-                or state.session_metadata.get("role")
-            ),
-            anchor_question_text=anchor_text,
-            anchor_dimension=None,
-            prior_session_summary=_string_or_none(
-                state.session_metadata.get("prior_session_summary")
-            ),
-            current_theme_display_name=_string_or_none(
-                state.session_metadata.get("current_theme_display_name")
-            ),
-            current_theme_kind=_string_or_none(
-                state.session_metadata.get("current_theme_kind")
-            ),
-            theme_archetype_answers=[
-                a for a in theme_archetype_answers if isinstance(a, dict)
-            ],
-        )
+        ctx = build_starter_context(state)
         state.response = await deps.response_generator.generate_starter_opener(ctx)
         log.info("starter_opener.completed", opener_length=len(state.response.text))
 
@@ -189,24 +198,35 @@ async def generate_first_time_opener(
             state.response = None
             log.info("response_generator.skipped", reason="not_configured")
             return
-        archetype_answers = await _archetype_answers_for_state(state, deps)
-        ctx = FirstTimeOpenerContext(
-            person_name=state.person_name,
-            person_relationship=state.person_relationship,
-            person_gender=state.person_gender,
-            contributor_display_name=_string_or_none(
-                state.session_metadata.get("contributor_display_name")
-            ),
-            anchor_question_text=None,
-            anchor_dimension=None,
-            archetype_answers=archetype_answers,
-        )
+        ctx = await build_first_time_opener_context(state, deps)
         state.response = await deps.response_generator.generate_first_time_opener(ctx)
         log.info(
             "first_time_opener.completed",
             opener_length=len(state.response.text),
-            archetype_answer_count=len(archetype_answers),
+            archetype_answer_count=len(ctx.archetype_answers),
         )
+
+
+async def build_first_time_opener_context(
+    state: SessionStartState,
+    deps: OrchestratorDeps,
+) -> FirstTimeOpenerContext:
+    """Build the FirstTimeOpenerContext, including archetype answers.
+
+    Shared between the JSON path and the streaming orchestrator path.
+    """
+    archetype_answers = await _archetype_answers_for_state(state, deps)
+    return FirstTimeOpenerContext(
+        person_name=state.person_name,
+        person_relationship=state.person_relationship,
+        person_gender=state.person_gender,
+        contributor_display_name=_string_or_none(
+            state.session_metadata.get("contributor_display_name")
+        ),
+        anchor_question_text=None,
+        anchor_dimension=None,
+        archetype_answers=archetype_answers,
+    )
 
 
 async def init_working_memory(

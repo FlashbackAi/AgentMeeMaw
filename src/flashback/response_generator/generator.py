@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from flashback.llm.interface import Provider, call_text
+from collections.abc import AsyncIterator
+
+from flashback.llm.interface import Provider, call_text, call_text_stream
 from flashback.response_generator.context import (
     render_first_time_opener_context,
     render_starter_context,
@@ -79,3 +81,49 @@ class ResponseGenerator:
             settings=self._settings,
         )
         return ResponseResult(text=text.strip())
+
+    async def stream_turn_response(
+        self, ctx: TurnContext
+    ) -> AsyncIterator[str]:
+        system_prompt = INTENT_TO_PROMPT[ctx.intent]
+        user_message = render_turn_context(ctx)
+        async for chunk in call_text_stream(
+            provider=self._provider,
+            model=self._model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=self._max_tokens,
+            timeout=self._timeout,
+            settings=self._settings,
+        ):
+            yield chunk
+
+    async def stream_starter_opener(
+        self, ctx: StarterContext
+    ) -> AsyncIterator[str]:
+        user_message = render_starter_context(ctx)
+        async for chunk in call_text_stream(
+            provider=self._provider,
+            model=self._model,
+            system_prompt=STARTER_OPENER_PROMPT,
+            user_message=user_message,
+            max_tokens=self._max_tokens,
+            timeout=self._timeout,
+            settings=self._settings,
+        ):
+            yield chunk
+
+    async def stream_first_time_opener(
+        self, ctx: FirstTimeOpenerContext
+    ) -> AsyncIterator[str]:
+        user_message = render_first_time_opener_context(ctx)
+        async for chunk in call_text_stream(
+            provider=self._provider,
+            model=self._model,
+            system_prompt=FIRST_TIME_OPENER_PROMPT,
+            user_message=user_message,
+            max_tokens=self._max_tokens,
+            timeout=self._timeout,
+            settings=self._settings,
+        ):
+            yield chunk

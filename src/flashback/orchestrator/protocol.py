@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from uuid import UUID
@@ -68,6 +69,30 @@ class SessionWrapResult:
     segments_extracted_count: int
 
 
+@dataclass(frozen=True)
+class StreamEvent:
+    """One event in the SSE stream emitted by /turn/stream and
+    /session/start/stream.
+
+    ``type`` becomes the SSE ``event:`` name; ``data`` is JSON-serialized
+    as the ``data:`` payload. Event types:
+
+      - ``meta``: pre-LLM metadata available before generation starts
+        (intent, taps, chips for /turn; phase, taps, chips for
+        /session/start).
+      - ``text_delta``: a chunk of assistant text. ``data`` is
+        ``{"text": "..."}``.
+      - ``done``: stream finished cleanly. ``data`` carries the full
+        reply text and post-LLM bits like ``segment_boundary``.
+      - ``error``: terminal failure. ``data`` carries ``code``,
+        ``message``, and ``partial_text`` (whatever streamed so far).
+        No further events follow.
+    """
+
+    type: Literal["meta", "text_delta", "done", "error"]
+    data: dict
+
+
 class OrchestratorProtocol(Protocol):
     """The interface the HTTP routes consume."""
 
@@ -100,3 +125,27 @@ class OrchestratorProtocol(Protocol):
         session_id: UUID,
         person_id: UUID,
     ) -> SessionWrapResult: ...
+
+    def handle_session_start_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> AsyncIterator["StreamEvent"]: ...
+
+    def handle_first_time_opener_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        session_metadata: dict,
+    ) -> AsyncIterator["StreamEvent"]: ...
+
+    def handle_turn_stream(
+        self,
+        session_id: UUID,
+        person_id: UUID,
+        role_id: UUID,
+        user_message: str,
+    ) -> AsyncIterator["StreamEvent"]: ...
