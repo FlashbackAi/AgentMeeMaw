@@ -39,6 +39,7 @@ from flashback.themes.archetype_llm import (
 from flashback.themes.repository import (
     fetch_theme_by_id_async,
     update_archetype_questions_async,
+    upsert_archetype_draft_async,
 )
 from flashback.themes.universal import get_universal_theme
 
@@ -78,6 +79,14 @@ class UnlockPrepareResponse(BaseModel):
     kind: str
     state: str
     archetype_questions: list[ArchetypeQuestionPayload]
+    archetype_answers_draft: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Mid-flow partial answers persisted via "
+            "POST /themes/{id}/archetype_progress. Frontend uses this "
+            "to restore chip selections / free-text on resume."
+        ),
+    )
     prompt_version: str = ARCHETYPE_PROMPT_VERSION
     generated_this_call: bool = Field(
         default=False,
@@ -86,6 +95,29 @@ class UnlockPrepareResponse(BaseModel):
             "False when cached questions were returned unchanged."
         ),
     )
+
+
+class ArchetypeAnswerInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str
+    option_id: str | None = None
+    option_label: str | None = None
+    free_text: str | None = None
+    skipped: bool = False
+
+
+class ArchetypeProgressRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    answers: list[ArchetypeAnswerInput]
+
+
+class ArchetypeProgressResponse(BaseModel):
+    saved: bool = True
+    answered: int
+    total: int
 
 
 class ThemeResponse(BaseModel):
@@ -98,6 +130,7 @@ class ThemeResponse(BaseModel):
     description: str | None
     archetype_questions: list[dict] | None
     archetype_answers: list[dict] | None
+    archetype_answers_draft: list[dict] | None
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +242,89 @@ async def unlock_prepare(
             )
             for q in questions
         ],
+        archetype_answers_draft=theme.archetype_answers_draft,
         generated_this_call=generated_this_call,
+    )
+
+
+@router.post(
+    "/{theme_id}/archetype_progress",
+    response_model=ArchetypeProgressResponse,
+)
+async def archetype_progress(
+    theme_id: UUID,
+    body: ArchetypeProgressRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> ArchetypeProgressResponse:
+    """Persist partial archetype answers so the user can resume.
+
+    Last-write-wins: the supplied ``answers`` array replaces the
+    current draft in full. The frontend sends the complete current
+    state on every chip tap. Rejects if the theme is already unlocked
+    (409) — no point drafting on a committed theme.
+    """
+    structlog.contextvars.bind_contextvars(
+        theme_id=str(theme_id),
+        person_id=str(body.person_id),
+    )
+
+    answers_payload = [a.model_dump(exclude_none=False) for a in body.answers]
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            theme = await fetch_theme_by_id_async(
+                cur,
+                theme_id=str(theme_id),
+                person_id=str(body.person_id),
+            )
+            if theme is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="theme not found for this person",
+                )
+            if theme.state == "unlocked":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="theme is already unlocked; archetype progress is locked-only",
+                )
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                updated = await upsert_archetype_draft_async(
+                    cur,
+                    theme_id=str(theme_id),
+                    person_id=str(body.person_id),
+                    answers=answers_payload,
+                )
+
+    if not updated:
+        # Race: theme flipped to unlocked between the check above and the
+        # UPDATE. Treat as 409 — the draft would be orphaned.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="theme is no longer locked; archetype progress rejected",
+        )
+
+    total = (
+        len(theme.archetype_questions) if theme.archetype_questions else 0
+    )
+    answered = sum(
+        1
+        for a in answers_payload
+        if a.get("option_id") or a.get("free_text") or a.get("skipped")
+    )
+
+    log.info(
+        "themes.archetype_progress",
+        theme_id=str(theme_id),
+        slug=theme.slug,
+        answered=answered,
+        total=total,
+    )
+
+    return ArchetypeProgressResponse(
+        saved=True,
+        answered=answered,
+        total=total,
     )
 
 
@@ -238,6 +353,7 @@ async def get_theme(
         description=theme.description,
         archetype_questions=theme.archetype_questions,
         archetype_answers=theme.archetype_answers,
+        archetype_answers_draft=theme.archetype_answers_draft,
     )
 
 

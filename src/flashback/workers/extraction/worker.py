@@ -55,7 +55,10 @@ from .extraction_llm import (
     ThemeCatalogEntry,
     run_extraction,
 )
-from flashback.themes.repository import fetch_active_themes_for_person_sync
+from flashback.themes.repository import (
+    auto_unlock_rich_themes_sync,
+    fetch_active_themes_for_person_sync,
+)
 from flashback.themes.universal import get_universal_theme
 from .idempotency import is_processed, mark_processed
 from .persistence import (
@@ -327,6 +330,9 @@ class ExtractionWorker:
                         moment_signals=persistence_result.moment_signals,
                     )
                     run_handover_check(cur, person_id=str(payload.person_id))
+                    auto_unlocked_themes = auto_unlock_rich_themes_sync(
+                        cur, person_id=str(payload.person_id)
+                    )
                     mark_processed(
                         cur,
                         message_id=message_id,
@@ -379,7 +385,14 @@ class ExtractionWorker:
             merge_suggestions=len(persistence_result.merge_suggestion_ids),
             subject_guard_dropped=persistence_result.dropped_entities_count,
             outbox_jobs=outbox_jobs,
+            auto_unlocked_themes=len(auto_unlocked_themes),
         )
+        if auto_unlocked_themes:
+            log.info(
+                "extraction.themes_auto_unlocked",
+                person_id=str(payload.person_id),
+                themes=auto_unlocked_themes,
+            )
 
     def _resolve_trait_merges(
         self,

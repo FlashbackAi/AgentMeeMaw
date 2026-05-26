@@ -44,6 +44,7 @@ async def apply_theme_unlock(
         person_id = str(state.person_id)
         raw_answers = state.session_metadata.get("archetype_answers") or []
         archetype_answers = [a for a in raw_answers if isinstance(a, dict)]
+        promoted_draft = False
 
         async with deps.db_pool.connection() as conn:
             async with conn.transaction():
@@ -58,6 +59,17 @@ async def apply_theme_unlock(
                             person_id=person_id,
                         )
                         return
+                    # Resume support: if the caller didn't pass archetype
+                    # answers but the user persisted a partial draft, promote
+                    # it into the committed answers atomically with the
+                    # state flip.
+                    if not archetype_answers and theme.archetype_answers_draft:
+                        archetype_answers = [
+                            a
+                            for a in theme.archetype_answers_draft
+                            if isinstance(a, dict)
+                        ]
+                        promoted_draft = True
                     if theme.state == "locked" or archetype_answers:
                         await unlock_theme_async(
                             cur,
@@ -69,6 +81,7 @@ async def apply_theme_unlock(
                             theme_id=theme_id,
                             slug=theme.slug,
                             answer_count=len(archetype_answers),
+                            promoted_draft=promoted_draft,
                         )
 
         # Propagate theme context downstream via session_metadata so the

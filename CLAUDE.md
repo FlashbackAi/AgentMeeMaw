@@ -299,26 +299,64 @@ Every piece of code touching the graph or queues must respect these.
        via `themed_as`. Threads remain internal scaffolding;
        emergents are the user-facing wrapper.
 
-    c. **Locked themes are always visible; tier is computed.** All
-       themes start `state='locked'` and the `active_themes_with_tier`
-       view derives tier (`tale` / `story` / `testament`) on read
-       from the live `themed_as` × `active_moments` join. Locked
-       themes report `tier=NULL`. There's no denormalised counter
-       to drift. "Qualifying" moment = has any of (`sensory_details`,
-       `time_anchor`, an `involves` edge); "rich sensory" =
-       `len(sensory_details) > 80`. Tunable via the view definition.
+    c. **Locked themes are always visible; tier + eligibility are
+       computed.** All themes start `state='locked'`, and the
+       `active_themes_with_tier` view derives two fields from the
+       live `themed_as` × `active_moments` join:
+       * `tier` (`tale` / `story` / `testament`) — post-unlock depth
+         indicator. Locked themes report `tier=NULL`. There's no
+         denormalised counter to drift.
+       * `eligibility` (`empty` / `seeded` / `eligible` / `rich`) —
+         the user-facing lock-card affordance. Independent of
+         `state`, so the frontend can vary the UI ("Ready to unlock"
+         vs muted "coming soon") without re-deriving thresholds.
 
-    d. **Unlock = lazy archetype gen + atomic flip on session start.**
-       `POST /themes/{id}/unlock_prepare` returns archetype MC
-       questions, generating + caching them via a small LLM on first
-       call. The theme stays locked. The actual lock→unlocked flip
-       happens atomically inside `apply_theme_unlock` (orchestrator
-       step) on the next `/session/start` when `session_metadata`
-       carries `theme_id` (+ optional `archetype_answers`). Answers
-       are ephemeral priors: persisted as JSONB on the theme row,
-       injected into the first-turn opener context, but **never**
-       written as moments/traits/profile_facts. Extraction mines
-       the resulting conversation, not the answers.
+       Thresholds: `empty` = no qualifying moments; `seeded` = 1-2;
+       `eligible` = 3-4 qualifying OR 2+ life periods; `rich` = the
+       same condition as `testament` (qualifying ≥ 5 AND
+       life_periods ≥ 3 AND has_rich_sensory). "Qualifying" moment =
+       has any of (`sensory_details`, `time_anchor`, an `involves`
+       edge); "rich sensory" = `len(sensory_details) > 80`.
+
+    d. **Unlock = lazy archetype gen + atomic flip + auto-unlock on
+       `rich`.** Two paths reach `state='unlocked'`:
+
+       * **Archetype-gated (default).** `POST /themes/{id}/
+         unlock_prepare` returns archetype MC questions, generating
+         + caching them via a small LLM on first call. The theme
+         stays locked. The actual lock→unlocked flip happens
+         atomically inside `apply_theme_unlock` (orchestrator step)
+         on the next `/session/start` when `session_metadata`
+         carries `theme_id` (+ optional `archetype_answers`).
+       * **Auto-unlock on `rich`.** `auto_unlock_rich_themes_sync`
+         runs at the tail of the Extraction Worker tx (after
+         `themed_as` edges and the Coverage Tracker commit) and
+         flips any locked themes that have crossed the `rich`
+         threshold straight to `unlocked`. No archetype Qs required
+         — the opener grounds on the tagged moments. If a draft
+         exists on the row (Gap C), the auto-unlock promotes it into
+         `archetype_answers` rather than discarding the user's
+         partial effort.
+
+       Archetype answers are ephemeral priors: persisted as JSONB
+       on the theme row, injected into the first-turn opener
+       context, but **never** written as moments/traits/
+       profile_facts. Extraction mines the resulting conversation,
+       not the answers.
+
+    d2. **Archetype-answer drafts are resumable.** Mid-flow partial
+        answers persist via `POST /themes/{theme_id}/
+        archetype_progress` into the `archetype_answers_draft`
+        JSONB column on `themes`. Last-write-wins: the supplied
+        array replaces the current draft in full. `unlock_prepare`
+        returns the draft alongside the questions so the modal
+        restores chip selections on resume. The view's
+        `archetype_progress` field (`{answered, total} | null`)
+        lets the legacy grid show a "2/4 answered" badge on locked
+        cards. On unlock — whether archetype-gated or auto-unlock
+        — the draft is cleared (and promoted into
+        `archetype_answers` in the auto-unlock case). 409 if a
+        progress write hits an already-unlocked theme.
 
     e. **Deepen flow is soft bias, never hard filter.** When
        `current_theme_slug` is set on Working Memory, the producer
@@ -560,20 +598,38 @@ wrapper.
 
 ### 7.4 Unlock + deepen flows
 
-Unlock:
+Archetype-gated unlock:
 
-1. UI taps a `locked` card → `POST /themes/{id}/unlock_prepare`.
-2. Agent returns archetype MC questions, generating + caching on
-   the row when `archetype_questions IS NULL` (universals). On
-   subsequent taps the cached payload is returned at no LLM cost.
-3. UI shows 3–4 MC questions × 4 chips each with skip + free-text.
-4. UI calls `POST /session/start` with `session_metadata.theme_id`
+1. UI taps a `locked` card whose `eligibility` is `seeded` or
+   `eligible` → `POST /themes/{id}/unlock_prepare`.
+2. Agent returns archetype MC questions + any existing
+   `archetype_answers_draft` (Gap C resume). Universals lazily
+   generate + cache on first call.
+3. UI shows 3–4 MC questions × 4 chips each with skip + free-text,
+   restoring chip selections from the returned draft if present.
+4. Between chip taps the UI may persist progress via
+   `POST /themes/{id}/archetype_progress` (last-write-wins on
+   `archetype_answers_draft`) so an abandoned flow resumes.
+5. UI calls `POST /session/start` with `session_metadata.theme_id`
    + `session_metadata.archetype_answers`.
-5. Orchestrator's `apply_theme_unlock` step flips the theme to
-   `unlocked`, persists answers as JSONB, and propagates
-   `current_theme_*` into Working Memory.
-6. The opener carries the theme context. Conversation proceeds via
+6. Orchestrator's `apply_theme_unlock` step flips the theme to
+   `unlocked`. If `archetype_answers` is empty but a draft exists,
+   the draft is promoted into the committed answers. Draft is
+   cleared on flip.
+7. The opener carries the theme context. Conversation proceeds via
    the normal Turn Orchestrator (`/turn`).
+
+Auto-unlock on `rich`:
+
+1. Extraction commits new `themed_as` edges that push a locked
+   theme into the `rich` bucket (qualifying ≥ 5 AND life_periods ≥
+   3 AND has_rich_sensory).
+2. `auto_unlock_rich_themes_sync` (Extraction Worker tx tail)
+   flips the row to `unlocked`, promotes any existing draft into
+   `archetype_answers`, and clears the draft.
+3. Next time the UI loads the legacy grid, the card shows
+   `state='unlocked'` + tier — no modal required. Tapping it goes
+   straight to a deepen session.
 
 Deepen (already-unlocked theme):
 
@@ -588,11 +644,13 @@ Deepen (already-unlocked theme):
    never hard-filter; the user can drift naturally and the agent
    follows.
 
-### 7.5 Tier read surface
+### 7.5 Tier + eligibility read surface
 
 `active_themes_with_tier` is the canonical read surface. Node reads
 it directly from Postgres (per the integration contract); the local
-dev's `/memories` endpoint mirrors the same query. Tier rules:
+dev's `/memories` endpoint mirrors the same query.
+
+Tier rules (post-unlock depth — locked themes always NULL):
 
 | condition                                                  | tier      |
 |-----------------------------------------------------------|-----------|
@@ -601,6 +659,24 @@ dev's `/memories` endpoint mirrors the same query. Tier rules:
 | qualifying ≥ 3 OR life_periods ≥ 2                         | story     |
 | qualifying ≥ 1                                            | tale      |
 | else                                                      | NULL      |
+
+Eligibility rules (lock-card affordance — independent of state):
+
+| condition                                                  | eligibility |
+|-----------------------------------------------------------|-------------|
+| qualifying = 0                                            | empty       |
+| qualifying ≥ 5 AND life_periods ≥ 3 AND has_rich_sensory  | rich        |
+| qualifying ≥ 3 OR life_periods ≥ 2                         | eligible    |
+| else (qualifying 1-2)                                     | seeded      |
+
+`rich` locked themes are transient — `auto_unlock_rich_themes_sync`
+flips them to `unlocked` at the tail of the Extraction Worker tx, so
+clients usually observe `state='unlocked'` paired with
+`tier='testament'`. The `rich` lock state is the brief window between
+the threshold crossing and the auto-unlock running.
+
+`archetype_progress` is `{answered, total}` when a draft exists,
+NULL otherwise — drives the "2/4 answered" badge on locked cards.
 
 "Qualifying" = moment has any of (`sensory_details`, `time_anchor`,
 an `involves` edge). "Rich sensory" = `char_length(sensory_details)
@@ -749,13 +825,28 @@ We expose an HTTP service. Node calls us; we never call Node.
   suggestion rejected without changing graph entities.
 - `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id }`.
   Returns the cached or lazily-generated archetype MC questions
-  for a locked theme. Does **not** flip the theme to unlocked;
-  that happens atomically inside the next `/session/start` when
-  `theme_id` is carried in `session_metadata`. Repeat calls return
-  cached payload at no LLM cost.
+  for a locked theme, plus any `archetype_answers_draft` so the
+  UI can restore mid-flow chip selections. Does **not** flip the
+  theme to unlocked; that happens atomically inside the next
+  `/session/start` when `theme_id` is carried in `session_metadata`.
+  Repeat calls return cached payload at no LLM cost.
+- `POST /themes/{theme_id}/archetype_progress` — body:
+  `{ person_id, answers: [{question_id, option_id?, option_label?,
+  free_text?, skipped?}] }`. Replaces `archetype_answers_draft` on
+  the row (last-write-wins) so the user can resume an abandoned
+  unlock flow. Returns `{ saved, answered, total }`. 404 if no
+  matching active theme for that person; 409 if the theme is
+  already unlocked.
 - `GET /themes/{theme_id}` — debug surface returning the theme row
-  + archetype JSONB. The user-facing list of themes is read
-  directly from `active_themes_with_tier` by Node.
+  + archetype JSONB (incl. `archetype_answers_draft`). The
+  user-facing list of themes is read directly from
+  `active_themes_with_tier` by Node, which exposes:
+  `state`, `tier`, `eligibility`, `archetype_progress`,
+  `qualifying_count`, `life_period_count`, `has_rich_sensory`,
+  `unlocked_at`, `image_url`, `thumbnail_url`. The
+  `archetype_ready` column was removed (it was an internal
+  cache state; use `archetype_progress` instead for user-facing
+  signal).
 
 We do **not** auth these endpoints. Node is the auth boundary.
 
