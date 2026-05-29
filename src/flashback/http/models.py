@@ -14,6 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from flashback.orchestrator.protocol import Tap
 
+# Conversation mode. ``text`` is the default chat surface; ``voice`` is
+# the ElevenLabs ConvAI flow proxied through Node, in which the reply is
+# spoken aloud by TTS and the response generator must drop markdown and
+# lean on a conversational register with v3 audio tags.
+Mode = Literal["text", "voice"]
+
 
 class QuestionChipsOut(BaseModel):
     """Chip metadata for a seeded producer-bank question.
@@ -49,6 +55,7 @@ class SessionStartRequest(BaseModel):
     role_id: UUID
     contributor_display_name: str | None = None
     session_metadata: dict = Field(default_factory=dict)
+    mode: Mode = "text"
 
 
 class SessionStartMetadata(BaseModel):
@@ -79,6 +86,7 @@ class TurnRequest(BaseModel):
     role_id: UUID
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None
+    mode: Mode = "text"
 
 
 class TurnMetadata(BaseModel):

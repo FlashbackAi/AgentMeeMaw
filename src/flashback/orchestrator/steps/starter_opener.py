@@ -164,6 +164,7 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         theme_archetype_answers=[
             a for a in theme_archetype_answers if isinstance(a, dict)
         ],
+        mode=state.mode,
     )
 
 
@@ -226,6 +227,7 @@ async def build_first_time_opener_context(
         anchor_question_text=None,
         anchor_dimension=None,
         archetype_answers=archetype_answers,
+        mode=state.mode,
     )
 
 
@@ -254,6 +256,7 @@ async def init_working_memory(
             current_theme_display_name=str(
                 state.session_metadata.get("current_theme_display_name") or ""
             ),
+            mode=state.mode,
         )
 
 

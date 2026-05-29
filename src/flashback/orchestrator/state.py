@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
+
+Mode = Literal["text", "voice"]
 
 from flashback.intent_classifier.schema import Intent, IntentResult, Temperature
 from flashback.phase_gate.schema import SelectionResult
@@ -30,6 +32,7 @@ class TurnState:
     role_id: UUID
     user_message: str
     started_at: datetime
+    mode: Mode = "text"
 
     transcript: list[Turn] = field(default_factory=list)
     working_memory_state: WorkingMemoryState | None = None
@@ -63,6 +66,7 @@ class SessionStartState:
     role_id: UUID
     session_metadata: dict[str, Any]
     started_at: datetime
+    mode: Mode = "text"
 
     person_name: str = ""
     person_relationship: str | None = None

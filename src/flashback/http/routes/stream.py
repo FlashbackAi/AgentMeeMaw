@@ -85,6 +85,7 @@ async def turn_stream(
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
         person_id=str(body.person_id),
+        mode=body.mode,
     )
 
     if not await wm.exists(str(body.session_id)):
@@ -123,6 +124,7 @@ async def turn_stream(
                 person_id=body.person_id,
                 role_id=body.role_id,
                 user_message=body.message,
+                mode=body.mode,
             ):
                 yield _format_sse(event)
         except Exception as exc:  # noqa: BLE001
@@ -165,6 +167,7 @@ async def session_start_stream(
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
         person_id=str(body.person_id),
+        mode=body.mode,
     )
 
     contributor_name = (body.contributor_display_name or "").strip()
@@ -179,6 +182,7 @@ async def session_start_stream(
                 person_id=body.person_id,
                 role_id=body.role_id,
                 session_metadata=metadata_with_name,
+                mode=body.mode,
             ):
                 yield _format_sse(event)
         except Exception as exc:  # noqa: BLE001

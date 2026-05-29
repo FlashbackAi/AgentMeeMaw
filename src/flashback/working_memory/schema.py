@@ -97,6 +97,13 @@ class WorkingMemoryState(BaseModel):
     # greeting") gets classified as story / deepen, not switch.
     signal_pending_tap_question: str = ""
 
+    # ---- Voice mode -----------------------------------------------------
+    # ``mode`` is set on /session/start and read by /turn so the response
+    # generator can swap to the voice prompt variant. Sticky for the life
+    # of the session. Defaults to ``text`` for sessions started before
+    # this field existed (parse_state_hash falls back to the default).
+    mode: Literal["text", "voice"] = "text"
+
     # ---- Theme deepen-session context (invariant: soft bias only) --------
     # Set when /session/start is called with a theme_id in session_metadata.
     # Producer ranker reads ``current_theme_slug`` to bump matching
@@ -180,4 +187,5 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "current_theme_id": state.current_theme_id,
         "current_theme_slug": state.current_theme_slug,
         "current_theme_display_name": state.current_theme_display_name,
+        "mode": state.mode,
     }

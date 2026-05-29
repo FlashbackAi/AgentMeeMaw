@@ -73,6 +73,7 @@ async def build_turn_context(
             if wm_state.current_theme_display_name
             else None
         ),
+        mode=state.mode,
     )
 
 

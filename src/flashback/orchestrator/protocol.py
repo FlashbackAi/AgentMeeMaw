@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 from uuid import UUID
 
+Mode = Literal["text", "voice"]
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -102,6 +104,7 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: Mode = "text",
     ) -> SessionStartResult: ...
 
     async def handle_first_time_opener(
@@ -110,6 +113,7 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: Mode = "text",
     ) -> SessionStartResult: ...
 
     async def handle_turn(
@@ -118,6 +122,7 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         user_message: str,
+        mode: Mode = "text",
     ) -> TurnResult: ...
 
     async def handle_session_wrap(
@@ -132,6 +137,7 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...
 
     def handle_first_time_opener_stream(
@@ -140,6 +146,7 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...
 
     def handle_turn_stream(
@@ -148,4 +155,5 @@ class OrchestratorProtocol(Protocol):
         person_id: UUID,
         role_id: UUID,
         user_message: str,
+        mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...

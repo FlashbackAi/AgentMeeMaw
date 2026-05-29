@@ -95,6 +95,7 @@ class WorkingMemory:
         current_theme_id: str = "",
         current_theme_slug: str = "",
         current_theme_display_name: str = "",
+        mode: str = "text",
     ) -> None:
         """
         Create WM for a new session.
@@ -127,6 +128,9 @@ class WorkingMemory:
             await self._refresh_ttls(session_id)
             return
 
+        validated_mode: Literal["text", "voice"] = (
+            "voice" if mode == "voice" else "text"
+        )
         state = WorkingMemoryState(
             person_id=person_id,
             role_id=role_id,
@@ -136,6 +140,7 @@ class WorkingMemory:
             current_theme_id=current_theme_id,
             current_theme_slug=current_theme_slug,
             current_theme_display_name=current_theme_display_name,
+            mode=validated_mode,
         )
         mapping = serialise_state_for_init(state)
         async with self._redis.pipeline(transaction=True) as p:

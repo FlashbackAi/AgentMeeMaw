@@ -14,6 +14,7 @@ from flashback.response_generator.prompts import (
     FIRST_TIME_OPENER_PROMPT,
     INTENT_TO_PROMPT,
     STARTER_OPENER_PROMPT,
+    VOICE_MODE_INSTRUCTIONS,
 )
 from flashback.response_generator.schema import (
     FirstTimeOpenerContext,
@@ -21,6 +22,17 @@ from flashback.response_generator.schema import (
     StarterContext,
     TurnContext,
 )
+
+
+def _apply_mode(system_prompt: str, mode: str) -> str:
+    """Append the voice-mode instructions when ``mode == 'voice'``.
+
+    Voice mode is additive — every existing prompt stays untouched and
+    text mode is the no-op default.
+    """
+    if mode == "voice":
+        return system_prompt + VOICE_MODE_INSTRUCTIONS
+    return system_prompt
 
 
 class ResponseGenerator:
@@ -41,7 +53,7 @@ class ResponseGenerator:
         self._max_tokens = max_tokens
 
     async def generate_turn_response(self, ctx: TurnContext) -> ResponseResult:
-        system_prompt = INTENT_TO_PROMPT[ctx.intent]
+        system_prompt = _apply_mode(INTENT_TO_PROMPT[ctx.intent], ctx.mode)
         user_message = render_turn_context(ctx)
         text = await call_text(
             provider=self._provider,
@@ -59,7 +71,7 @@ class ResponseGenerator:
         text = await call_text(
             provider=self._provider,
             model=self._model,
-            system_prompt=STARTER_OPENER_PROMPT,
+            system_prompt=_apply_mode(STARTER_OPENER_PROMPT, ctx.mode),
             user_message=user_message,
             max_tokens=self._max_tokens,
             timeout=self._timeout,
@@ -74,7 +86,7 @@ class ResponseGenerator:
         text = await call_text(
             provider=self._provider,
             model=self._model,
-            system_prompt=FIRST_TIME_OPENER_PROMPT,
+            system_prompt=_apply_mode(FIRST_TIME_OPENER_PROMPT, ctx.mode),
             user_message=user_message,
             max_tokens=self._max_tokens,
             timeout=self._timeout,
@@ -85,7 +97,7 @@ class ResponseGenerator:
     async def stream_turn_response(
         self, ctx: TurnContext
     ) -> AsyncIterator[str]:
-        system_prompt = INTENT_TO_PROMPT[ctx.intent]
+        system_prompt = _apply_mode(INTENT_TO_PROMPT[ctx.intent], ctx.mode)
         user_message = render_turn_context(ctx)
         async for chunk in call_text_stream(
             provider=self._provider,
@@ -105,7 +117,7 @@ class ResponseGenerator:
         async for chunk in call_text_stream(
             provider=self._provider,
             model=self._model,
-            system_prompt=STARTER_OPENER_PROMPT,
+            system_prompt=_apply_mode(STARTER_OPENER_PROMPT, ctx.mode),
             user_message=user_message,
             max_tokens=self._max_tokens,
             timeout=self._timeout,
@@ -120,7 +132,7 @@ class ResponseGenerator:
         async for chunk in call_text_stream(
             provider=self._provider,
             model=self._model,
-            system_prompt=FIRST_TIME_OPENER_PROMPT,
+            system_prompt=_apply_mode(FIRST_TIME_OPENER_PROMPT, ctx.mode),
             user_message=user_message,
             max_tokens=self._max_tokens,
             timeout=self._timeout,

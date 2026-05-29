@@ -90,6 +90,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: str = "text",
     ) -> SessionStartResult:
         state = SessionStartState(
             session_id=session_id,
@@ -97,11 +98,13 @@ class Orchestrator:
             role_id=role_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
             role_id=str(state.role_id),
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:
@@ -185,6 +188,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: str = "text",
     ) -> SessionStartResult:
         """Run the very-first-session opener using archetype answers.
 
@@ -200,12 +204,14 @@ class Orchestrator:
             role_id=role_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
             role_id=str(state.role_id),
             opener_path="first_time",
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:
@@ -271,6 +277,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         user_message: str,
+        mode: str = "text",
     ) -> TurnResult:
         state = TurnState(
             turn_id=uuid4(),
@@ -279,12 +286,14 @@ class Orchestrator:
             role_id=role_id,
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             turn_id=str(state.turn_id),
             session_id=str(state.session_id),
             person_id=str(state.person_id),
             role_id=str(state.role_id),
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:
@@ -388,6 +397,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         user_message: str,
+        mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
         """Streaming twin of :meth:`handle_turn`.
 
@@ -404,6 +414,7 @@ class Orchestrator:
             role_id=role_id,
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             turn_id=str(state.turn_id),
@@ -411,6 +422,7 @@ class Orchestrator:
             person_id=str(state.person_id),
             role_id=str(state.role_id),
             transport="stream",
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:
@@ -558,6 +570,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
         """Streaming twin of :meth:`handle_session_start`."""
         state = SessionStartState(
@@ -566,12 +579,14 @@ class Orchestrator:
             role_id=role_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
             role_id=str(state.role_id),
             transport="stream",
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:
@@ -636,6 +651,7 @@ class Orchestrator:
         person_id: UUID,
         role_id: UUID,
         session_metadata: dict,
+        mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
         """Streaming twin of :meth:`handle_first_time_opener`."""
         state = SessionStartState(
@@ -644,6 +660,7 @@ class Orchestrator:
             role_id=role_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
+            mode="voice" if mode == "voice" else "text",
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
@@ -651,6 +668,7 @@ class Orchestrator:
             role_id=str(state.role_id),
             opener_path="first_time",
             transport="stream",
+            mode=state.mode,
         )
         started = time.perf_counter()
         try:

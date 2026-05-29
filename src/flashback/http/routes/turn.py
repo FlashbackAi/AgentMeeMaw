@@ -51,6 +51,7 @@ async def turn(
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
         person_id=str(body.person_id),
+        mode=body.mode,
     )
 
     if not await wm.exists(str(body.session_id)):
@@ -119,6 +120,7 @@ async def _run_turn(
         person_id=body.person_id,
         role_id=body.role_id,
         user_message=body.message,
+        mode=body.mode,
     )
 
     if not orchestrator_owns_wm:

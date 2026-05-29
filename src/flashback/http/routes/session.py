@@ -37,6 +37,7 @@ async def session_start(
     structlog.contextvars.bind_contextvars(
         session_id=str(body.session_id),
         person_id=str(body.person_id),
+        mode=body.mode,
     )
 
     started_at = datetime.now(timezone.utc)
@@ -52,6 +53,7 @@ async def session_start(
         person_id=body.person_id,
         role_id=body.role_id,
         session_metadata=metadata_with_name,
+        mode=body.mode,
     )
 
     if not getattr(orch, "owns_working_memory", False):
@@ -62,6 +64,7 @@ async def session_start(
             started_at=started_at,
             seed_prior_session_summary=seed_summary,
             contributor_display_name=contributor_name,
+            mode=body.mode,
         )
         await wm.append_turn(
             session_id=str(body.session_id),

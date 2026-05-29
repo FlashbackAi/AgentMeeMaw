@@ -11,6 +11,7 @@ from flashback.intent_classifier.schema import Intent, Temperature
 from flashback.retrieval.schema import EntityResult, MomentResult, ThreadResult
 
 AnchorDimension = Literal["sensory", "voice", "place", "relation", "era"]
+Mode = Literal["text", "voice"]
 
 
 class Turn(BaseModel):
@@ -47,6 +48,8 @@ class StarterContext(BaseModel):
     current_theme_kind: str | None = None  # 'universal' | 'emergent'
     theme_archetype_answers: list[dict] = Field(default_factory=list)
 
+    mode: Mode = "text"
+
 
 class FirstTimeOpenerContext(BaseModel):
     """Context for the very first opener, right after archetype onboarding.
@@ -65,6 +68,7 @@ class FirstTimeOpenerContext(BaseModel):
     anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
     archetype_answers: list[dict] = Field(default_factory=list)
+    mode: Mode = "text"
 
 
 class TurnContext(BaseModel):
@@ -95,6 +99,8 @@ class TurnContext(BaseModel):
     # Active deepen-session theme, if any. Soft bias: the agent should
     # tilt toward this theme but follow the user when conversation drifts.
     current_theme_display_name: str | None = None
+
+    mode: Mode = "text"
 
 
 class ResponseResult(BaseModel):
