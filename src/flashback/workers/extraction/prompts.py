@@ -344,9 +344,13 @@ set year=1976. If they said "the 80s" set decade="1980s". If unclear, leave \
 time_anchor blank.
 
 For `generation_prompt` fields: produce a one-sentence visual description in \
-present tense. Pixar/Studio Ghibli style. Focus on mood, color, light, \
-composition. No people's faces, no photorealism. The worker code appends \
-style guidance after.
+present tense. Cinematic painterly realism in the style of Red Dead \
+Redemption 2 environment art — naturalistic lighting, rich earthen color \
+palette, soft volumetric atmosphere, oil-painted brushwork that keeps \
+physical detail. Avoid flat cartoon shading and avoid Pixar/Ghibli look. \
+Avoid full photorealism. No people's faces. Focus on mood, color, light \
+direction, time of day, and composition. The worker code appends style \
+guidance after.
 
 Examples of good generation_prompts:
 - "A wood-paneled kitchen at dawn, sunlight catching steam from a coffee cup."

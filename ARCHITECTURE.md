@@ -1065,7 +1065,7 @@ User ends session ──▶ Node ──▶ POST /session/wrap
 
 ## 12. Artifact generation pipeline
 
-Stylized (Pixar-ish) visuals are part of v1. Pipeline:
+Painterly-realism visuals (RDR2-style) are part of v1. Pipeline:
 
 ```
 Agent creates row (person/thread/entity/moment)

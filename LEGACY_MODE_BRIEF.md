@@ -45,9 +45,11 @@ rules from that:
   answers.
 - We do not clone voices. We do not generate photoreal video of the
   subject.
-- We do generate **Pixar-style stylized artifacts** — images for
-  persons, threads, entities; short videos for moments — purely for
-  visual texture in the legacy review UI.
+- We do generate **painterly-realism artifacts** — images for persons,
+  threads, entities; short videos for moments — in the visual register
+  of Red Dead Redemption 2 (naturalistic features and lighting with
+  painterly brushwork, between full photorealism and cartoon) — purely
+  for visual texture in the legacy review UI.
 - The conversation must never feel like a survey. Cold openers,
   dropped references, emotional pacing, all matter.
 - We deliberately do **not** ask for date of birth or date of death up

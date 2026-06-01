@@ -2,18 +2,44 @@
 
 from __future__ import annotations
 
+from flashback.artifacts.presets import apply_preset
+
 _GENDER_MAP = {"he": "male", "she": "female", "they": "non_binary"}
 
 NEGATIVE_PROMPT = (
-    "photorealistic, photograph, hyperrealistic, real person, deepfake, "
+    "photograph, hyperrealistic skin pores, deepfake likeness of a real "
+    "specific living person, flat cartoon shading, cel-shaded anime, "
+    "Pixar 3D look, exaggerated cartoon proportions, plastic skin, "
+    # Deity / mythological iconography — blocks the failure mode where a
+    # name with strong religious priors (Krishna, Jesus, Buddha, Ganesh,
+    # Apollo, Athena, etc.) makes the model default to depicting the
+    # deity instead of an ordinary person with that name. We forbid the
+    # strong deity tells (halo, divine aura, multi-arm, mythological
+    # symbols, deity skin tones) but not ordinary cultural attire — a
+    # tilaka, sari, kurta, kippah, hijab, cross-necklace etc. are fine
+    # on an ordinary person and remain allowed.
+    "religious deity, god, goddess, divine being, mythological figure, "
+    "holy avatar, sacred icon, halo, divine aura, glowing aureole, "
+    "celestial light, multi-armed figure, multiple arms, blue-skinned "
+    "deity, green-skinned deity, gold-skinned deity, peacock-feather "
+    "crown, deity holding a flute, lotus throne, religious altar "
+    "backdrop, temple sanctum backdrop, "
     "text, watermark, signature, blurry, low quality, distorted, uncanny"
 )
 
 _SUBJECT_HINT: dict[str, str] = {
-    "male": "male character",
-    "female": "female character",
-    "non_binary": "non-binary character",
+    "male": "male subject",
+    "female": "female subject",
+    "non_binary": "non-binary subject",
 }
+
+# Anchor that runs on every portrait, before name-driven priors get a
+# chance to bias the composition toward a mythological reading. Sits
+# right after the name so it's spatially close in the prompt.
+_REAL_PERSON_ANCHOR = (
+    "an ordinary contemporary person living a normal everyday life, "
+    "not a religious or mythological figure, modern real-world setting"
+)
 
 
 def map_gender(gender: str | None) -> str:
@@ -26,33 +52,67 @@ def compose_image_prompt(
     name: str,
     gender: str | None,
     relationship: str | None = None,
-    user_instructions: str | None = None,
+    user_instructions: str | list[str] | None = None,
+    preset: str | None = None,
 ) -> str:
-    """Return a Pixar-style portrait prompt ready to send to the image model.
+    """Return a painterly semi-realistic portrait prompt for the image model.
+
+    Visual target: Red Dead Redemption 2 character-art aesthetic — naturalistic
+    features rendered with painterly brushwork, cinematic studio lighting, rich
+    warm color grade. Sits between full photorealism and stylized cartoon. The
+    negative prompt forbids deepfake likeness of real specific living people
+    (CLAUDE.md §1 product constraint) while allowing lifelike depiction.
 
     ``gender`` is the raw persons.gender value (``"he"``/``"she"``/``"they"``/
     ``None``). ``relationship`` is optional context (e.g. ``"grandmother"``).
     ``user_instructions`` is appended verbatim when the caller is an edit flow.
+    Pass a list to stack cumulative edit history (each entry joined in order).
+    ``preset`` selects a stylistic modifier from the shared registry
+    (:mod:`flashback.artifacts.presets`); ``None`` uses the default RDR2 look.
+    Unknown preset slugs raise ``ValueError``.
     """
     gender_contract = map_gender(gender)
     subject_hint = _SUBJECT_HINT.get(gender_contract, "")
 
-    parts: list[str] = [f"Pixar-style stylized portrait of {name}"]
+    parts: list[str] = [
+        f"Painterly semi-realistic portrait of {name}",
+        _REAL_PERSON_ANCHOR,
+    ]
     if subject_hint:
         parts.append(subject_hint)
     if relationship:
-        parts.append(f"depicted as a {relationship}")
+        parts.append(
+            f"depicted as an ordinary contemporary {relationship}, "
+            f"modern everyday clothing"
+        )
     parts += [
-        "warm expressive character design",
-        "soft cinematic lighting",
-        "rich color palette with gentle depth of field",
-        "dignified and lifelike expression",
-        "studio quality 3D render",
+        "in the visual style of Red Dead Redemption 2 character art",
+        "naturalistic features with subtle painterly brushwork",
+        "soft cinematic studio lighting with warm key and gentle rim light",
+        "rich earthen color grade, shallow depth of field",
+        "dignified lifelike expression, weight and texture in the skin and fabric",
+        "oil-painting quality, not cartoon, not full photorealism",
         "no text no watermarks",
     ]
-    if user_instructions:
-        stripped = user_instructions.strip()
-        if stripped:
-            parts.append(stripped)
+    for fragment in _normalize_instructions(user_instructions):
+        parts.append(fragment)
 
-    return ", ".join(parts)
+    return apply_preset(", ".join(parts), preset)
+
+
+def _normalize_instructions(
+    value: str | list[str] | None,
+) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    out: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            continue
+        stripped = entry.strip()
+        if stripped:
+            out.append(stripped)
+    return out

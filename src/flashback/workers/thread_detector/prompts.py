@@ -47,9 +47,12 @@ Examples of BAD thread names:
 You will be given the cluster's moments along with the contributor's \
 display name (in `<contributor_display_name>`, may be empty). Output a \
 `name` (≤ 80 chars), a `description` (1–2 sentences) that captures what \
-unifies them, and a `generation_prompt` — a one-sentence \
-Pixar/Studio-Ghibli-style visual description for the thread's stylized \
-image. Mood, color, light. No people's faces, no photorealism.
+unifies them, and a `generation_prompt` — a one-sentence visual \
+description for the thread's stylized image in cinematic painterly \
+realism (Red Dead Redemption 2 environment-art aesthetic): naturalistic \
+lighting, earthen color palette, soft volumetric atmosphere, oil-painted \
+brushwork. Mood, color, light. No people's faces. Avoid flat cartoon \
+shading and avoid full photorealism.
 
 When `<contributor_display_name>` is non-empty, USE that name for any \
 first-person attribution to the contributor in the description ("Sarah's \
@@ -126,8 +129,9 @@ NAMING_TOOL = ToolSpec(
             "generation_prompt": {
                 "type": "string",
                 "description": (
-                    "One-sentence Pixar / Studio Ghibli visual prompt. "
-                    "No faces, no photorealism."
+                    "One-sentence painterly-realism visual prompt in "
+                    "RDR2 environment-art style. No faces. Avoid cartoon "
+                    "shading and avoid full photorealism."
                 ),
             },
             "theme_display_name": {
