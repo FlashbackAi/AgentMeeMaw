@@ -1,42 +1,52 @@
 # Backend Services: Profile-Picture Generation Queue
 
-**For:** Node.js Backend team  
-**Queue name:** `flashback_agent-profile-picture`  
-**Queue URL:** `https://sqs.ap-south-1.amazonaws.com/768699754860/flashback_agent-profile-picture`  
+**For:** Node.js Backend team
+**Queue name:** `flashback_agent-profile-picture`
+**Queue URL:** `https://sqs.ap-south-1.amazonaws.com/768699754860/flashback_agent-profile-picture`
 **Queue type:** Standard SQS (not FIFO)
+
+Under the Postgres-authoritative model, the SQS message is **a trigger
+only**. The agent composes the full portrait context (prompt + negative
++ mode + reference key + preset) and writes it to
+`persons.latest_generation_context` BEFORE pushing. The worker reads
+context from Postgres at job time.
 
 ---
 
-## What the agent pushes
+## Prompt source — Postgres is authoritative
 
-The Python agent pushes a JSON message to this queue whenever it wants Node to generate and store a profile picture for a person. The agent composes the full `image_prompt` before enqueuing — the backend does not need to build any prompt logic.
+**Read every portrait field from Postgres**, not from the SQS message.
+The agent fully owns prompt composition (portrait recipe + relationship
+anchor + stacked `prior_instructions` + newest `instructions` + preset
+modifier + deity-iconography negative). On every push it writes a JSONB
+blob to `persons.latest_generation_context` before sending the trigger.
 
-### Message schema
+Node:
+
+- **Reads** the trigger message: figure out *which person* needs a portrait.
+- **Reads** `persons.latest_generation_context` from Postgres at processing time — that's where the prompt, negative, mode, reference, and preset live.
+- **Does NOT** mutate or decorate the prompt on the Node side. Style adjustments must round-trip through the preset registry on the agent.
+
+The trigger payload includes a `composed_at` timestamp matching
+`latest_generation_context.composed_at`. If a later edit / regenerate has
+superseded the context (row's `composed_at` is newer), the worker can
+choose to skip the older trigger — only the latest composition needs to
+be generated.
+
+---
+
+## Trigger payload (SQS message body)
 
 ```json
 {
-  "job_id": "string (UUID)",
-  "user_id": "string (UUID — same as person_id in Postgres)",
-  "mode": "no_reference | with_reference",
-  "reference_s3_key": "string | null",
-  "image_prompt": "string — full ready-to-send prompt",
-  "negative_prompt": "string",
-  "model_hints": {
-    "preset": "brand_default",
-    "guidance_scale": 7.5,
-    "steps": 30,
-    "seed": null
-  },
-  "raw_inputs": {
-    "profile": {
-      "display_name": "string",
-      "gender": "male | female | non_binary | unspecified",
-      "relationship": "string | null"
-    },
-    "user_prompt": "string | null"
-  },
-  "source": "onboarding | regenerate | edit",
-  "enqueued_at": "ISO-8601 UTC timestamp"
+  "job_id":        "<uuid>",
+  "record_type":   "person",
+  "record_id":     "<person_id>",
+  "person_id":     "<person_id>",
+  "artifact_kind": "image",
+  "source":        "onboarding" | "regenerate" | "edit",
+  "composed_at":   "<ISO-8601 UTC — matches latest_generation_context.composed_at>",
+  "enqueued_at":   "<ISO-8601 UTC>"
 }
 ```
 
@@ -44,15 +54,30 @@ The Python agent pushes a JSON message to this queue whenever it wants Node to g
 
 | Field | Notes |
 |---|---|
-| `job_id` | For `source=onboarding` this is the stable `person_id` (one job per person creation). For `regenerate`/`edit` it is a fresh UUID each call — allows multiple jobs per person. |
-| `user_id` | Always the Postgres `persons.id` UUID. Use this to write `image_url` / `thumbnail_url` back. |
-| `mode` | `no_reference` = text-to-image only. `with_reference` = `reference_s3_key` is set; use it as the reference/IP-adapter input. |
-| `reference_s3_key` | S3 key of the user-uploaded reference photo. `null` when `mode=no_reference`. |
-| `image_prompt` | Pixar-style stylized portrait prompt, fully composed. Pass directly to the image model. |
-| `negative_prompt` | Pass directly to the model as the negative conditioning string. |
-| `model_hints.preset` | `"brand_default"` — apply your brand-default model + LoRA config. |
-| `raw_inputs` | Agent's original inputs before prompt composition. Useful for logging / reprocessing; do not need to be displayed to users. |
-| `source` | `onboarding` = first-time creation. `regenerate` = re-generate from profile. `edit` = user gave custom instructions (see `raw_inputs.user_prompt`). |
+| `job_id` | For `source=onboarding` this is the stable `person_id` (one job per person creation). For `regenerate`/`edit` it is a fresh UUID — multiple jobs per person. |
+| `record_id` / `person_id` | Both equal the Postgres `persons.id` UUID. Use either to read context + write back URLs. |
+| `source` | `onboarding` = first-time creation. `regenerate` = re-generate from profile. `edit` = user gave custom instructions. |
+| `composed_at` | Matches the row's `latest_generation_context.composed_at` at push time. Stale-trigger detection: if the row's value is newer, skip + delete. |
+| `enqueued_at` | When the agent pushed the SQS message. For latency tracking. |
+
+---
+
+## `persons.latest_generation_context` JSONB (Postgres)
+
+```json
+{
+  "prompt":            "<composed portrait prompt — pass directly to the image model>",
+  "negative_prompt":   "<portrait negative — blocks photoreal of real living people + cartoon/Pixar look + deity iconography>",
+  "mode":              "no_reference" | "with_reference",
+  "reference_s3_key":  "<s3 key>" | null,
+  "preset":            "<preset slug>" | null,
+  "source":            "onboarding" | "regenerate" | "edit" | "auto",
+  "composed_at":       "<ISO-8601 UTC>"
+}
+```
+
+Populated by migration 0023 on existing rows; written fresh by the
+agent on every new push.
 
 ---
 
@@ -62,19 +87,27 @@ The Python agent pushes a JSON message to this queue whenever it wants Node to g
 
 For each message:
 
-1. **Parse** the JSON payload and validate `job_id`, `user_id`, `mode`.
-2. **Generate the image:**
-   - Call the image model with `image_prompt` and `negative_prompt`.
-   - If `mode=with_reference`, fetch `reference_s3_key` from S3 and supply as the reference input.
-   - Apply `model_hints.preset` — map `"brand_default"` to your configured model + LoRA + settings.
-3. **Upload to S3:**
-   - Full resolution → `profile-pictures/{user_id}/{job_id}.png` (or `.webp`).
-   - Thumbnail (e.g. 256 × 256) → `profile-pictures/{user_id}/{job_id}_thumb.png`.
-4. **Write back to Postgres** (`persons` table, row where `id = user_id`):
+1. **Parse** the trigger payload. Extract `record_id` (= `person_id`), `composed_at`.
+2. **Read context from Postgres:**
+   ```sql
+   SELECT latest_generation_context
+     FROM persons
+    WHERE id = %s
+   ```
+   If `NULL` (or row missing), log + skip + delete.
+3. **Stale check (recommended):** if `context.composed_at > message.composed_at`, a later push superseded this trigger — skip + delete.
+4. **Generate the image:**
+   - Call the image model with `context.prompt` and `context.negative_prompt`.
+   - If `context.mode = 'with_reference'`, fetch `context.reference_s3_key` from S3 and supply as the reference / IP-adapter input.
+   - Apply your `brand_default` model + LoRA + settings.
+5. **Upload to S3:**
+   - Full resolution → `profile-pictures/{person_id}/{job_id}.png` (or `.webp`).
+   - Thumbnail (e.g. 256 × 256) → `profile-pictures/{person_id}/{job_id}_thumb.png`.
+6. **Write back to Postgres** (`persons` table, row where `id = person_id`):
    - `image_url` — public or pre-signed URL for the full-res image.
    - `thumbnail_url` — URL for the thumbnail.
-   - Do **not** touch `generation_prompt` — the agent already owns that column for other artifact types.
-5. **Delete the SQS message** on success.
+   - Do **not** touch `generation_prompt` or `latest_generation_context` — the agent owns those.
+7. **Delete the SQS message** on success.
 
 ### 2. Error handling
 
@@ -85,7 +118,7 @@ For each message:
 
 ### 3. Idempotency note
 
-`job_id` is unique per enqueue call (except `onboarding` where it equals `person_id`). If you replay a message, overwriting `image_url` / `thumbnail_url` with the new result is acceptable — the UI always reads the current value.
+`job_id` is unique per enqueue call (except `onboarding` where it equals `person_id`). If you replay a message, overwriting `image_url` / `thumbnail_url` with the new result is acceptable — the UI always reads the current value. With the `composed_at` stale-check, replays of older messages should be skipped automatically.
 
 ---
 
@@ -95,10 +128,10 @@ For each message:
 UPDATE persons
 SET image_url      = '<full-res URL>',
     thumbnail_url  = '<thumb URL>'
-WHERE id = '<user_id>';
+WHERE id = '<person_id>';
 ```
 
-These are the only two columns Node writes for this flow. The agent owns everything else on the `persons` row.
+These are the only two columns Node writes for this flow.
 
 ---
 
@@ -110,4 +143,4 @@ The agent uses `PROFILE_PICTURE_QUEUE_URL=""` locally (empty string) to skip enq
 PROFILE_PICTURE_QUEUE_URL=http://localhost:4566/000000000000/flashback_agent-profile-picture
 ```
 
-...pointing at a LocalStack SQS instance.
+...pointing at a LocalStack SQS instance. The agent still writes `latest_generation_context` to Postgres even when the queue URL is empty — so you can verify prompt composition locally without running the worker.

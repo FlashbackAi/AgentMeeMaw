@@ -244,20 +244,39 @@ class ArchetypeQuestionsResponse(BaseModel):
 
 
 class ProfilePictureGenerateRequest(BaseModel):
-    """Body for ``POST /persons/{person_id}/profile-picture``."""
+    """Body for ``POST /persons/{person_id}/profile-picture``.
+
+    ``preset`` is an optional stylistic preset slug from the shared
+    artifact-preset registry. ``None`` (or omitted) uses the default
+    RDR2 painterly-cinematic look.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     reference_s3_key: str | None = Field(default=None, max_length=500)
+    preset: str | None = Field(default=None, max_length=64)
 
 
 class ProfilePictureEditRequest(BaseModel):
-    """Body for ``POST /persons/{person_id}/profile-picture/edit``."""
+    """Body for ``POST /persons/{person_id}/profile-picture/edit``.
+
+    ``instructions`` is the newest edit text. ``prior_instructions`` is the
+    cumulative history Node tracks in Dynamo across earlier edits, oldest
+    first. The agent composes them in order so the final prompt carries
+    every accepted edit (e.g. ``["he has glasses", "and a Rolls Royce"]``
+    + ``instructions="wearing a brown coat"`` stacks all three).
+
+    ``reference_s3_key`` is optional. Pass the prior generated image's S3
+    key to chain refinement; omit (or pass null) to start from text only.
+    Node decides which reference to send.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     instructions: str = Field(min_length=1, max_length=500)
+    prior_instructions: list[str] = Field(default_factory=list, max_length=50)
     reference_s3_key: str | None = Field(default=None, max_length=500)
+    preset: str | None = Field(default=None, max_length=64)
 
     @field_validator("instructions", mode="before")
     @classmethod
@@ -265,6 +284,21 @@ class ProfilePictureEditRequest(BaseModel):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("prior_instructions", mode="before")
+    @classmethod
+    def _strip_prior(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        out: list[str] = []
+        for entry in value:
+            if isinstance(entry, str):
+                stripped = entry.strip()
+                if stripped:
+                    out.append(stripped)
+        return out
 
 
 class ProfilePictureJobResponse(BaseModel):
@@ -274,6 +308,108 @@ class ProfilePictureJobResponse(BaseModel):
     person_id: UUID
     mode: Literal["no_reference", "with_reference"]
     source: Literal["onboarding", "regenerate", "edit"]
+    preset: str
+    enqueued: bool
+
+
+# --- /artifact-presets, /artifacts -----------------------------------------
+
+
+class ArtifactPresetOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    label: str
+    description: str
+    is_default: bool
+
+
+class ArtifactPresetsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    presets: list[ArtifactPresetOut]
+
+
+# ``record_type`` values that route through the generic artifact-edit
+# surface. ``person`` is excluded — profile-picture has its own endpoint.
+ArtifactRecordType = Literal["moment", "entity", "thread"]
+
+
+class ArtifactRegenerateRequest(BaseModel):
+    """Body for ``POST /artifacts/{record_type}/{record_id}/regenerate``.
+
+    Node calls this when the user clicks "regenerate" on a moment / entity
+    / thread artifact and optionally picks a preset or uploads a reference
+    image. The agent re-composes the prompt from the row's stored
+    ``generation_prompt`` + the chosen preset and enqueues a fresh job on
+    ``artifact_generation``.
+
+    ``reference_s3_key`` is allowed for ``moment`` and ``entity`` only —
+    threads reject it with 400 because they're abstract arcs that don't
+    benefit from a visual anchor.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    preset: str | None = Field(default=None, max_length=64)
+    reference_s3_key: str | None = Field(default=None, max_length=500)
+
+
+class ArtifactEditRequest(BaseModel):
+    """Body for ``POST /artifacts/{record_type}/{record_id}/edit``.
+
+    Mirrors :class:`ProfilePictureEditRequest` for moment / entity / thread
+    artifacts. ``instructions`` is the newest user edit; ``prior_instructions``
+    is the cumulative history Node tracks in Dynamo so the composed prompt
+    carries every accepted edit in order.
+
+    Same reference-image rule as regenerate: moments + entities accept it,
+    threads reject it with 400.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    instructions: str = Field(min_length=1, max_length=500)
+    prior_instructions: list[str] = Field(default_factory=list, max_length=50)
+    reference_s3_key: str | None = Field(default=None, max_length=500)
+    preset: str | None = Field(default=None, max_length=64)
+
+    @field_validator("instructions", mode="before")
+    @classmethod
+    def _strip_artifact_instructions(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("prior_instructions", mode="before")
+    @classmethod
+    def _strip_artifact_prior(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        out: list[str] = []
+        for entry in value:
+            if isinstance(entry, str):
+                stripped = entry.strip()
+                if stripped:
+                    out.append(stripped)
+        return out
+
+
+class ArtifactJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    record_type: ArtifactRecordType
+    record_id: UUID
+    person_id: UUID
+    artifact_kind: Literal["image", "video"]
+    mode: Literal["no_reference", "with_reference"]
+    source: Literal["regenerate", "edit"]
+    preset: str
     enqueued: bool
 
 

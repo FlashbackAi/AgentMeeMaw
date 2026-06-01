@@ -64,11 +64,13 @@ class _ArtifactPusher(Protocol):
     def __call__(
         self,
         *,
+        job_id: str,
         record_type: str,
         record_id: str,
         person_id: str,
         artifact_kind: str,
-        generation_prompt: str,
+        source: str,
+        composed_at: str,
     ) -> Any: ...
 
 
@@ -189,6 +191,7 @@ async def edit_node(
     if push_artifact is not None and write_result.artifact_pushes:
         artifact_queued = _push_artifacts(
             push_artifact,
+            db_pool=db_pool,
             person_id=person_id,
             pushes=write_result.artifact_pushes,
         )
@@ -358,19 +361,64 @@ def _push_embeddings(
 def _push_artifacts(
     pusher: _ArtifactPusher,
     *,
+    db_pool: AsyncConnectionPool,
     person_id: str,
     pushes: list[ArtifactPushSpec],
 ) -> bool:
+    """Write latest_generation_context to each refined row, then push triggers.
+
+    Same shape as the auto path: composed prompt + scene-art negative
+    (refined via node_edits is still a scene-art generation) land in
+    Postgres before the SQS trigger fires. Node's worker reads context
+    from the row at job time. CLAUDE.md §3.
+    """
+    from uuid import uuid4
+
+    from flashback.artifacts import (
+        SCENE_NEGATIVE_PROMPT,
+        build_generation_context,
+        write_latest_generation_context_sync,
+    )
+
     pushed = False
     for spec in pushes:
         if not spec.generation_prompt:
             continue
+        context = build_generation_context(
+            prompt=spec.generation_prompt,
+            negative_prompt=SCENE_NEGATIVE_PROMPT,
+            mode="no_reference",
+            reference_s3_key=None,
+            preset=None,
+            source="edit",
+        )
+        table_name = {
+            "moment": "moments",
+            "entity": "entities",
+            "thread": "threads",
+        }.get(spec.record_type)
+        if table_name is None:
+            log.warning(
+                "node_edits.unknown_record_type_for_context_write",
+                record_type=spec.record_type,
+            )
+            continue
+        with db_pool.connection() as ctx_conn:  # type: ignore[union-attr]
+            with ctx_conn.cursor() as ctx_cur:
+                write_latest_generation_context_sync(
+                    ctx_cur,
+                    table=table_name,
+                    record_id=spec.record_id,
+                    context=context,
+                )
         pusher(
+            job_id=str(uuid4()),
             record_type=spec.record_type,
             record_id=spec.record_id,
             person_id=person_id,
             artifact_kind=spec.artifact_kind,
-            generation_prompt=spec.generation_prompt,
+            source="edit",
+            composed_at=context["composed_at"],
         )
         pushed = True
     return pushed

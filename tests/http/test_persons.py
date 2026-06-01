@@ -124,11 +124,11 @@ class TestCreateHappyPath:
         assert resp.status_code == 200
         assert len(fake_profile_picture_queue.calls) == 1
         call = fake_profile_picture_queue.calls[0]
-        assert call["name"] == "Priya Nair"
-        assert call["gender"] == "female"
-        assert call["mode"] == "no_reference"
+        # Trigger-only payload. Prompt + mode + reference live on
+        # persons.latest_generation_context. CLAUDE.md §3.
         assert call["source"] == "onboarding"
-        assert "Pixar-style" in call["image_prompt"]
+        assert call["composed_at"]
+        assert "image_prompt" not in call
         assert call["job_id"] == resp.json()["person_id"]
 
     async def test_two_legacies_with_same_name_both_succeed(

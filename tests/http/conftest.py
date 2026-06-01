@@ -46,27 +46,19 @@ class FakeProfilePictureQueue:
         *,
         job_id,
         person_id,
-        mode,
-        image_prompt,
         source,
-        name,
-        gender,
-        relationship=None,
-        reference_s3_key=None,
-        user_prompt=None,
+        composed_at,
     ) -> str:
+        # Trigger-only contract: profile-picture queue payloads carry
+        # only job identifiers. Prompt + negative + mode + reference
+        # + preset live in persons.latest_generation_context and the
+        # Node worker reads them from Postgres at job time. CLAUDE.md §3.
         self.calls.append(
             {
                 "job_id": job_id,
                 "person_id": person_id,
-                "mode": mode,
-                "image_prompt": image_prompt,
                 "source": source,
-                "name": name,
-                "gender": gender,
-                "relationship": relationship,
-                "reference_s3_key": reference_s3_key,
-                "user_prompt": user_prompt,
+                "composed_at": composed_at,
             }
         )
         return "fake-message-id"

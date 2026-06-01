@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
     from redis.asyncio import Redis
     from flashback.queues import AsyncSQSClient
+    from flashback.queues.artifact_generation import ArtifactGenerationQueueProducer
     from flashback.queues.profile_picture import ProfilePictureQueueProducer
     from flashback.identity_merges import IdentityMergeVerifier
 
@@ -68,3 +69,9 @@ def get_profile_picture_queue(
     request: Request,
 ) -> "ProfilePictureQueueProducer | None":
     return getattr(request.app.state, "profile_picture_queue", None)
+
+
+def get_artifact_generation_queue(
+    request: Request,
+) -> "ArtifactGenerationQueueProducer | None":
+    return getattr(request.app.state, "artifact_generation_queue", None)

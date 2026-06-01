@@ -321,12 +321,40 @@ def process_cluster(
             embedding_model_version=embedding_model_version,
         )
         if naming.generation_prompt:
+            from uuid import uuid4
+
+            from flashback.artifacts import (
+                build_generation_context,
+                write_latest_generation_context_sync,
+            )
+
+            context = build_generation_context(
+                prompt=naming.generation_prompt,
+                negative_prompt=None,
+                mode="no_reference",
+                reference_s3_key=None,
+                preset=None,
+                source="auto",
+            )
+            # Write context on its own connection (outside the cluster tx
+            # which already committed). Node's worker will read it from
+            # this column at job processing time.
+            with db_pool.connection() as ctx_conn:
+                with ctx_conn.cursor() as ctx_cur:
+                    write_latest_generation_context_sync(
+                        ctx_cur,
+                        table="threads",
+                        record_id=thread_snapshot.id,
+                        context=context,
+                    )
             artifact_job_pusher(
+                job_id=str(uuid4()),
                 record_type="thread",
                 record_id=thread_snapshot.id,
                 person_id=person_id,
                 artifact_kind="image",
-                generation_prompt=naming.generation_prompt,
+                source="auto",
+                composed_at=context["composed_at"],
             )
 
     for qid, q in zip(question_ids, p4_result.questions, strict=True):

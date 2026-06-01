@@ -1,4 +1,10 @@
-"""Producer for profile-picture generation jobs."""
+"""Producer for profile-picture generation jobs.
+
+Trigger-only payload under the Postgres-authoritative model. The agent
+writes the full portrait context (prompt, negative, mode, reference
+key, preset) to ``persons.latest_generation_context`` *before* pushing
+here. Node's worker reads the context from Postgres at job time.
+"""
 
 from __future__ import annotations
 
@@ -18,44 +24,28 @@ class ProfilePictureQueueProducer:
         *,
         job_id: str,
         person_id: UUID,
-        mode: str,
-        image_prompt: str,
         source: str,
-        name: str,
-        gender: str,
-        relationship: str | None = None,
-        reference_s3_key: str | None = None,
-        user_prompt: str | None = None,
+        composed_at: str,
     ) -> str | None:
-        """Enqueue a profile-picture job. Returns SQS MessageId or None if queue_url is empty."""
+        """Enqueue a profile-picture job trigger.
+
+        Returns the SQS MessageId, or None if no queue URL is configured
+        (local dev / tests).
+
+        ``composed_at`` must match ``persons.latest_generation_context.composed_at``
+        so the worker can detect / skip stale messages.
+        """
         if not self._url:
             return None
 
         payload = {
             "job_id": job_id,
-            "user_id": str(person_id),
-            "mode": mode,
-            "reference_s3_key": reference_s3_key,
-            "image_prompt": image_prompt,
-            "negative_prompt": (
-                "photorealistic, photograph, hyperrealistic, real person, deepfake, "
-                "text, watermark, signature, blurry, low quality, distorted, uncanny"
-            ),
-            "model_hints": {
-                "preset": "brand_default",
-                "guidance_scale": 7.5,
-                "steps": 30,
-                "seed": None,
-            },
-            "raw_inputs": {
-                "profile": {
-                    "display_name": name,
-                    "gender": gender,
-                    "relationship": relationship,
-                },
-                "user_prompt": user_prompt,
-            },
+            "record_type": "person",
+            "record_id": str(person_id),
+            "person_id": str(person_id),
+            "artifact_kind": "image",
             "source": source,
+            "composed_at": composed_at,
             "enqueued_at": datetime.now(timezone.utc).isoformat(),
         }
         return await self._sqs.send_message(self._url, payload)

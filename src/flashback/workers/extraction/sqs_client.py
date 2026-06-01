@@ -148,19 +148,28 @@ class ArtifactJobSender:
     """
     Producer for the ``artifact_generation`` queue.
 
-    Per ARCHITECTURE.md §12, Node consumes this queue, calls the
-    image/video model, uploads to S3, and writes the URL columns back to
-    Postgres. The agent side never touches the URL columns.
+    Trigger-only payload under the Postgres-authoritative model. Per
+    CLAUDE.md §3, the agent writes the full generation context (prompt,
+    negative, mode, reference key, preset) to
+    ``<record_table>.latest_generation_context`` BEFORE calling send().
+    Node's worker reads the context from Postgres at job time.
 
     Body shape:
 
         {
-            "record_type":      "person" | "moment" | "thread" | "entity",
-            "record_id":        "<uuid>",
-            "person_id":        "<uuid>",
-            "artifact_kind":    "image" | "video",
-            "generation_prompt": "<one-sentence visual description>"
+            "job_id":        "<uuid>",
+            "record_type":   "moment" | "thread" | "entity",
+            "record_id":     "<uuid>",
+            "person_id":     "<uuid>",
+            "artifact_kind": "image" | "video",
+            "source":        "auto" | "regenerate" | "edit",
+            "composed_at":   "<ISO-8601 UTC — matches latest_generation_context.composed_at>",
+            "enqueued_at":   "<ISO-8601 UTC>"
         }
+
+    Callers (extraction worker, thread detector, edit / regenerate
+    routes) compose + write context + then call this. The artifact_kind
+    is record_type-derived (moment → video, entity/thread → image).
     """
 
     queue_url: str
@@ -175,21 +184,32 @@ class ArtifactJobSender:
     def send(
         self,
         *,
+        job_id: str,
         record_type: str,
         record_id: str,
         person_id: str,
         artifact_kind: str,
-        generation_prompt: str,
+        source: str,
+        composed_at: str,
     ) -> str:
         payload = {
+            "job_id": job_id,
             "record_type": record_type,
             "record_id": record_id,
             "person_id": person_id,
             "artifact_kind": artifact_kind,
-            "generation_prompt": generation_prompt,
+            "source": source,
+            "composed_at": composed_at,
+            "enqueued_at": _utcnow_iso(),
         }
         resp = self._get_client().send_message(
             QueueUrl=self.queue_url,
             MessageBody=json.dumps(payload),
         )
         return str(resp["MessageId"])
+
+
+def _utcnow_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()

@@ -99,15 +99,33 @@ async def _create_once(
                 gender=created.gender,
                 relationship=created.relationship,
             )
+            from flashback.artifacts import (
+                build_generation_context,
+                write_latest_generation_context_async,
+            )
+            from flashback.profile_picture import NEGATIVE_PROMPT
+
+            context = build_generation_context(
+                prompt=image_prompt,
+                negative_prompt=NEGATIVE_PROMPT,
+                mode="no_reference",
+                reference_s3_key=None,
+                preset=None,
+                source="auto",
+            )
+            async with db_pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await write_latest_generation_context_async(
+                        cur,
+                        table="persons",
+                        record_id=created.person_id,
+                        context=context,
+                    )
             await profile_picture_queue.push(
                 job_id=str(created.person_id),
                 person_id=created.person_id,
-                mode="no_reference",
-                image_prompt=image_prompt,
                 source="onboarding",
-                name=created.name,
-                gender=map_gender(created.gender),
-                relationship=created.relationship,
+                composed_at=context["composed_at"],
             )
         except Exception:
             log.warning(

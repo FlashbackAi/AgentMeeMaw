@@ -24,8 +24,11 @@ rules flow from that:
   interviewer/archivist, not an impersonator.
 - We do **not** clone voices or generate photoreal video of the subject
   in v1.
-- We **do** generate Pixar-style stylized artifacts (images for persons /
-  threads / entities, short videos for moments) for visual texture.
+- We **do** generate painterly-realism artifacts in the visual register of
+  Red Dead Redemption 2 — naturalistic features and lighting with painterly
+  brushwork, sitting between full photorealism and cartoon (images for
+  persons / threads / entities, short videos for moments) for visual texture.
+  Deepfake likeness of real specific living people remains negative-prompted.
 - The agent must never feel like a survey. Cold openers, dropped
   references, and emotional pacing all matter.
 - DOB / DOD are deliberately **not** stored on `persons`. Asking up
@@ -107,6 +110,18 @@ External dependencies we **call** but do not own: the Node Backend
   token plus private network. Node is the auth boundary.
 - **Node never writes to the canonical graph.** Reads only. If Node
   needs a write surface, we expose an agent endpoint for it.
+- **Postgres is authoritative for every artifact-generation job; the
+  SQS message is a trigger only.** On every auto / regenerate / edit
+  push, the agent composes the full context (prompt + negative + mode
+  + reference key + preset + source + composed_at) and writes it to
+  the originating row's `latest_generation_context` JSONB column
+  BEFORE pushing the SQS message. The SQS payload carries only job
+  identifiers (`job_id`, `record_type`, `record_id`, `person_id`,
+  `artifact_kind`, `source`, `composed_at`). Node's worker reads the
+  context from Postgres at job processing time. Postgres
+  `generation_prompt` retains its prior meaning (the LLM-emitted base
+  scene description, immutable through edits); `latest_generation_context`
+  carries the latest authored composition. See migration 0023.
 
 ---
 
@@ -837,6 +852,26 @@ We expose an HTTP service. Node calls us; we never call Node.
   unlock flow. Returns `{ saved, answered, total }`. 404 if no
   matching active theme for that person; 409 if the theme is
   already unlocked.
+- `GET /artifact-presets` — returns the public list of artifact style/mood
+  presets in display order (default first). Slugs are part of the
+  agent ↔ Node contract; labels/descriptions are user-facing.
+- `POST /artifacts/{record_type}/{record_id}/regenerate` — body:
+  `{ person_id, preset?, reference_s3_key? }`. Generic surface for
+  moment / entity / thread artifact regeneration with a chosen preset
+  and an optional uploaded reference image. Re-composes the prompt
+  from the row's stored `generation_prompt` + the preset modifier and
+  enqueues on `artifact_generation`. ``record_type=thread`` rejects
+  ``reference_s3_key`` (threads are abstract arcs, not a visual
+  subject). ``record_type=person`` is intentionally excluded — that
+  flow goes through the profile-picture endpoints. Preset slugs
+  outside the registry 400.
+- `POST /artifacts/{record_type}/{record_id}/edit` — body:
+  `{ person_id, instructions, prior_instructions, preset?,
+  reference_s3_key? }`. Same shape as the profile-picture edit, for
+  scene artifacts. Edit history sits in Node's Dynamo per-record
+  table; Node sends the cumulative `prior_instructions` list on every
+  call so the composed prompt carries every accepted edit in order.
+  Same reference-image rule as regenerate.
 - `GET /themes/{theme_id}` — debug surface returning the theme row
   + archetype JSONB (incl. `archetype_answers_draft`). The
   user-facing list of themes is read directly from

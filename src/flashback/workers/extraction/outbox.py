@@ -52,6 +52,7 @@ def enqueue_extraction_fanout(
     )
     jobs.extend(
         _artifact_jobs(
+            cursor=cursor,
             person_id=person_id,
             extraction=extraction,
             persistence_result=persistence_result,
@@ -366,29 +367,60 @@ def _embedding_jobs(
 
 def _artifact_jobs(
     *,
+    cursor,
     person_id: str,
     extraction: ExtractionResult,
     persistence_result: PersistenceResult,
 ) -> list[tuple[OutboxJobType, dict[str, Any]]]:
+    """Build artifact-trigger jobs and write each row's ``latest_generation_context``.
+
+    Per CLAUDE.md §3, the SQS message is a trigger; Node reads the prompt
+    + negative + mode + reference + preset from
+    ``<table>.latest_generation_context`` at processing time. We write
+    that JSONB inside the caller's transaction here so it lands before
+    the outbox row is committed (and well before the worker drains it).
+    """
+    from uuid import uuid4
+
+    from flashback.artifacts import (
+        build_generation_context,
+        write_latest_generation_context_sync,
+    )
+
     jobs: list[tuple[OutboxJobType, dict[str, Any]]] = []
+
     if len(extraction.moments) != len(persistence_result.moment_ids):
         raise ValueError("moments and moment_ids must have matching lengths")
     for moment, mid in zip(
         extraction.moments, persistence_result.moment_ids, strict=True
     ):
-        if moment.generation_prompt:
-            jobs.append(
-                (
-                    "artifact",
-                    {
-                        "record_type": "moment",
-                        "record_id": mid,
-                        "person_id": person_id,
-                        "artifact_kind": "video",
-                        "generation_prompt": moment.generation_prompt,
-                    },
-                )
+        if not moment.generation_prompt:
+            continue
+        context = build_generation_context(
+            prompt=moment.generation_prompt,
+            negative_prompt=None,  # extraction LLM emits prompt with style guidance inline
+            mode="no_reference",
+            reference_s3_key=None,
+            preset=None,
+            source="auto",
+        )
+        write_latest_generation_context_sync(
+            cursor, table="moments", record_id=mid, context=context
+        )
+        jobs.append(
+            (
+                "artifact",
+                {
+                    "job_id": str(uuid4()),
+                    "record_type": "moment",
+                    "record_id": mid,
+                    "person_id": person_id,
+                    "artifact_kind": "video",
+                    "source": "auto",
+                    "composed_at": context["composed_at"],
+                },
             )
+        )
 
     if len(persistence_result.surviving_entities) != len(
         persistence_result.entity_ids
@@ -399,17 +431,31 @@ def _artifact_jobs(
         persistence_result.entity_ids,
         strict=True,
     ):
-        if entity.generation_prompt:
-            jobs.append(
-                (
-                    "artifact",
-                    {
-                        "record_type": "entity",
-                        "record_id": eid,
-                        "person_id": person_id,
-                        "artifact_kind": "image",
-                        "generation_prompt": entity.generation_prompt,
-                    },
-                )
+        if not entity.generation_prompt:
+            continue
+        context = build_generation_context(
+            prompt=entity.generation_prompt,
+            negative_prompt=None,
+            mode="no_reference",
+            reference_s3_key=None,
+            preset=None,
+            source="auto",
+        )
+        write_latest_generation_context_sync(
+            cursor, table="entities", record_id=eid, context=context
+        )
+        jobs.append(
+            (
+                "artifact",
+                {
+                    "job_id": str(uuid4()),
+                    "record_type": "entity",
+                    "record_id": eid,
+                    "person_id": person_id,
+                    "artifact_kind": "image",
+                    "source": "auto",
+                    "composed_at": context["composed_at"],
+                },
             )
+        )
     return jobs

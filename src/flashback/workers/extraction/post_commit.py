@@ -22,7 +22,7 @@ from __future__ import annotations
 import structlog
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
-from .sqs_client import ArtifactJobSender, EmbeddingJobSender
+from .sqs_client import EmbeddingJobSender
 
 log = structlog.get_logger("flashback.workers.extraction.post_commit")
 
@@ -107,57 +107,11 @@ def push_embedding_jobs(
     return pushed
 
 
-def push_artifact_jobs(
-    *,
-    sender: ArtifactJobSender,
-    person_id: str,
-    moments: list[ExtractedMoment],
-    moment_ids: list[str],
-    surviving_entities: list[ExtractedEntity],
-    entity_ids: list[str],
-) -> int:
-    """
-    Push artifact jobs (image for entities, video for moments).
-
-    Threads aren't created by the extraction worker — the Thread Detector
-    (step 14) emits artifact jobs for threads it produces.
-    """
-    pushed = 0
-    if len(moments) != len(moment_ids):
-        raise ValueError(
-            "push_artifact_jobs: moments and moment_ids must have matching lengths"
-        )
-    for moment, mid in zip(moments, moment_ids, strict=True):
-        if not moment.generation_prompt:
-            continue
-        sender.send(
-            record_type="moment",
-            record_id=mid,
-            person_id=person_id,
-            artifact_kind="video",
-            generation_prompt=moment.generation_prompt,
-        )
-        pushed += 1
-
-    if len(surviving_entities) != len(entity_ids):
-        raise ValueError(
-            "push_artifact_jobs: surviving_entities and entity_ids must "
-            "have matching lengths"
-        )
-    for entity, eid in zip(surviving_entities, entity_ids, strict=True):
-        if not entity.generation_prompt:
-            continue
-        sender.send(
-            record_type="entity",
-            record_id=eid,
-            person_id=person_id,
-            artifact_kind="image",
-            generation_prompt=entity.generation_prompt,
-        )
-        pushed += 1
-
-    log.info("post_commit.artifact_jobs_pushed", count=pushed)
-    return pushed
+# NOTE: ``push_artifact_jobs`` was removed when artifact pushes moved
+# to the transactional outbox in :mod:`flashback.workers.extraction.outbox`
+# (see ``_artifact_jobs``). The outbox path writes
+# ``<table>.latest_generation_context`` inside the persistence
+# transaction and emits trigger-only SQS payloads, per CLAUDE.md §3.
 
 
 def _push_moment_embeddings(
