@@ -1,6 +1,14 @@
 # Voice Mode — ElevenLabs ConvAI integration
 
-**Status:** Design
+> **⚠️ SUPERSEDED (2026-06-02)** by
+> `2026-06-02-voice-mode-gemini-design.md`. Voice mode migrated off
+> ElevenLabs ConvAI to a decoupled Gemini STT → agent → Gemini TTS
+> pipeline for cost reasons (~$0.11/user/min on ConvAI). The agent-side
+> `mode="voice"` field, working-memory persistence, and tap-pending
+> override described below still hold; the inline v3 audio-tag mechanism
+> is replaced by a single lifted `voice_style` label. Kept for history.
+
+**Status:** Superseded
 **Date:** 2026-05-29
 **Scope:** Adds a real-time voice conversation mode to Legacy Mode using
 ElevenLabs Conversational AI for audio I/O + STT + TTS + turn-taking,

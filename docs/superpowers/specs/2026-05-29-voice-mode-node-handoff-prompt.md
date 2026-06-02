@@ -1,5 +1,11 @@
 # Node-side build prompt — Voice Mode (ElevenLabs ConvAI)
 
+> **⚠️ SUPERSEDED (2026-06-02).** Voice mode moved off ElevenLabs ConvAI
+> to decoupled Gemini STT + TTS. The Node-side contract is now in
+> `2026-06-02-voice-mode-gemini-design.md` §4 — the OpenAI-shape
+> `/chat/completions` adapter is gone, and Node owns VAD / turn-taking /
+> barge-in directly (or via Pipecat / LiveKit). Kept for history.
+
 Use this as the prompt for whoever (human or Claude Code) builds the
 Node-side voice integration. The Python agent service is already wired
 for voice mode; everything below is what's left.
