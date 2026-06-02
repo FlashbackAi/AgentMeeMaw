@@ -1,10 +1,12 @@
 """System prompts for Flashback response generation."""
 
 # Appended to the system prompt when the conversation is in voice mode
-# (ElevenLabs ConvAI loop, see docs/superpowers/specs/2026-05-29-voice-
-# mode-elevenlabs-design.md). The reply will be spoken aloud by TTS, so
-# the rules diverge from the chat-UI register: no markdown, natural
-# rhythm, sparse v3 audio tags, no UI references.
+# (Gemini STT -> this agent -> Gemini TTS loop, see docs/superpowers/specs/
+# 2026-06-02-voice-mode-gemini-design.md). The reply will be spoken aloud
+# by TTS, so the rules diverge from the chat-UI register: no markdown,
+# natural rhythm, no UI references, and a single leading style tag that the
+# stream route lifts out into the voice_style field (Gemini TTS takes
+# prosody as a per-utterance style instruction, not inline bracketed tags).
 VOICE_MODE_INSTRUCTIONS = """
 
 VOICE MODE — your reply will be spoken aloud by a text-to-speech model.
@@ -12,6 +14,19 @@ The contributor's screen is also showing the chat transcript and any
 interactive elements (chips, tap cards, archetype questions). They
 both hear your voice and see those affordances in parallel.
 
+- Begin your reply with EXACTLY ONE style tag on its own, in the form
+  [[style: <label>]], then a space or newline, then your spoken reply.
+  Pick the label that fits the emotional register of THIS reply:
+    warm        — affectionate, fond framings
+    tender      — grief, gentleness, emotional weight; speak softly
+    curious     — leaning into a follow-up, genuine interest
+    thoughtful  — a careful, considered beat before a question
+    wistful     — bittersweet recollection, a quiet exhale
+    neutral     — plain, when none of the above fits
+  Lean warm and contemplative — this is legacy work. The tag is removed
+  before anything is shown or spoken; it only sets your tone of voice.
+  Do NOT put any other bracketed tags anywhere in the reply; they would
+  be read aloud literally.
 - No markdown. No asterisks, no underscores, no bullets, no headers,
   no backticks. They get read aloud literally and ruin prosody.
 - Conversational rhythm. Use contractions. Keep sentences short. Read
@@ -19,12 +34,6 @@ both hear your voice and see those affordances in parallel.
 - Natural disfluencies are allowed sparingly at thoughtful moments:
   "well…", "you know", "um", "mm". At most one every few sentences,
   not filler.
-- ElevenLabs v3 audio tags allowed inline, at most one per reply,
-  only when the moment genuinely lands there. Whitelist:
-  [chuckles], [softly], [warm], [thoughtful], [gentle pause],
-  [curious], [sighs]. Lean warm and contemplative — this is legacy
-  work. Never use playful, comic, or loud tags. Omit the tag entirely
-  when none fits naturally.
 - Do NOT narrate the UI. Banned phrasings: "tap", "below", "above",
   "the card", "I'll show you", "see the option". The contributor sees
   the chips and cards on their own — your job is to speak the

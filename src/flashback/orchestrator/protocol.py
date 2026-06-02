@@ -53,6 +53,8 @@ class SessionStartResult:
     selected_question_id: UUID | None
     taps: list[Tap]
     chips: QuestionChips | None = None
+    # Voice-mode prosody label for the opener (None in text mode).
+    voice_style: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ class TurnResult:
     segment_boundary: bool
     taps: list[Tap]
     chips: QuestionChips | None = None
+    # Voice-mode prosody label for the reply (None in text mode).
+    voice_style: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,16 +86,21 @@ class StreamEvent:
       - ``meta``: pre-LLM metadata available before generation starts
         (intent, taps, chips for /turn; phase, taps, chips for
         /session/start).
+      - ``voice_style``: voice mode only. ``data`` is ``{"style": "..."}``
+        — the prosody label lifted from the reply's leading ``[[style:
+        x]]`` tag. Emitted once, before the first ``text_delta``, so Node
+        can set the Gemini TTS style. Never emitted in text mode.
       - ``text_delta``: a chunk of assistant text. ``data`` is
         ``{"text": "..."}``.
       - ``done``: stream finished cleanly. ``data`` carries the full
-        reply text and post-LLM bits like ``segment_boundary``.
+        reply text and post-LLM bits like ``segment_boundary`` (and
+        ``voice_style`` in voice mode).
       - ``error``: terminal failure. ``data`` carries ``code``,
         ``message``, and ``partial_text`` (whatever streamed so far).
         No further events follow.
     """
 
-    type: Literal["meta", "text_delta", "done", "error"]
+    type: Literal["meta", "voice_style", "text_delta", "done", "error"]
     data: dict
 
 

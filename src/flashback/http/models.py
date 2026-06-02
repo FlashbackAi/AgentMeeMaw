@@ -15,9 +15,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from flashback.orchestrator.protocol import Tap
 
 # Conversation mode. ``text`` is the default chat surface; ``voice`` is
-# the ElevenLabs ConvAI flow proxied through Node, in which the reply is
-# spoken aloud by TTS and the response generator must drop markdown and
-# lean on a conversational register with v3 audio tags.
+# the Gemini STT -> agent -> Gemini TTS flow proxied through Node, in which
+# the reply is spoken aloud by TTS. In voice mode the response generator
+# drops markdown, leans on a conversational register, and prefixes the
+# reply with a single style tag that this service lifts into
+# ``metadata.voice_style`` for Node to map to a Gemini TTS style.
 Mode = Literal["text", "voice"]
 
 
@@ -65,6 +67,9 @@ class SessionStartMetadata(BaseModel):
     selected_question_id: UUID | None = None
     taps: list[Tap] = Field(default_factory=list)
     question_chips: QuestionChipsOut | None = None
+    # Voice mode only: prosody label for the opener; Node maps it to a
+    # Gemini TTS style. None in text mode.
+    voice_style: str | None = None
 
 
 class SessionStartResponse(BaseModel):
@@ -97,6 +102,9 @@ class TurnMetadata(BaseModel):
     segment_boundary: bool = False
     taps: list[Tap] = Field(default_factory=list)
     question_chips: QuestionChipsOut | None = None
+    # Voice mode only: prosody label for the reply; Node maps it to a
+    # Gemini TTS style. None in text mode.
+    voice_style: str | None = None
 
 
 class TurnResponse(BaseModel):

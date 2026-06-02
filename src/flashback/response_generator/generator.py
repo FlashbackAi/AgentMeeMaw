@@ -22,6 +22,7 @@ from flashback.response_generator.schema import (
     StarterContext,
     TurnContext,
 )
+from flashback.response_generator.voice_style import extract_voice_style
 
 
 def _apply_mode(system_prompt: str, mode: str) -> str:
@@ -33,6 +34,18 @@ def _apply_mode(system_prompt: str, mode: str) -> str:
     if mode == "voice":
         return system_prompt + VOICE_MODE_INSTRUCTIONS
     return system_prompt
+
+
+def _finalize(text: str, mode: str) -> ResponseResult:
+    """Strip the reply and, in voice mode, lift its leading style tag.
+
+    Text mode is the no-op default: ``voice_style`` stays None and the
+    text is only stripped.
+    """
+    if mode == "voice":
+        style, cleaned = extract_voice_style(text)
+        return ResponseResult(text=cleaned.strip(), voice_style=style)
+    return ResponseResult(text=text.strip())
 
 
 class ResponseGenerator:
@@ -64,7 +77,7 @@ class ResponseGenerator:
             timeout=self._timeout,
             settings=self._settings,
         )
-        return ResponseResult(text=text.strip())
+        return _finalize(text, ctx.mode)
 
     async def generate_starter_opener(self, ctx: StarterContext) -> ResponseResult:
         user_message = render_starter_context(ctx)
@@ -77,7 +90,7 @@ class ResponseGenerator:
             timeout=self._timeout,
             settings=self._settings,
         )
-        return ResponseResult(text=text.strip())
+        return _finalize(text, ctx.mode)
 
     async def generate_first_time_opener(
         self, ctx: FirstTimeOpenerContext
@@ -92,7 +105,7 @@ class ResponseGenerator:
             timeout=self._timeout,
             settings=self._settings,
         )
-        return ResponseResult(text=text.strip())
+        return _finalize(text, ctx.mode)
 
     async def stream_turn_response(
         self, ctx: TurnContext

@@ -153,6 +153,7 @@ async def _run_turn(
             segment_boundary=result.segment_boundary,
             taps=result.taps,
             question_chips=chips_out,
+            voice_style=result.voice_style,
         ),
     )
 

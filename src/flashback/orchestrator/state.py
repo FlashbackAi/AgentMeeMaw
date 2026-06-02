@@ -52,6 +52,9 @@ class TurnState:
     selection: SelectionResult | None = None
     taps: list[Tap] = field(default_factory=list)
     response: ResponseResult | None = None
+    # Voice-mode prosody label (None in text mode). Set from the reply's
+    # leading [[style: x]] tag; surfaced to Node for Gemini TTS.
+    voice_style: str | None = None
     segment_boundary_detected: bool = False
 
     failures: dict[str, str] = field(default_factory=dict)
@@ -74,6 +77,7 @@ class SessionStartState:
     person_gender: str = "they"
     selection: SelectionResult | None = None
     response: ResponseResult | None = None
+    voice_style: str | None = None
     failures: dict[str, str] = field(default_factory=dict)
 
 

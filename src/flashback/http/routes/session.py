@@ -103,6 +103,7 @@ async def session_start(
             selected_question_id=result.selected_question_id,
             taps=result.taps,
             question_chips=chips_out,
+            voice_style=result.voice_style,
         ),
     )
 

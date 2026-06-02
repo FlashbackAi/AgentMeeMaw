@@ -6,11 +6,15 @@ The non-streaming JSON variants in :mod:`flashback.http.routes.turn` and
 while still receiving pre-LLM metadata (intent, taps, chips) before the
 text starts flowing.
 
-Wire format: ``text/event-stream`` with three named events:
+Wire format: ``text/event-stream`` with these named events:
 
   - ``meta``        pre-LLM metadata available at request time
+  - ``voice_style`` voice mode only: ``{"style": "..."}`` prosody label
+                    lifted from the reply's leading ``[[style: x]]`` tag,
+                    emitted once before the first ``text_delta``
   - ``text_delta``  ``{"text": "..."}`` token chunks
-  - ``done``        final post-LLM payload
+  - ``done``        final post-LLM payload (carries ``voice_style`` too
+                    in voice mode)
   - ``error``       terminal failure with ``code``, ``message``,
                     ``partial_text``
 

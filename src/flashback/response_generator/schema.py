@@ -107,3 +107,6 @@ class ResponseResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str
+    # Voice-mode prosody label lifted from the reply's leading [[style: x]]
+    # tag (None in text mode). Node maps it to a Gemini TTS style.
+    voice_style: str | None = None

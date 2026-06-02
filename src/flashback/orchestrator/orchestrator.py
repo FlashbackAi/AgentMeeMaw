@@ -69,6 +69,7 @@ from flashback.queues.producers_per_session import ProducersPerSessionQueueProdu
 from flashback.queues.profile_summary import ProfileSummaryQueueProducer
 from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
 from flashback.response_generator import ResponseGenerator
+from flashback.response_generator.voice_style import VoiceStyleStreamParser
 from flashback.session_summary import SessionSummaryGenerator
 
 log = structlog.get_logger("flashback.orchestrator")
@@ -178,6 +179,9 @@ class Orchestrator:
                 ),
                 taps=[],
                 chips=_chips_for_selection(state.selection),
+                voice_style=(
+                    state.response.voice_style if state.response else None
+                ),
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -267,6 +271,9 @@ class Orchestrator:
                 ),
                 taps=[],
                 chips=_chips_for_selection(state.selection),
+                voice_style=(
+                    state.response.voice_style if state.response else None
+                ),
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
@@ -477,31 +484,34 @@ class Orchestrator:
 
             yield StreamEvent(type="meta", data=_turn_meta_payload(state))
 
-            accumulated = ""
+            acc = _StreamTextAccumulator()
+            voice_mode = state.mode == "voice"
             try:
                 if self._deps.response_generator is None:
-                    accumulated = "I hear you. Tell me more."
+                    acc.text = "I hear you. Tell me more."
                     yield StreamEvent(
-                        type="text_delta", data={"text": accumulated}
+                        type="text_delta", data={"text": acc.text}
                     )
                 else:
                     ctx = await build_turn_context(state, self._deps)
-                    async for chunk in self._deps.response_generator.stream_turn_response(
-                        ctx
+                    async for event in _stream_text_events(
+                        self._deps.response_generator.stream_turn_response(ctx),
+                        voice_mode=voice_mode,
+                        acc=acc,
                     ):
-                        accumulated += chunk
-                        yield StreamEvent(
-                            type="text_delta", data={"text": chunk}
-                        )
+                        yield event
             except Exception as exc:  # noqa: BLE001
                 log.warning(
                     "turn_stream.generation_failed",
                     error=type(exc).__name__,
                     detail=str(exc),
-                    partial_chars=len(accumulated),
+                    partial_chars=len(acc.text),
                 )
-                state.response = ResponseResult(text=accumulated.strip())
-                if accumulated.strip():
+                state.response = ResponseResult(
+                    text=acc.text.strip(), voice_style=acc.voice_style
+                )
+                state.voice_style = acc.voice_style
+                if acc.text.strip():
                     # Best-effort: persist partial text so the transcript
                     # stays coherent for the next turn.
                     try:
@@ -517,12 +527,15 @@ class Orchestrator:
                     data={
                         "code": type(exc).__name__,
                         "message": str(exc),
-                        "partial_text": accumulated,
+                        "partial_text": acc.text,
                     },
                 )
                 return
 
-            state.response = ResponseResult(text=accumulated.strip())
+            state.response = ResponseResult(
+                text=acc.text.strip(), voice_style=acc.voice_style
+            )
+            state.voice_style = acc.voice_style
             await execute(
                 policies=TURN_POLICIES,
                 step_name="append_assistant",
@@ -559,6 +572,7 @@ class Orchestrator:
                 data={
                     "reply": state.response.text,
                     "segment_boundary": state.segment_boundary_detected,
+                    "voice_style": state.voice_style,
                 },
             )
         finally:
@@ -719,12 +733,13 @@ class Orchestrator:
         response generator is configured — falls back to a deterministic
         opener string.
         """
-        accumulated = ""
+        acc = _StreamTextAccumulator()
+        voice_mode = state.mode == "voice"
         try:
             if ctx is None or self._deps.response_generator is None:
-                accumulated = f"Tell me about {state.person_name}."
+                acc.text = f"Tell me about {state.person_name}."
                 yield StreamEvent(
-                    type="text_delta", data={"text": accumulated}
+                    type="text_delta", data={"text": acc.text}
                 )
             else:
                 if opener_kind == "first_time":
@@ -735,30 +750,34 @@ class Orchestrator:
                     streamer = (
                         self._deps.response_generator.stream_starter_opener(ctx)
                     )
-                async for chunk in streamer:
-                    accumulated += chunk
-                    yield StreamEvent(
-                        type="text_delta", data={"text": chunk}
-                    )
+                async for event in _stream_text_events(
+                    streamer, voice_mode=voice_mode, acc=acc
+                ):
+                    yield event
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "session_start_stream.generation_failed",
                 opener_kind=opener_kind,
                 error=type(exc).__name__,
                 detail=str(exc),
-                partial_chars=len(accumulated),
+                partial_chars=len(acc.text),
             )
             yield StreamEvent(
                 type="error",
                 data={
                     "code": type(exc).__name__,
                     "message": str(exc),
-                    "partial_text": accumulated,
+                    "partial_text": acc.text,
                 },
             )
             return
 
-        state.response = ResponseResult(text=accumulated.strip()) if accumulated else None
+        state.response = (
+            ResponseResult(text=acc.text.strip(), voice_style=acc.voice_style)
+            if acc.text
+            else None
+        )
+        state.voice_style = acc.voice_style
         await execute(
             policies=SESSION_START_POLICIES,
             step_name="init_working_memory",
@@ -795,6 +814,7 @@ class Orchestrator:
                     if chips
                     else None
                 ),
+                "voice_style": state.voice_style,
             },
         )
 
@@ -829,6 +849,52 @@ class Orchestrator:
             structlog.contextvars.reset_contextvars(**token)
 
 
+class _StreamTextAccumulator:
+    """Collects the cleaned full reply + resolved voice style over a stream."""
+
+    __slots__ = ("text", "voice_style")
+
+    def __init__(self) -> None:
+        self.text: str = ""
+        self.voice_style: str | None = None
+
+
+async def _stream_text_events(
+    chunk_iter, *, voice_mode: bool, acc: _StreamTextAccumulator
+):
+    """Yield ``text_delta`` events (plus one ``voice_style`` in voice mode).
+
+    In voice mode the leading ``[[style: x]]`` tag is stripped before any
+    text reaches the wire, and the resolved label is emitted once as a
+    ``voice_style`` event ahead of the first ``text_delta``. The cleaned
+    full reply and the label are recorded on ``acc``. Text mode passes
+    chunks straight through and never emits ``voice_style``.
+    """
+    parser = VoiceStyleStreamParser() if voice_mode else None
+    style_emitted = False
+    async for chunk in chunk_iter:
+        if parser is None:
+            acc.text += chunk
+            yield StreamEvent(type="text_delta", data={"text": chunk})
+            continue
+        out = parser.feed(chunk)
+        if parser.resolved and not style_emitted:
+            acc.voice_style = parser.style
+            style_emitted = True
+            yield StreamEvent(type="voice_style", data={"style": parser.style})
+        if out:
+            acc.text += out
+            yield StreamEvent(type="text_delta", data={"text": out})
+    if parser is not None:
+        out = parser.flush()
+        if not style_emitted:
+            acc.voice_style = parser.style
+            yield StreamEvent(type="voice_style", data={"style": parser.style})
+        if out:
+            acc.text += out
+            yield StreamEvent(type="text_delta", data={"text": out})
+
+
 def _build_turn_result(state: TurnState) -> TurnResult:
     if state.response is None:
         raise RuntimeError("turn completed without a response")
@@ -841,6 +907,7 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         segment_boundary=state.segment_boundary_detected,
         taps=state.taps,
         chips=_chips_for_selection(state.selection),
+        voice_style=state.response.voice_style,
     )
 
 
