@@ -148,6 +148,30 @@ class TestRegenerate:
         assert context["mode"] == "with_reference"
         assert context["reference_s3_key"] == "uploads/abc123.jpg"
 
+    async def test_with_reference_and_instructions(
+        self, client_with_db, async_db_pool, fake_profile_picture_queue: FakeProfilePictureQueue
+    ):
+        # Post-onboarding regenerate: a fresh reference photo plus a one-shot
+        # note ("make him look like this"). Both the reference and the note
+        # must land in the composed context.
+        pid = await _insert_person(async_db_pool, name="Devi Iyer", relationship="mother", gender="she")
+
+        resp = await client_with_db.post(
+            f"/persons/{pid}/profile-picture",
+            headers=auth_headers(),
+            json={
+                "reference_s3_key": "uploads/ref-99.jpg",
+                "instructions": "make her look like this photo",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["mode"] == "with_reference"
+
+        context = await _read_latest_context(async_db_pool, person_id=pid)
+        assert context["mode"] == "with_reference"
+        assert context["reference_s3_key"] == "uploads/ref-99.jpg"
+        assert "make her look like this photo" in context["prompt"]
+
     async def test_unknown_person_is_404(self, client_with_db):
         resp = await client_with_db.post(
             f"/persons/{uuid4()}/profile-picture",

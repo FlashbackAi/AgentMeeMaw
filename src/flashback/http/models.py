@@ -172,6 +172,14 @@ class PersonCreateRequest(BaseModel):
     relationship: str = Field(min_length=1, max_length=80)
     contributor_display_name: str = Field(min_length=1, max_length=64)
     gender: Literal["he", "she", "they"] | None = None
+    # Onboarding reference photo of the subject. Node uploads it to S3 and
+    # passes the key here; onboarding carries no instruction text — the
+    # reference alone anchors the likeness while the prompt applies our
+    # painterly RDR2 style. Stored on ``persons.latest_generation_context``
+    # exactly like the regenerate/edit reference path. Omit / null for the
+    # text-only no-reference flow. (Text + reference happens later, on
+    # regenerate — see :class:`ProfilePictureGenerateRequest`.)
+    reference_s3_key: str | None = Field(default=None, max_length=500)
 
     @field_validator(
         "name",
@@ -254,15 +262,31 @@ class ArchetypeQuestionsResponse(BaseModel):
 class ProfilePictureGenerateRequest(BaseModel):
     """Body for ``POST /persons/{person_id}/profile-picture``.
 
-    ``preset`` is an optional stylistic preset slug from the shared
-    artifact-preset registry. ``None`` (or omitted) uses the default
-    RDR2 painterly-cinematic look.
+    The post-onboarding regenerate surface. Node sends this when the user
+    re-rolls the portrait: optionally a fresh ``reference_s3_key`` (uploaded
+    photo to anchor the likeness), optionally a free-text ``instructions``
+    note alongside it (e.g. "make him look like this"), and optionally a
+    stylistic ``preset``. Any combination is valid — all three are optional.
+
+    ``preset`` is a slug from the shared artifact-preset registry. ``None``
+    (or omitted) uses the default RDR2 painterly-cinematic look. Unlike the
+    ``/edit`` endpoint there is no instruction stacking here — this is a
+    single one-shot note appended to the portrait prompt.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     reference_s3_key: str | None = Field(default=None, max_length=500)
+    instructions: str | None = Field(default=None, max_length=500)
     preset: str | None = Field(default=None, max_length=64)
+
+    @field_validator("instructions", mode="before")
+    @classmethod
+    def _strip_instructions(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
 
 class ProfilePictureEditRequest(BaseModel):

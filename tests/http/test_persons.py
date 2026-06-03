@@ -131,6 +131,41 @@ class TestCreateHappyPath:
         assert "image_prompt" not in call
         assert call["job_id"] == resp.json()["person_id"]
 
+    async def test_onboarding_reference_image_is_stored_with_reference_mode(
+        self,
+        client_with_db,
+        async_db_pool,
+        fake_profile_picture_queue: FakeProfilePictureQueue,
+    ):
+        # Onboarding upload: only an image, no instruction text. The
+        # reference key must land on persons.latest_generation_context with
+        # mode="with_reference" so Node anchors the portrait to it — exactly
+        # like the entity / regenerate reference path. CLAUDE.md §3.
+        resp = await client_with_db.post(
+            "/persons",
+            headers=auth_headers(),
+            json=person_payload(
+                name="Hassan Ali",
+                gender="he",
+                reference_s3_key="uploads/onboarding-ref.jpg",
+            ),
+        )
+        assert resp.status_code == 200, resp.text
+        person_id = resp.json()["person_id"]
+
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT latest_generation_context FROM persons WHERE id = %s",
+                    (str(person_id),),
+                )
+                row = await cur.fetchone()
+        context = dict(row[0]) if row and row[0] else {}
+        assert context["mode"] == "with_reference"
+        assert context["reference_s3_key"] == "uploads/onboarding-ref.jpg"
+        assert "Painterly semi-realistic portrait" in context["prompt"]
+        assert fake_profile_picture_queue.calls[0]["source"] == "onboarding"
+
     async def test_two_legacies_with_same_name_both_succeed(
         self, client_with_db
     ):

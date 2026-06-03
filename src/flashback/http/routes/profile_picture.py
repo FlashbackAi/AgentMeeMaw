@@ -64,7 +64,7 @@ async def regenerate(
     """Enqueue a fresh profile-picture generation job for an existing person."""
     return await _enqueue_portrait_job(
         person_id=person_id,
-        instructions=None,
+        instructions=body.instructions,
         prior_instructions=[],
         preset_input=body.preset,
         reference_s3_key=body.reference_s3_key,

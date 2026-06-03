@@ -64,6 +64,7 @@ async def create(
             relationship=body.relationship,
             contributor_display_name=body.contributor_display_name,
             gender=body.gender,
+            reference_s3_key=body.reference_s3_key,
             db_pool=db_pool,
             profile_picture_queue=profile_picture_queue,
         ),
@@ -76,6 +77,7 @@ async def _create_once(
     relationship: str,
     contributor_display_name: str,
     gender: str | None,
+    reference_s3_key: str | None,
     db_pool: AsyncConnectionPool,
     profile_picture_queue: ProfilePictureQueueProducer | None,
 ) -> PersonCreateResponse:
@@ -108,8 +110,8 @@ async def _create_once(
             context = build_generation_context(
                 prompt=image_prompt,
                 negative_prompt=NEGATIVE_PROMPT,
-                mode="no_reference",
-                reference_s3_key=None,
+                mode="with_reference" if reference_s3_key else "no_reference",
+                reference_s3_key=reference_s3_key,
                 preset=None,
                 source="auto",
             )
