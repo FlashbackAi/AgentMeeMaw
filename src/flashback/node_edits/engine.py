@@ -182,19 +182,45 @@ async def edit_node(
     )
 
     # 4. Push fan-out jobs after commit.
-    embedding_jobs_pushed = _push_embeddings(
-        push_embedding,
-        cfg=cfg,
-        pushes=write_result.embedding_pushes,
-    )
+    #
+    # The edit transaction has already committed at this point — the
+    # supersession, new row, and repointed edges are durable and
+    # authoritative. The embedding / artifact pushes below are
+    # best-effort triggers (re-drivable out of band). A failure here must
+    # NOT surface as a 500: that would mislead the caller into thinking
+    # the edit failed and, on retry, re-run the edit LLM and create a
+    # second supersession of an already-edited row. So each push is
+    # isolated and its failure is logged, not raised.
+    embedding_jobs_pushed = 0
+    try:
+        embedding_jobs_pushed = _push_embeddings(
+            push_embedding,
+            cfg=cfg,
+            pushes=write_result.embedding_pushes,
+        )
+    except Exception:  # noqa: BLE001 - post-commit fan-out is best-effort
+        log.exception(
+            "node_edits.embedding_push_failed",
+            node_type=node_type,
+            node_id=node_id,
+            new_node_id=write_result.node_id,
+        )
     artifact_queued = False
     if push_artifact is not None and write_result.artifact_pushes:
-        artifact_queued = _push_artifacts(
-            push_artifact,
-            db_pool=db_pool,
-            person_id=person_id,
-            pushes=write_result.artifact_pushes,
-        )
+        try:
+            artifact_queued = await _push_artifacts(
+                push_artifact,
+                db_pool=db_pool,
+                person_id=person_id,
+                pushes=write_result.artifact_pushes,
+            )
+        except Exception:  # noqa: BLE001 - post-commit fan-out is best-effort
+            log.exception(
+                "node_edits.artifact_push_failed",
+                node_type=node_type,
+                node_id=node_id,
+                new_node_id=write_result.node_id,
+            )
 
     log.info(
         "node_edits.edit_completed",
@@ -358,7 +384,7 @@ def _push_embeddings(
     return count
 
 
-def _push_artifacts(
+async def _push_artifacts(
     pusher: _ArtifactPusher,
     *,
     db_pool: AsyncConnectionPool,
@@ -377,7 +403,7 @@ def _push_artifacts(
     from flashback.artifacts import (
         SCENE_NEGATIVE_PROMPT,
         build_generation_context,
-        write_latest_generation_context_sync,
+        write_latest_generation_context_async,
     )
 
     pushed = False
@@ -403,9 +429,9 @@ def _push_artifacts(
                 record_type=spec.record_type,
             )
             continue
-        with db_pool.connection() as ctx_conn:  # type: ignore[union-attr]
-            with ctx_conn.cursor() as ctx_cur:
-                write_latest_generation_context_sync(
+        async with db_pool.connection() as ctx_conn:
+            async with ctx_conn.cursor() as ctx_cur:
+                await write_latest_generation_context_async(
                     ctx_cur,
                     table=table_name,
                     record_id=spec.record_id,
