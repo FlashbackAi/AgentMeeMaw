@@ -27,6 +27,25 @@ def test_steady_candidate_query_excludes_suppressed():
     assert "'suppress'" in SELECT_STEADY_CANDIDATES
 
 
+def test_steady_candidate_query_generalises_suppress_by_dropped_phrase():
+    """A suppressed dropped_reference excludes every active sibling sharing
+    its dropped_phrase, not just the one suppressed row."""
+    sql = " ".join(SELECT_STEADY_CANDIDATES.split())
+    assert "dropped_phrase" in sql
+    # candidate phrase compared (case/space-normalised) against a suppressed
+    # decision's question phrase.
+    assert "lower(btrim(sq.attributes->>'dropped_phrase'))" in sql
+    assert "lower(btrim(q.attributes->>'dropped_phrase'))" in sql
+
+
+def test_steady_candidate_query_generalises_suppress_by_targets_entity():
+    """A suppressed entity-targeted question excludes every active sibling
+    targeting the same entity."""
+    sql = " ".join(SELECT_STEADY_CANDIDATES.split())
+    assert "edge_type = 'targets'" in sql
+    assert "qe.to_id = se.to_id" in sql
+
+
 def test_steady_candidate_query_supports_exclude_skipped_param():
     """Skipped decisions are excluded only when exclude_skipped=True (3-step fallback)."""
     assert "%(exclude_skipped)s" in SELECT_STEADY_CANDIDATES

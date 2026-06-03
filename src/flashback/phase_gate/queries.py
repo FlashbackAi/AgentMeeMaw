@@ -89,6 +89,39 @@ WHERE q.person_id = %(person_id)s
         OR d.action IS NULL
         OR d.action != 'skip'
       )
+  -- Suppress generalises to siblings. A producer re-mints a fresh
+  -- question row (new id) for the same dropped phrase or the same
+  -- targeted entity on every run, so an id-scoped suppress alone would
+  -- be defeated the next session. These two clauses exclude every active
+  -- question that shares the dropped_phrase, or the targets-entity, of
+  -- ANY actively-suppressed question for this person.
+  AND NOT EXISTS (
+        SELECT 1
+        FROM active_question_decisions sd
+        JOIN questions sq ON sq.id = sd.question_id
+        WHERE sd.person_id = %(person_id)s
+          AND sd.action    = 'suppress'
+          AND q.attributes->>'dropped_phrase' IS NOT NULL
+          AND lower(btrim(sq.attributes->>'dropped_phrase'))
+              = lower(btrim(q.attributes->>'dropped_phrase'))
+      )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM active_question_decisions sd
+        JOIN active_edges se
+          ON se.from_kind = 'question'
+         AND se.from_id   = sd.question_id
+         AND se.edge_type = 'targets'
+         AND se.to_kind   = 'entity'
+        JOIN active_edges qe
+          ON qe.from_kind = 'question'
+         AND qe.from_id   = q.id
+         AND qe.edge_type = 'targets'
+         AND qe.to_kind   = 'entity'
+         AND qe.to_id     = se.to_id
+        WHERE sd.person_id = %(person_id)s
+          AND sd.action    = 'suppress'
+      )
 ORDER BY
   CASE q.source
     WHEN 'dropped_reference' THEN 0

@@ -66,6 +66,36 @@ class P2Underdeveloped:
                            ) AS mention_count
                       FROM active_entities en
                      WHERE en.person_id = %(pid)s
+                       AND NOT EXISTS (
+                             SELECT 1
+                               FROM active_edges qe
+                               JOIN active_questions q2 ON q2.id = qe.from_id
+                              WHERE qe.from_kind = 'question'
+                                AND qe.edge_type = 'targets'
+                                AND qe.to_kind   = 'entity'
+                                AND qe.to_id     = en.id
+                                AND q2.person_id = %(pid)s
+                                AND (
+                                      -- an outstanding (unanswered) question
+                                      -- already targets this entity: don't
+                                      -- stack a near-duplicate on top of it.
+                                      NOT EXISTS (
+                                        SELECT 1 FROM active_edges ae
+                                         WHERE ae.from_kind = 'question'
+                                           AND ae.from_id   = q2.id
+                                           AND ae.edge_type = 'answered_by'
+                                           AND ae.to_kind   = 'moment'
+                                      )
+                                      -- or the user suppressed a question for
+                                      -- this entity: never re-mint for it.
+                                      OR EXISTS (
+                                        SELECT 1 FROM active_question_decisions sd
+                                         WHERE sd.question_id = q2.id
+                                           AND sd.person_id   = %(pid)s
+                                           AND sd.action      = 'suppress'
+                                      )
+                                )
+                           )
                     """,
                     {"pid": str(person_id)},
                 )

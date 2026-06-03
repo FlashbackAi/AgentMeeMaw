@@ -568,6 +568,15 @@ def _insert_dropped_reference_questions(
 ) -> list[str]:
     ids: list[str] = []
     for dr in dropped_references:
+        if _dropped_phrase_already_active(
+            cursor, person_id=person_id, phrase=dr.dropped_phrase
+        ):
+            # An active dropped_reference question already covers this phrase.
+            # Re-minting a fresh row would duplicate the bank and, worse,
+            # escape any user suppress recorded against the existing row
+            # (suppression is keyed on question_id). Skip silently —
+            # invariant #6: under-extract rather than pile up.
+            continue
         attrs = {
             "dropped_phrase": dr.dropped_phrase,
             "themes": list(dr.themes),
@@ -592,6 +601,30 @@ def _insert_dropped_reference_questions(
         )
         ids.append(cursor.fetchone()[0])
     return ids
+
+
+def _dropped_phrase_already_active(cursor, *, person_id: str, phrase: str | None) -> bool:
+    """True when an active dropped_reference question already covers ``phrase``.
+
+    Match is case-insensitive and whitespace-trimmed, mirroring the
+    selector's semantic-suppress generalisation in
+    ``SELECT_STEADY_CANDIDATES`` so dedup and exclusion agree on what
+    "the same phrase" means.
+    """
+    if not phrase or not phrase.strip():
+        return False
+    cursor.execute(
+        """
+        SELECT 1
+          FROM active_questions q
+         WHERE q.person_id = %(pid)s
+           AND q.source    = 'dropped_reference'
+           AND lower(btrim(q.attributes->>'dropped_phrase')) = lower(btrim(%(phrase)s))
+         LIMIT 1
+        """,
+        {"pid": person_id, "phrase": phrase},
+    )
+    return cursor.fetchone() is not None
 
 
 # ---------------------------------------------------------------------------
