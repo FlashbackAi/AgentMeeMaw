@@ -102,10 +102,17 @@ class P5UniversalCoverage:
                     (str(person_id),),
                 )
                 thread_texts = [str(row[0]) for row in cur.fetchall()]
+                covered = _dimensions_already_covered(cur, person_id=person_id)
 
         all_texts = moment_texts + thread_texts
         under_covered: list[UnderCoveredDimension] = []
         for dimension in UNIVERSAL_DIMENSIONS:
+            if dimension in covered:
+                # An active universal_dimension question for this dimension is
+                # already outstanding or was suppressed by the user; re-minting
+                # would stack a duplicate or escape the suppress (keyed on the
+                # old question_id). Skip — invariant #6.
+                continue
             keywords = UNIVERSAL_DIMENSION_KEYWORDS[dimension]
             count = sum(
                 1
@@ -164,6 +171,42 @@ class P5UniversalCoverage:
             questions=questions,
             overall_reasoning=str(args.get("overall_reasoning", "")),
         )
+
+
+def _dimensions_already_covered(cur, *, person_id: UUID) -> set[str]:
+    """Dimensions that already have an active universal_dimension question.
+
+    A dimension is "covered" when an active question for it is still
+    outstanding (unanswered) OR has been suppressed by the user. Mirrors the
+    P2 entity guard / extraction dropped_phrase guard — under-mint rather
+    than pile up (invariant #6) and never re-spawn past a suppress.
+    """
+    cur.execute(
+        """
+        SELECT DISTINCT q.attributes->>'dimension'
+          FROM active_questions q
+         WHERE q.person_id = %(pid)s
+           AND q.source    = 'universal_dimension'
+           AND q.attributes->>'dimension' IS NOT NULL
+           AND (
+                 NOT EXISTS (
+                   SELECT 1 FROM active_edges ae
+                    WHERE ae.from_kind = 'question'
+                      AND ae.from_id   = q.id
+                      AND ae.edge_type = 'answered_by'
+                      AND ae.to_kind   = 'moment'
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM active_question_decisions sd
+                    WHERE sd.question_id = q.id
+                      AND sd.person_id   = %(pid)s
+                      AND sd.action      = 'suppress'
+                 )
+               )
+        """,
+        {"pid": str(person_id)},
+    )
+    return {str(row[0]) for row in cur.fetchall() if row[0] is not None}
 
 
 def _build_user_message(

@@ -52,6 +52,7 @@ class P3LifePeriodGap:
                     (str(person_id),),
                 )
                 rows = cur.fetchall()
+                covered = _life_periods_already_covered(cur, person_id=person_id)
 
         years = sorted({int(row[0]) for row in rows if row[0] is not None})
         if years:
@@ -61,7 +62,7 @@ class P3LifePeriodGap:
             gaps = [
                 LifePeriodGap(kind="decade", label=f"{decade}s")
                 for decade in range(min_decade, max_decade + 10, 10)
-                if decade not in represented
+                if decade not in represented and f"{decade}s" not in covered
             ]
             return gaps[: settings.p3_max_gaps_per_run]
 
@@ -71,7 +72,7 @@ class P3LifePeriodGap:
         gaps = [
             LifePeriodGap(kind="life_period", label=period)
             for period in LIFE_PERIOD_ORDER
-            if period not in present_periods
+            if period not in present_periods and period not in covered
         ]
         return gaps[: settings.p3_max_gaps_per_run]
 
@@ -116,6 +117,44 @@ class P3LifePeriodGap:
             questions=questions,
             overall_reasoning=str(args.get("overall_reasoning", "")),
         )
+
+
+def _life_periods_already_covered(cur, *, person_id: UUID) -> set[str]:
+    """life_period labels that already have an active life_period_gap question.
+
+    A label is "covered" when an active question for it is still
+    outstanding (unanswered) OR has been suppressed by the user. Re-minting
+    for such a label would either stack a duplicate on top of an open
+    question or, worse, escape a user's suppress (which is keyed on the
+    old question_id). Mirrors the P2 entity guard and extraction's
+    dropped_phrase guard — under-mint rather than pile up (invariant #6).
+    """
+    cur.execute(
+        """
+        SELECT DISTINCT q.attributes->>'life_period'
+          FROM active_questions q
+         WHERE q.person_id = %(pid)s
+           AND q.source    = 'life_period_gap'
+           AND q.attributes->>'life_period' IS NOT NULL
+           AND (
+                 NOT EXISTS (
+                   SELECT 1 FROM active_edges ae
+                    WHERE ae.from_kind = 'question'
+                      AND ae.from_id   = q.id
+                      AND ae.edge_type = 'answered_by'
+                      AND ae.to_kind   = 'moment'
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM active_question_decisions sd
+                    WHERE sd.question_id = q.id
+                      AND sd.person_id   = %(pid)s
+                      AND sd.action      = 'suppress'
+                 )
+               )
+        """,
+        {"pid": str(person_id)},
+    )
+    return {str(row[0]) for row in cur.fetchall() if row[0] is not None}
 
 
 def _build_user_message(

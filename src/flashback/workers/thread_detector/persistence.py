@@ -192,14 +192,25 @@ def process_cluster(
     outcome.thread_was_created = naming is not None
 
     # 4. P4 LLM runs before DB writes so all DB mutations below commit together.
-    p4_result = propose_thread_deepen_questions(
-        cfg=p4_cfg,
-        settings=settings,
-        person_name=person_name,
-        thread=thread_snapshot,
-        member_moments=member_moments,
-        contributor_display_name=contributor_display_name,
-    )
+    # Guard against re-minting: when this cluster latched onto an EXISTING
+    # thread that already has an outstanding (unanswered) or user-suppressed
+    # thread_deepen question, skip P4 entirely. Re-minting a fresh row (new
+    # id) would stack a duplicate or escape the suppress, which is keyed on
+    # the old question_id. New threads (naming is not None) always propose —
+    # the thread is brand new so no prior question can exist. Mirrors the P2
+    # entity guard / extraction dropped_phrase guard (invariant #6).
+    p4_result: P4Result | None = None
+    if naming is not None or not _thread_has_open_or_suppressed_deepen_question(
+        db_pool, thread_id=thread_id, person_id=person_id
+    ):
+        p4_result = propose_thread_deepen_questions(
+            cfg=p4_cfg,
+            settings=settings,
+            person_name=person_name,
+            thread=thread_snapshot,
+            member_moments=member_moments,
+            contributor_display_name=contributor_display_name,
+        )
 
     # 4b. Emergent-theme archetype generation (only on the new-thread path
     # AND when the naming LLM indicated this cluster is a new emergent
@@ -290,7 +301,7 @@ def process_cluster(
                     moment_ids=cluster.member_moment_ids,
                     thread_id=thread_id,
                 )
-                for q in p4_result.questions:
+                for q in (p4_result.questions if p4_result is not None else []):
                     qid = _insert_thread_deepen_question(
                         cur,
                         person_id=person_id,
@@ -357,7 +368,8 @@ def process_cluster(
                 composed_at=context["composed_at"],
             )
 
-    for qid, q in zip(question_ids, p4_result.questions, strict=True):
+    p4_questions = p4_result.questions if p4_result is not None else []
+    for qid, q in zip(question_ids, p4_questions, strict=True):
         embedding_job_pusher(
             record_type="question",
             record_id=qid,
@@ -469,6 +481,52 @@ def _find_active_theme_id_by_thread(
     )
     row = cur.fetchone()
     return row[0] if row is not None else None
+
+
+def _thread_has_open_or_suppressed_deepen_question(
+    db_pool, *, thread_id: str, person_id: str
+) -> bool:
+    """True when an active thread_deepen question for ``thread_id`` is still
+    outstanding (unanswered) OR was suppressed by the user.
+
+    Used to skip re-minting P4 questions onto a thread that a new cluster
+    latched onto. A read on its own connection — runs before the cluster
+    transaction so we never hold a connection across the (already-skipped)
+    LLM round-trip.
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                  FROM active_edges qe
+                  JOIN active_questions q ON q.id = qe.from_id
+                 WHERE qe.from_kind = 'question'
+                   AND qe.edge_type = 'motivated_by'
+                   AND qe.to_kind   = 'thread'
+                   AND qe.to_id     = %(tid)s
+                   AND q.person_id  = %(pid)s
+                   AND q.source     = 'thread_deepen'
+                   AND (
+                         NOT EXISTS (
+                           SELECT 1 FROM active_edges ae
+                            WHERE ae.from_kind = 'question'
+                              AND ae.from_id   = q.id
+                              AND ae.edge_type = 'answered_by'
+                              AND ae.to_kind   = 'moment'
+                         )
+                         OR EXISTS (
+                           SELECT 1 FROM active_question_decisions sd
+                            WHERE sd.question_id = q.id
+                              AND sd.person_id   = %(pid)s
+                              AND sd.action      = 'suppress'
+                         )
+                       )
+                 LIMIT 1
+                """,
+                {"tid": thread_id, "pid": person_id},
+            )
+            return cur.fetchone() is not None
 
 
 def _insert_evidences_edges(
