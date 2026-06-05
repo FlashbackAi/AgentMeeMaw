@@ -122,6 +122,53 @@ WHERE q.person_id = %(person_id)s
         WHERE sd.person_id = %(person_id)s
           AND sd.action    = 'suppress'
       )
+  -- life_period_gap, universal_dimension, and thread_deepen producers
+  -- ALSO re-mint a fresh row (new id) every run with no dedup, keyed on
+  -- attributes.life_period / attributes.dimension / a motivated_by edge
+  -- to a thread respectively. The two clauses above only cover
+  -- dropped_phrase + targets-entity, so without these three a suppress
+  -- on any of those sources is defeated by the next producer run. Each
+  -- clause excludes every active question sharing the same life_period,
+  -- dimension, or motivated-by thread as ANY actively-suppressed question.
+  AND NOT EXISTS (
+        SELECT 1
+        FROM active_question_decisions sd
+        JOIN questions sq ON sq.id = sd.question_id
+        WHERE sd.person_id = %(person_id)s
+          AND sd.action    = 'suppress'
+          AND sq.source    = 'life_period_gap'
+          AND q.source     = 'life_period_gap'
+          AND q.attributes->>'life_period'  IS NOT NULL
+          AND sq.attributes->>'life_period' = q.attributes->>'life_period'
+      )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM active_question_decisions sd
+        JOIN questions sq ON sq.id = sd.question_id
+        WHERE sd.person_id = %(person_id)s
+          AND sd.action    = 'suppress'
+          AND sq.source    = 'universal_dimension'
+          AND q.source     = 'universal_dimension'
+          AND q.attributes->>'dimension'  IS NOT NULL
+          AND sq.attributes->>'dimension' = q.attributes->>'dimension'
+      )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM active_question_decisions sd
+        JOIN active_edges se
+          ON se.from_kind = 'question'
+         AND se.from_id   = sd.question_id
+         AND se.edge_type = 'motivated_by'
+         AND se.to_kind   = 'thread'
+        JOIN active_edges qe
+          ON qe.from_kind = 'question'
+         AND qe.from_id   = q.id
+         AND qe.edge_type = 'motivated_by'
+         AND qe.to_kind   = 'thread'
+         AND qe.to_id     = se.to_id
+        WHERE sd.person_id = %(person_id)s
+          AND sd.action    = 'suppress'
+      )
 ORDER BY
   CASE q.source
     WHEN 'dropped_reference' THEN 0

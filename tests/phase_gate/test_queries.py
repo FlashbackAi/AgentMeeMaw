@@ -46,6 +46,33 @@ def test_steady_candidate_query_generalises_suppress_by_targets_entity():
     assert "qe.to_id = se.to_id" in sql
 
 
+def test_steady_candidate_query_generalises_suppress_by_life_period():
+    """A suppressed life_period_gap excludes every active sibling sharing its
+    life_period — those producers re-mint a fresh row (new id) per run."""
+    sql = " ".join(SELECT_STEADY_CANDIDATES.split())
+    assert "sq.source = 'life_period_gap'" in sql
+    assert "q.source = 'life_period_gap'" in sql
+    assert "sq.attributes->>'life_period' = q.attributes->>'life_period'" in sql
+
+
+def test_steady_candidate_query_generalises_suppress_by_dimension():
+    """A suppressed universal_dimension excludes every active sibling sharing
+    its dimension."""
+    sql = " ".join(SELECT_STEADY_CANDIDATES.split())
+    assert "sq.source = 'universal_dimension'" in sql
+    assert "q.source = 'universal_dimension'" in sql
+    assert "sq.attributes->>'dimension' = q.attributes->>'dimension'" in sql
+
+
+def test_steady_candidate_query_generalises_suppress_by_motivated_thread():
+    """A suppressed thread_deepen excludes every active sibling motivated by
+    the same thread (thread_deepen has no dropped_phrase / targets-entity)."""
+    sql = " ".join(SELECT_STEADY_CANDIDATES.split())
+    assert "edge_type = 'motivated_by'" in sql
+    assert "se.to_kind = 'thread'" in sql
+    assert "qe.to_id = se.to_id" in sql
+
+
 def test_steady_candidate_query_supports_exclude_skipped_param():
     """Skipped decisions are excluded only when exclude_skipped=True (3-step fallback)."""
     assert "%(exclude_skipped)s" in SELECT_STEADY_CANDIDATES
