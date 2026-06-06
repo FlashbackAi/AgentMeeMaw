@@ -202,9 +202,12 @@ async def test_same_name_medium_confidence_asks(async_pool):
 
 
 @pytest.mark.asyncio
-async def test_scanner_creates_pending_suggestion_after_verifier_confirms(
+async def test_alias_candidate_medium_confidence_creates_pending_suggestion(
     async_pool,
 ):
+    """Alias evidence forms a candidate (name in the other row's aliases);
+    a medium-confidence verdict routes to a pending 'ask' with the source
+    label as proposed_alias."""
     async with async_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -220,7 +223,7 @@ async def test_scanner_creates_pending_suggestion_after_verifier_confirms(
                           (%s, 'person', 'Earlier label',
                            'A row created from an earlier phrase.', '{}'),
                           (%s, 'person', 'Canonical label',
-                           'Canonical label is also known as Earlier label.', '{}')
+                           'The canonical row.', ARRAY['Earlier label'])
                     """,
                     (person_id, person_id),
                 )
@@ -231,18 +234,20 @@ async def test_scanner_creates_pending_suggestion_after_verifier_confirms(
                 result = await scan_identity_merge_suggestions_async(
                     cur,
                     person_id=person_id,
-                    verifier=_same_identity,
+                    verifier=_same_identity_medium,
                 )
 
     assert result.candidates_considered == 1
     assert result.verifier_calls == 1
     assert result.suggestions_created == 1
+    assert result.auto_merged_count == 0
 
     async with async_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT src.name, tgt.name, s.proposed_alias, s.source, s.status
+                SELECT src.name, tgt.name, s.proposed_alias, s.source,
+                       s.status, s.confidence
                   FROM identity_merge_suggestions s
                   JOIN entities src ON src.id = s.source_entity_id
                   JOIN entities tgt ON tgt.id = s.target_entity_id
@@ -256,6 +261,7 @@ async def test_scanner_creates_pending_suggestion_after_verifier_confirms(
                 "Earlier label",
                 "scanner",
                 "pending",
+                "medium",
             )
 
 
@@ -305,7 +311,9 @@ async def test_scanner_does_not_suggest_from_embedding_similarity_alone(async_po
 
 
 @pytest.mark.asyncio
-async def test_scanner_does_not_write_when_verifier_is_unsure(async_pool):
+async def test_unsure_verdict_asks_never_auto_merges(async_pool):
+    """'unsure' means "needs a human": it routes to a pending ask (not a
+    silent merge, not a drop). Both entities stay active."""
     async with async_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -334,4 +342,18 @@ async def test_scanner_does_not_write_when_verifier_is_unsure(async_pool):
                 )
 
     assert result.candidates_considered == 1
-    assert result.suggestions_created == 0
+    assert result.suggestions_created == 1
+    assert result.auto_merged_count == 0
+
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM identity_merge_suggestions WHERE person_id = %s",
+                (person_id,),
+            )
+            assert (await cur.fetchone())[0] == "pending"
+            await cur.execute(
+                "SELECT count(*) FROM entities WHERE person_id = %s AND status='active'",
+                (person_id,),
+            )
+            assert (await cur.fetchone())[0] == 2
