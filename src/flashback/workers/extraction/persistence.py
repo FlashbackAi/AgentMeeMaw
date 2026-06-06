@@ -34,7 +34,6 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
-from flashback.identity_merges.repository import create_entity_merge_suggestions
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
 
@@ -73,12 +72,31 @@ class PersonRow:
 
 
 @dataclass
+class EntityWriteResult:
+    """Outcome of persisting one extracted entity (prevention layer 1).
+
+    ``reused`` is True when the extracted entity resolved to an existing
+    active same-kind row (by normalized name) instead of inserting a new
+    one — the source of the duplicate-entity flood. Reused entities get
+    NO new artifact job. ``embed_text`` is the text to (re)embed, or
+    ``None`` to skip the embedding job (e.g. a reused entity whose
+    description did not change).
+    """
+
+    id: str
+    reused: bool
+    description_changed: bool
+    embed_text: str | None
+
+
+@dataclass
 class PersistenceResult:
     """What the worker needs after a successful commit."""
 
     moment_ids: list[str]
     entity_ids: list[str]
     surviving_entities: list[ExtractedEntity]
+    entity_writes: list["EntityWriteResult"]
     trait_ids: list[str]
     question_ids: list[str]
     superseded_moment_ids: list[str]
@@ -154,6 +172,7 @@ def persist_extraction(
     llm_provenance: LLMProvenance | None = None,
     trait_merge_resolutions: list[TraitMergeResolution | None] | None = None,
     theme_slug_to_id: dict[str, str] | None = None,
+    entity_description_overrides: dict[tuple[str, str], str] | None = None,
 ) -> PersistenceResult:
     """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK.
 
@@ -180,12 +199,14 @@ def persist_extraction(
         person=person, entities=extraction.entities
     )
 
-    entity_ids = _insert_entities(
+    entity_writes = _persist_entities(
         cursor,
         person_id=person.id,
         entities=surviving_entities,
         llm_provenance=llm_provenance,
+        description_overrides=entity_description_overrides,
     )
+    entity_ids = [w.id for w in entity_writes]
     trait_ids = _insert_traits(
         cursor,
         person_id=person.id,
@@ -276,20 +297,19 @@ def persist_extraction(
                 moment_ids=moment_ids,
             )
 
-    merge_suggestion_ids = create_entity_merge_suggestions(
-        cursor,
-        person_id=person.id,
-        target_entity_ids=entity_ids,
-    )
-
+    # Identity reconciliation no longer runs inline as brute-force string
+    # matching. Prevention layer 1 (``_persist_entities``) already collapses
+    # same-name duplicates deterministically; anything subtler is handled
+    # post-commit by the verifier-gated reconcile (see worker + scanner).
     return PersistenceResult(
         moment_ids=moment_ids,
         entity_ids=entity_ids,
         surviving_entities=list(surviving_entities),
+        entity_writes=entity_writes,
         trait_ids=trait_ids,
         question_ids=question_ids,
         superseded_moment_ids=superseded_ids,
-        merge_suggestion_ids=merge_suggestion_ids,
+        merge_suggestion_ids=[],
         dropped_entities_count=dropped_count,
         moment_signals=moment_signals,
     )
@@ -371,15 +391,47 @@ def _build_entity_index_map(
 # ---------------------------------------------------------------------------
 
 
-def _insert_entities(
+def _persist_entities(
     cursor,
     *,
     person_id: str,
     entities: list[ExtractedEntity],
     llm_provenance: LLMProvenance | None,
-) -> list[str]:
-    ids: list[str] = []
+    description_overrides: dict[tuple[str, str], str] | None = None,
+) -> list["EntityWriteResult"]:
+    """Persist entities, reusing an existing active row on a name match.
+
+    Prevention layer 1 (CLAUDE.md invariant #17 / 2026-06-06 design §5.1):
+    before inserting, look for an existing **active, same-kind** entity for
+    this person whose normalized name matches the extracted name. On match,
+    reuse that row instead of inserting a duplicate — fold new aliases in,
+    fill an empty description, and skip the artifact job. This kills the
+    same-name duplicate flood (e.g. a new "Ishita"/"Aarav"/"Comet" row every
+    segment) at the source, deterministically, with no LLM.
+
+    Applies to ALL entity kinds (person/place/object/organization). The
+    rarer different-name identity is handled upstream by the extraction
+    catalog and downstream by the verifier-gated reconcile.
+
+    Returns one :class:`EntityWriteResult` per entity, in input order.
+    """
+    overrides = description_overrides or {}
+    results: list[EntityWriteResult] = []
     for e in entities:
+        existing = _find_existing_active_entity(
+            cursor, person_id=person_id, kind=e.kind, name=e.name
+        )
+        if existing is not None:
+            override = overrides.get((e.kind, (e.name or "").strip().lower()))
+            results.append(
+                _reuse_existing_entity(
+                    cursor,
+                    existing=existing,
+                    extracted=e,
+                    merged_description=override,
+                )
+            )
+            continue
         cursor.execute(
             """
             INSERT INTO entities
@@ -404,8 +456,164 @@ def _insert_entities(
                 llm_provenance.prompt_version if llm_provenance else None,
             ),
         )
-        ids.append(cursor.fetchone()[0])
-    return ids
+        new_id = cursor.fetchone()[0]
+        results.append(
+            EntityWriteResult(
+                id=new_id,
+                reused=False,
+                description_changed=bool(e.description),
+                embed_text=e.description or None,
+            )
+        )
+    return results
+
+
+def _find_existing_active_entity(
+    cursor, *, person_id: str, kind: str, name: str
+) -> tuple[str, str | None, list[str]] | None:
+    """Oldest active same-kind entity whose normalized name matches ``name``.
+
+    Returns ``(id, description, aliases)`` or ``None``. Oldest-first is the
+    ambiguity guard: if pre-existing legacy duplicates share the name, we
+    resolve to the oldest and let the reconcile backstop clean up the rest
+    rather than guessing among them.
+    """
+    normalized = (name or "").strip().lower()
+    if not normalized:
+        return None
+    cursor.execute(
+        """
+        SELECT id::text, description, COALESCE(aliases, '{}')
+          FROM entities
+         WHERE person_id = %s
+           AND status = 'active'
+           AND kind = %s
+           AND lower(btrim(name)) = %s
+         ORDER BY created_at ASC
+         LIMIT 1
+        """,
+        (person_id, kind, normalized),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return row[0], row[1], list(row[2] or [])
+
+
+def find_existing_active_entities_by_name(
+    cursor, *, person_id: str, keys: list[tuple[str, str]]
+) -> dict[tuple[str, str], tuple[str, str | None]]:
+    """Batch lookup for the worker's pre-transaction description-merge step.
+
+    ``keys`` is a list of ``(kind, name)``. Returns a map keyed by
+    ``(kind, lower(name))`` → ``(entity_id, description)`` for the oldest
+    active match per key. Empty input → empty result.
+    """
+    if not keys:
+        return {}
+    kinds = list({k for k, _ in keys})
+    names = list({(n or "").strip().lower() for _, n in keys})
+    names = [n for n in names if n]
+    if not names:
+        return {}
+    cursor.execute(
+        """
+        SELECT DISTINCT ON (kind, lower(btrim(name)))
+               kind, lower(btrim(name)) AS name_norm, id::text, description
+          FROM entities
+         WHERE person_id = %s
+           AND status = 'active'
+           AND kind = ANY(%s)
+           AND lower(btrim(name)) = ANY(%s)
+         ORDER BY kind, lower(btrim(name)), created_at ASC
+        """,
+        (person_id, kinds, names),
+    )
+    out: dict[tuple[str, str], tuple[str, str | None]] = {}
+    for kind, name_norm, entity_id, description in cursor.fetchall():
+        out[(kind, name_norm)] = (entity_id, description)
+    return out
+
+
+def _reuse_existing_entity(
+    cursor,
+    *,
+    existing: tuple[str, str | None, list[str]],
+    extracted: ExtractedEntity,
+    merged_description: str | None = None,
+) -> "EntityWriteResult":
+    """Fold an extracted mention into an existing entity row.
+
+    Adds any new aliases. For the description:
+      * if ``merged_description`` is provided (the worker pre-computed an
+        LLM blend of the existing + new descriptions), adopt it — this is
+        how later mentions *enrich* an established entity blurb;
+      * else fill the description only if the existing row has none (never
+        clobber accumulated detail with a raw single mention).
+    When the description changes, NULL the embedding columns and signal a
+    re-embed.
+    """
+    existing_id, existing_desc, existing_aliases = existing
+
+    merged_aliases = _fold_aliases(existing_aliases, extracted.aliases)
+    aliases_changed = merged_aliases != list(existing_aliases or [])
+
+    final_desc = existing_desc
+    desc_changed = False
+    blended = (merged_description or "").strip()
+    if blended and blended != (existing_desc or "").strip():
+        final_desc = blended
+        desc_changed = True
+    elif not (existing_desc or "").strip() and (extracted.description or "").strip():
+        final_desc = extracted.description
+        desc_changed = True
+
+    if aliases_changed or desc_changed:
+        if desc_changed:
+            cursor.execute(
+                """
+                UPDATE entities
+                   SET aliases = %s,
+                       description = %s,
+                       description_embedding = NULL,
+                       embedding_model = NULL,
+                       embedding_model_version = NULL
+                 WHERE id = %s
+                """,
+                (merged_aliases, final_desc, existing_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE entities SET aliases = %s WHERE id = %s",
+                (merged_aliases, existing_id),
+            )
+
+    log.info(
+        "extraction.entity_reused",
+        entity_id=existing_id,
+        name=extracted.name,
+        kind=extracted.kind,
+        description_changed=desc_changed,
+    )
+    return EntityWriteResult(
+        id=existing_id,
+        reused=True,
+        description_changed=desc_changed,
+        embed_text=final_desc if desc_changed else None,
+    )
+
+
+def _fold_aliases(existing: list[str], additions: list[str]) -> list[str]:
+    """Append new aliases (case-insensitive dedup), preserving order."""
+    out = list(existing or [])
+    seen = {a.strip().lower() for a in out if a and a.strip()}
+    for raw in additions or []:
+        alias = (raw or "").strip()
+        if not alias or alias.lower() in seen:
+            continue
+        seen.add(alias.lower())
+        out.append(alias)
+    return out
 
 
 def find_existing_active_traits_by_name(
@@ -962,6 +1170,33 @@ def fetch_person(cursor, person_id: str) -> PersonRow:
     # an empty list and let future schema additions plug into the same
     # entry point without churning the call sites.
     return PersonRow(id=pid, name=name, aliases=[])
+
+
+def fetch_active_entities_for_catalog(
+    cursor, *, person_id: str, limit: int = 200
+) -> list[tuple[str, str, list[str], str]]:
+    """Active entities for the extraction prompt's ``<entity_catalog>``.
+
+    Returns ``(name, kind, aliases, description)`` rows across ALL kinds
+    (prevention layer 2). Most-recent first, capped — the catalog is a
+    reuse hint, not an exhaustive dump.
+    """
+    cursor.execute(
+        """
+        SELECT name, kind, COALESCE(aliases, '{}'),
+               COALESCE(left(description, 160), '')
+          FROM entities
+         WHERE person_id = %s
+           AND status = 'active'
+         ORDER BY updated_at DESC
+         LIMIT %s
+        """,
+        (person_id, limit),
+    )
+    return [
+        (row[0], row[1], list(row[2] or []), row[3] or "")
+        for row in cursor.fetchall()
+    ]
 
 
 def iter_inserted_moments(result: PersistenceResult) -> Iterable[tuple[str, str]]:

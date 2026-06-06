@@ -254,10 +254,16 @@ the cap.
 
 ### 3.1 `identity_merge_suggestions`
 
-Pending user-review items for entity identity corrections. The
-Extraction Worker or identity-merge scanner may create suggestions
-automatically, but neither path merges entities. Approval/rejection is an explicit API/UI action
-(`POST /identity_merges/suggestions/{id}/approve|reject`).
+Review items and auto-merge audit/undo records for entity identity
+corrections. The verifier-gated reconcile (`POST /identity_merges/scan`)
+routes each candidate by disposition: high-confidence same-identity rows
+are **auto-merged** (status `auto_merged`, reversible), medium/unsure
+rows become `pending` review items, the rest are dropped. The old
+un-gated inline suggestion paths were removed (migration 0024 era).
+Approval/rejection of pending rows is an explicit API/UI action
+(`POST /identity_merges/suggestions/{id}/approve|reject`); auto-merges
+are surfaced via `GET /identity_merges/auto_merged` and reversed via
+`POST /identity_merges/{id}/unmerge`.
 
 Typical case:
 
@@ -277,14 +283,20 @@ status: pending
 | `proposed_alias` | TEXT | Label to fold into target aliases |
 | `reason` | TEXT NOT NULL | Human-readable review reason |
 | `source` | TEXT NOT NULL DEFAULT `'extraction'` | CHECK in (`'extraction'`, `'scanner'`, `'user_edit'`, `'admin'`) |
-| `status` | TEXT NOT NULL DEFAULT `'pending'` | CHECK in (`'pending'`, `'approved'`, `'rejected'`) |
-| `approved_at`, `rejected_at` | TIMESTAMPTZ | Mutually tied to status by CHECK constraints |
+| `status` | TEXT NOT NULL DEFAULT `'pending'` | CHECK in (`'pending'`, `'approved'`, `'rejected'`, `'auto_merged'`, `'unmerged'`) |
+| `confidence` | TEXT | CHECK in (`'low'`,`'medium'`,`'high'`) — verifier confidence that drove the disposition (0024) |
+| `acknowledged` | BOOLEAN NOT NULL DEFAULT false | Auto-merge toast dismissed? (0024) |
+| `undo_snapshot` | JSONB | Source row + repointed/deleted edges, captured at merge for exact unmerge (0024) |
+| `notification_text` | TEXT | LLM-authored user-facing toast sentence (0024) |
+| `approved_at`, `rejected_at`, `auto_merged_at`, `unmerged_at` | TIMESTAMPTZ | Mutually tied to status by CHECK constraints |
 | `created_at`, `updated_at` | TIMESTAMPTZ | Auto-maintained |
 
 **Constraints and indexes:**
 - `source_entity_id <> target_entity_id`
 - partial UNIQUE `(person_id, source_entity_id, target_entity_id) WHERE status='pending'`
 - `(person_id, status, created_at DESC)`
+- partial `(person_id, acknowledged, auto_merged_at DESC) WHERE status='auto_merged'` — the notification feed (0024)
+- CHECK constraints tie `auto_merged_at`/`unmerged_at` to their statuses (0024)
 
 **View:** `pending_identity_merge_suggestions` filters to
 `status='pending'`.

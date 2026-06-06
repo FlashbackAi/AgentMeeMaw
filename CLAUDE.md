@@ -197,15 +197,48 @@ Every piece of code touching the graph or queues must respect these.
     status flip + new row, mirroring moments / entities / threads.
     Every new active row pushes an `embedding` queue job.
     `POST /profile_facts/upsert` is the only Node-driven write path.
-17. **Identity merges require user approval.** Extraction may create a
-    pending `identity_merge_suggestions` row when an alias/correction
-    indicates two active entities may be the same. It must not directly
-    merge entities. Approval happens through
-    `POST /identity_merges/suggestions/{id}/approve`, ideally surfaced
-    by Node/UI as an out-of-band toast or review item, not inside the
-    memorial conversation. Approval repoints edges, marks the source
-    entity `merged`, clears survivor embedding fields, and queues a
-    fresh entity embedding job.
+17. **Identity dedup is prevention-first, then a verifier-gated
+    reconcile with conservative auto-merge.** Three layers, all
+    `person_id`-scoped and **same-kind only** (a `person` never merges
+    with a `place`; co-occurrence in a moment is never identity
+    evidence):
+
+    a. **Prevention — deterministic reuse (no LLM).** Before inserting
+       an extracted/edited entity, persistence resolves it to an
+       existing **active, same-kind** row whose normalized name matches
+       (`_persist_entities` / `insert_entities_async`). On match it
+       reuses that id, folds new aliases, fills an empty description,
+       and **skips the new artifact job**. This collapses the same-name
+       duplicate flood (a fresh "Ishita"/"Aarav"/"Comet" every segment)
+       at the source. Two same-name matches → resolve to the oldest;
+       don't guess.
+
+    b. **Prevention — extraction catalog (LLM).** The active
+       `<entity_catalog>` (all kinds) is rendered into the extraction
+       prompt so the LLM reuses an existing canonical name for a
+       different-surface-form mention ("Mom" = "Ishita") with
+       conversation context, instead of coining a duplicate.
+
+    c. **Reconcile backstop (verifier-gated).** Candidates form **only**
+       on name/alias evidence (`scanner._find_candidates`); the
+       substring-in-description heuristic and both old un-gated inline
+       suggestion paths are removed. Embedding distance is verifier
+       context, never a trigger. The small-LLM verifier returns
+       verdict + confidence; `disposition.decide_disposition` routes:
+       `same_identity`+`high` → **auto-merge silently + notify**;
+       `same_identity`+`medium` or `unsure` → **pending suggestion
+       (ask)**; `different_identity`, `low`, or cross-kind → **drop**.
+       Triggered via `POST /identity_merges/scan` (Node/cron); the
+       reason text shown to the user is the LLM-authored sentence.
+
+    Auto-merge and approval both capture an `undo_snapshot` (source row
+    + repointed/deleted edges) and repoint edges atomically (#5), mark
+    the source `merged`, clear survivor embedding, and queue a re-embed.
+    `POST /identity_merges/{id}/unmerge` reverses either: the survivor
+    stays intact and the merged-away entity is resurrected as a **fresh
+    standalone entity** with its edges moved back. Auto-merges surface
+    via `GET /identity_merges/auto_merged` (toast feed) and are cleared
+    with `POST /identity_merges/{id}/acknowledge`.
 18. **Traits are anchored, deduped, and behavior-described.** Three
     rules, applied in order by the Extraction Worker:
 
@@ -828,16 +861,27 @@ We expose an HTTP service. Node calls us; we never call Node.
   `EMBEDDING_QUEUE_URL` is unset.
 - `GET /identity_merges/suggestions?person_id=...` — list pending
   review items for entity identity corrections.
-- `POST /identity_merges/scan` — manually run the identity-merge
-  scanner for one subject profile. It gates candidate entity pairs with
-  deterministic labels, supplies embedding distance as supporting
-  context, verifies with the small LLM, and creates pending suggestions
-  only.
+- `POST /identity_merges/scan` — run the verifier-gated reconcile for
+  one subject. Candidates form on **name/alias evidence only**
+  (same-kind); embedding distance is verifier context, never a trigger.
+  Each verified candidate is routed by disposition:
+  `same_identity`+`high` auto-merges + notifies, `same_identity`+`medium`
+  or `unsure` creates a pending suggestion, everything else drops.
 - `POST /identity_merges/suggestions/{id}/approve` — apply a
   user-approved entity merge, repoint edges, mark source `merged`,
-  update survivor aliases/description, and push re-embedding.
+  update survivor aliases/description, capture an undo snapshot, and
+  push re-embedding.
 - `POST /identity_merges/suggestions/{id}/reject` — mark a pending
   suggestion rejected without changing graph entities.
+- `GET /identity_merges/auto_merged?person_id=...` — notification feed
+  of silently auto-merged entities the user has not yet acknowledged
+  (toast source). `include_acknowledged=true` returns all.
+- `POST /identity_merges/{id}/acknowledge` — dismiss an auto-merge
+  notification. Idempotent.
+- `POST /identity_merges/{id}/unmerge` — reverse an auto-merge (or an
+  approved merge): the survivor stays intact and the merged-away entity
+  is resurrected as a fresh standalone entity with its edges moved back.
+  Pushes a re-embed for the resurrected entity.
 - `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id }`.
   Returns the cached or lazily-generated archetype MC questions
   for a locked theme, plus any `archetype_answers_draft` so the

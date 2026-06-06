@@ -1,57 +1,79 @@
+"""Prevention layer 1: deterministic entity reuse at persistence.
+
+Replaces the old brute-force "extraction creates a pending merge
+suggestion" tests. The inline string-match suggestion path was removed
+(2026-06-06 redesign); same-name duplicates are now collapsed at insert
+time, and the verifier-gated reconcile handles the rest out of band.
+"""
+
 from __future__ import annotations
 
 from flashback.workers.extraction.persistence import (
-    MomentDecision,
     PersonRow,
     persist_extraction,
 )
 from flashback.workers.extraction.schema import ExtractionResult
 
 
-def test_extraction_alias_match_creates_pending_merge_suggestion(
-    db_pool, make_person
-):
-    person_id = make_person("Test Subject")
-    with db_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO entities
-                      (person_id, kind, name, description, aliases)
-                VALUES (%s, 'person', %s, %s, '{}')
-                RETURNING id::text
-                """,
-                (
-                    person_id,
-                    "Earlier label",
-                    "A person initially identified by an earlier label.",
-                ),
-            )
-            source_id = cur.fetchone()[0]
-            conn.commit()
-
-    extraction = ExtractionResult.model_validate(
+def _extraction_with_entity(name: str, *, description: str, aliases=None) -> ExtractionResult:
+    return ExtractionResult.model_validate(
         {
             "moments": [],
             "entities": [
                 {
                     "kind": "person",
-                    "name": "Person B",
-                    "description": (
-                        "Person B, clarified by the contributor as the person "
-                        "previously called the earlier label."
-                    ),
-                    "aliases": ["Earlier label"],
-                    "attributes": {"relationship": "partner"},
+                    "name": name,
+                    "description": description,
+                    "aliases": list(aliases or []),
+                    "attributes": {"relationship": "friend"},
                     "related_to_entity_indexes": [],
-                    "generation_prompt": "Two close friends at a farmhouse party.",
+                    "generation_prompt": "A friend at a farmhouse party.",
                 }
             ],
             "traits": [],
             "dropped_references": [],
-            "extraction_notes": "Identity correction from old label to canonical name.",
+            "extraction_notes": "test",
         }
     )
+
+
+def _insert_entity(db_pool, person_id, name, description="An existing person."):
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO entities (person_id, kind, name, description, aliases)
+                VALUES (%s, 'person', %s, %s, '{}')
+                RETURNING id::text
+                """,
+                (person_id, name, description),
+            )
+            entity_id = cur.fetchone()[0]
+            conn.commit()
+    return entity_id
+
+
+def _count_active(db_pool, person_id, name):
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM entities
+                 WHERE person_id = %s AND status = 'active'
+                   AND lower(btrim(name)) = lower(btrim(%s))
+                """,
+                (person_id, name),
+            )
+            return cur.fetchone()[0]
+
+
+def test_same_name_entity_is_reused_not_duplicated(db_pool, make_person):
+    """A re-mentioned same-name entity reuses the existing row — no
+    duplicate, no artifact, no merge suggestion."""
+    person_id = make_person("Test Subject")
+    existing_id = _insert_entity(db_pool, person_id, "Aarav")
+
+    extraction = _extraction_with_entity("Aarav", description="A close friend.")
 
     with db_pool.connection() as conn:
         with conn.transaction():
@@ -64,119 +86,128 @@ def test_extraction_alias_match_creates_pending_merge_suggestion(
                     seeded_question_id=None,
                 )
 
-    assert len(result.merge_suggestion_ids) == 1
-
-    with db_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT source_entity_id::text, target_entity_id::text,
-                       proposed_alias, status
-                  FROM identity_merge_suggestions
-                 WHERE id = %s
-                """,
-                (result.merge_suggestion_ids[0],),
-            )
-            suggestion = cur.fetchone()
-
-    assert suggestion[0] == source_id
-    assert suggestion[1] == result.entity_ids[0]
-    assert suggestion[2] == "Earlier label"
-    assert suggestion[3] == "pending"
+    assert result.entity_ids == [existing_id]
+    assert result.entity_writes[0].reused is True
+    assert result.merge_suggestion_ids == []
+    assert _count_active(db_pool, person_id, "Aarav") == 1
 
 
-def test_extraction_description_match_creates_pending_merge_suggestion(
+def test_same_name_reuse_folds_aliases_and_fills_empty_description(
     db_pool, make_person
 ):
     person_id = make_person("Test Subject")
+    # Existing row has an empty description.
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO entities
-                      (person_id, kind, name, description, aliases)
-                VALUES (%s, 'person', %s, %s, '{}')
-                RETURNING id::text
-                """,
-                (
-                    person_id,
-                    "Earlier label",
-                    "A person initially identified by an earlier label.",
-                ),
-            )
-            source_id = cur.fetchone()[0]
-            conn.commit()
-
-    extraction = ExtractionResult.model_validate(
-        {
-            "moments": [],
-            "entities": [
-                {
-                    "kind": "person",
-                    "name": "Person B",
-                    "description": "Earlier label for several years.",
-                    "aliases": [],
-                    "attributes": {"relationship": "partner"},
-                    "related_to_entity_indexes": [],
-                    "generation_prompt": "Two people outside a farmhouse party.",
-                }
-            ],
-            "traits": [],
-            "dropped_references": [],
-            "extraction_notes": "Identity correction from description only.",
-        }
-    )
-
-    with db_pool.connection() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                result = persist_extraction(
-                    cur,
-                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
-                    extraction=extraction,
-                    moment_decisions=[],
-                    seeded_question_id=None,
-                )
-
-    assert len(result.merge_suggestion_ids) == 1
-
-    with db_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT source_entity_id::text, target_entity_id::text,
-                       proposed_alias, status
-                  FROM identity_merge_suggestions
-                 WHERE id = %s
-                """,
-                (result.merge_suggestion_ids[0],),
-            )
-            suggestion = cur.fetchone()
-
-    assert suggestion == (
-        source_id,
-        result.entity_ids[0],
-        "Earlier label",
-        "pending",
-    )
-
-
-def test_extraction_same_name_duplicate_creates_pending_merge_suggestion(
-    db_pool, make_person
-):
-    person_id = make_person("Test Subject")
-    with db_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO entities
-                      (person_id, kind, name, description, aliases)
-                VALUES (%s, 'person', 'Person B', 'A friend from training.', '{}')
+                INSERT INTO entities (person_id, kind, name, description, aliases)
+                VALUES (%s, 'person', 'Ishita', NULL, ARRAY['Ish'])
                 RETURNING id::text
                 """,
                 (person_id,),
             )
-            source_id = cur.fetchone()[0]
+            existing_id = cur.fetchone()[0]
+            conn.commit()
+
+    extraction = _extraction_with_entity(
+        "Ishita", description="The subject's mother.", aliases=["Mom"]
+    )
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                result = persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=[],
+                    seeded_question_id=None,
+                )
+
+    assert result.entity_ids == [existing_id]
+    write = result.entity_writes[0]
+    assert write.reused is True
+    assert write.description_changed is True
+    assert write.embed_text == "The subject's mother."
+
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT description, aliases FROM entities WHERE id = %s",
+                (existing_id,),
+            )
+            description, aliases = cur.fetchone()
+    assert description == "The subject's mother."
+    assert set(aliases) == {"Ish", "Mom"}
+
+
+def test_reuse_applies_description_override_and_reembeds(db_pool, make_person):
+    """A pre-computed blended description (entity_description_overrides)
+    overwrites the reused row's description and signals a re-embed."""
+    person_id = make_person("Test Subject")
+    existing_id = _insert_entity(db_pool, person_id, "Aarav", description="A friend.")
+
+    extraction = _extraction_with_entity("Aarav", description="A childhood neighbour.")
+    blended = "A childhood friend and neighbour."
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                result = persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=[],
+                    seeded_question_id=None,
+                    entity_description_overrides={("person", "aarav"): blended},
+                )
+
+    assert result.entity_ids == [existing_id]
+    write = result.entity_writes[0]
+    assert write.reused is True
+    assert write.description_changed is True
+    assert write.embed_text == blended
+
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT description FROM entities WHERE id = %s", (existing_id,))
+            assert cur.fetchone()[0] == blended
+
+
+def test_different_name_creates_new_entity(db_pool, make_person):
+    person_id = make_person("Test Subject")
+    _insert_entity(db_pool, person_id, "Aarav")
+
+    extraction = _extraction_with_entity("Comet", description="The family dog.")
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                result = persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=[],
+                    seeded_question_id=None,
+                )
+
+    assert result.entity_writes[0].reused is False
+    assert _count_active(db_pool, person_id, "Comet") == 1
+
+
+def test_different_kind_same_name_is_not_reused(db_pool, make_person):
+    """A place named 'Comet' must not reuse an object named 'Comet'."""
+    person_id = make_person("Test Subject")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO entities (person_id, kind, name, description, aliases)
+                VALUES (%s, 'object', 'Comet', 'A bicycle.', '{}')
+                """,
+                (person_id,),
+            )
             conn.commit()
 
     extraction = ExtractionResult.model_validate(
@@ -184,18 +215,18 @@ def test_extraction_same_name_duplicate_creates_pending_merge_suggestion(
             "moments": [],
             "entities": [
                 {
-                    "kind": "person",
-                    "name": "Person B",
-                    "description": "The subject's partner and event friend.",
+                    "kind": "place",
+                    "name": "Comet",
+                    "description": "A diner downtown.",
                     "aliases": [],
-                    "attributes": {"relationship": "partner"},
+                    "attributes": {},
                     "related_to_entity_indexes": [],
-                    "generation_prompt": "Friends in a shared vehicle.",
+                    "generation_prompt": "A diner at dusk.",
                 }
             ],
             "traits": [],
             "dropped_references": [],
-            "extraction_notes": "A duplicate person mention.",
+            "extraction_notes": "test",
         }
     )
 
@@ -210,19 +241,17 @@ def test_extraction_same_name_duplicate_creates_pending_merge_suggestion(
                     seeded_question_id=None,
                 )
 
-    assert len(result.merge_suggestion_ids) == 1
-
+    # New place row created; the object row is untouched.
+    assert result.entity_writes[0].reused is False
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT source_entity_id::text, target_entity_id::text,
-                       proposed_alias, status
-                  FROM identity_merge_suggestions
-                 WHERE id = %s
+                SELECT kind FROM entities
+                 WHERE person_id = %s AND status='active' AND name='Comet'
+                 ORDER BY kind
                 """,
-                (result.merge_suggestion_ids[0],),
+                (person_id,),
             )
-            suggestion = cur.fetchone()
-
-    assert suggestion == (source_id, result.entity_ids[0], "Person B", "pending")
+            kinds = [r[0] for r in cur.fetchall()]
+    assert kinds == ["object", "place"]

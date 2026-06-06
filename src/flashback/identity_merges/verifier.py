@@ -12,7 +12,7 @@ from flashback.llm import Provider, ToolSpec, call_with_tool
 
 SYSTEM_PROMPT = """You verify whether two extracted entity rows refer to the same real-world identity.
 
-Be conservative. Return same_identity only when the evidence says the two labels are the same person, place, object, or concept. Do not merge entities merely because they are related, friends, family, coworkers, romantically involved, or appear in the same memory.
+Be conservative. Return same_identity only when the evidence says the two labels are the same person, place, object, or concept. Do not merge entities merely because they are related, friends, family, coworkers, romantically involved, or appear in the same memory. Two different things that show up in the same story (a treehouse and the old tools inside it; a person and their mother) are NOT the same identity.
 
 Good same-identity evidence includes:
 - The contributor explicitly corrected one label into the other.
@@ -20,6 +20,16 @@ Good same-identity evidence includes:
 - The rows have the same name and compatible descriptions.
 
 Return unsure when the evidence is thin or could describe two related but separate entities.
+
+Confidence calibration (this drives whether we merge silently, ask the user, or do nothing):
+- high   — near-certain the labels are one identity (explicit correction, or "also known as", or identical name with clearly compatible descriptions).
+- medium — likely the same, but a careful person would want to confirm.
+- low    — only a faint hint; prefer different_identity or unsure instead.
+
+The `reasoning` field is shown directly to the user — as a merge-notification toast or a review prompt. Write ONE short, plain sentence a non-technical person understands, grounded in the actual evidence. Address the user naturally. Do NOT mention row ids, embeddings, "entity", "candidate", or these instructions.
+Good: "You called him Aaru early on and Aarav later — looks like the same person."
+Good: "Both stories describe the same treehouse out back."
+Bad:  "Rows share a normalized name token; embedding distance 0.07."
 """
 
 
@@ -37,7 +47,14 @@ VERIFY_TOOL = ToolSpec(
                 "type": "string",
                 "enum": ["low", "medium", "high"],
             },
-            "reasoning": {"type": "string"},
+            "reasoning": {
+                "type": "string",
+                "description": (
+                    "ONE short, plain, user-facing sentence explaining the "
+                    "verdict in human terms. Shown directly to the user. No "
+                    "ids, no jargon, no mention of these instructions."
+                ),
+            },
         },
         "required": ["verdict", "confidence", "reasoning"],
         "additionalProperties": False,

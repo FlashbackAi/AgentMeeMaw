@@ -92,12 +92,17 @@ async def apply_moment_edit(
 
       1. Parse LLM args into :class:`ExtractedMoment` + entity list.
       2. Apply subject guard.
-      3. Insert new entities; build index map.
+      3. Persist entities (prevention layer 1: reuse an existing active
+         same-kind row on a name match instead of inserting a duplicate);
+         build index map.
       4. Insert the new moment row.
       5. Supersede the old moment (flip status, repoint inbound edges,
          drop outbound).
       6. Insert fresh outbound moment edges (involves / happened_at).
-      7. Run identity-merge suggestion scan over the new entities.
+
+    Identity reconciliation no longer runs inline here; the verifier-gated
+    reconcile (POST /identity_merges/scan) handles anything prevention
+    layer 1 doesn't.
 
     Returns the spec of what to push post-commit.
     """
@@ -107,12 +112,13 @@ async def apply_moment_edit(
         person=person, entities=entity_data
     )
 
-    entity_ids = await sql.insert_entities_async(
+    entity_writes = await sql.insert_entities_async(
         cur,
         person_id=person.id,
         entities=surviving,
         llm_provenance=llm_provenance,
     )
+    entity_ids = [w.id for w in entity_writes]
 
     entity_index_to_id = sql.build_entity_index_map(
         original_entities=entity_data,
@@ -141,11 +147,9 @@ async def apply_moment_edit(
         entity_kinds=[e.kind for e in surviving],
     )
 
-    await sql.create_entity_merge_suggestions_async(
-        cur,
-        person_id=person.id,
-        target_entity_ids=entity_ids,
-    )
+    # Identity reconciliation is no longer brute-forced inline. Prevention
+    # layer 1 (insert_entities_async) collapsed same-name duplicates above;
+    # the verifier-gated reconcile runs post-commit (see route/worker).
 
     embedding_pushes: list[EmbeddingPushSpec] = [
         EmbeddingPushSpec(
@@ -154,13 +158,14 @@ async def apply_moment_edit(
             source_text=moment_data.narrative,
         )
     ]
-    for new_entity_id, entity in zip(entity_ids, surviving):
-        if entity.description:
+    for write, entity in zip(entity_writes, surviving):
+        # Reused entities re-embed only when their description changed.
+        if write.embed_text:
             embedding_pushes.append(
                 EmbeddingPushSpec(
                     record_type="entity",
-                    record_id=new_entity_id,
-                    source_text=entity.description,
+                    record_id=write.id,
+                    source_text=write.embed_text,
                 )
             )
 
@@ -174,11 +179,15 @@ async def apply_moment_edit(
                 generation_prompt=moment_data.generation_prompt,
             )
         )
-        for new_entity_id, entity in zip(entity_ids, surviving):
+        for write, entity in zip(entity_writes, surviving):
+            # Never regenerate an artifact for an entity we matched to an
+            # existing row.
+            if write.reused:
+                continue
             artifact_pushes.append(
                 ArtifactPushSpec(
                     record_type="entity",
-                    record_id=new_entity_id,
+                    record_id=write.id,
                     artifact_kind="image",
                     generation_prompt=entity.generation_prompt,
                 )

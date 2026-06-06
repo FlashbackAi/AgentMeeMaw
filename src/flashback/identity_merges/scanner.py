@@ -8,6 +8,8 @@ from typing import Any
 
 import structlog
 
+from .disposition import decide_disposition
+from .repository import auto_merge_async
 from .schema import IdentityMergeScanResponse
 from .verifier import IdentityMergeVerification
 
@@ -40,15 +42,27 @@ async def scan_identity_merge_suggestions_async(
     verifier: VerifierFn,
     embedding_distance_threshold: float = 0.18,
     limit: int = 20,
+    push_embedding=None,
+    embedding_model: str = "",
+    embedding_model_version: str = "",
 ) -> IdentityMergeScanResponse:
     """
-    Find likely duplicate identity rows, verify with a small LLM, and write
-    pending suggestions. The graph is not mutated here.
+    Find likely duplicate identity rows (name/alias evidence only, same
+    kind), verify each with a small LLM, and route by disposition:
 
-    Embedding distance is used as supporting rank/context, not as a
-    standalone reason to propose a merge. In this domain, related people and
-    places often have very similar descriptions but are still separate
-    identities.
+      * ``auto_merge`` (same_identity + high) — merge silently + notify;
+      * ``ask`` (same_identity + medium, or unsure) — write a pending row;
+      * ``drop`` — write nothing.
+
+    Candidates are gated on name/alias evidence only — co-occurrence in a
+    description never triggers, and cross-kind pairs never match.
+    Embedding distance is passed to the verifier as context, never as a
+    trigger: related people/places often have very similar descriptions
+    but are still separate identities.
+
+    The auto-merge path requires ``push_embedding`` + embedding model
+    coordinates to re-embed the survivor; if ``push_embedding`` is None the
+    merge still applies and the re-embed is skipped.
     """
 
     candidates = await _find_candidates(
@@ -58,13 +72,17 @@ async def scan_identity_merge_suggestions_async(
     )
     suggestion_ids: list[str] = []
     verifier_calls = 0
+    auto_merged_count = 0
 
     for candidate in candidates:
         verifier_calls += 1
         verification = await verifier(candidate)
-        if verification.verdict != "same_identity":
+        disposition = decide_disposition(
+            verification.verdict, verification.confidence
+        )
+        if disposition == "drop":
             log.info(
-                "identity_merge.candidate_rejected_by_verifier",
+                "identity_merge.candidate_dropped",
                 person_id=person_id,
                 source_entity_id=candidate.source_id,
                 target_entity_id=candidate.target_id,
@@ -72,10 +90,37 @@ async def scan_identity_merge_suggestions_async(
                 confidence=verification.confidence,
             )
             continue
+
+        if disposition == "auto_merge":
+            merged_id = await auto_merge_async(
+                cursor,
+                person_id=person_id,
+                source_id=candidate.source_id,
+                target_id=candidate.target_id,
+                proposed_alias=candidate.proposed_alias,
+                confidence=verification.confidence,
+                notification_text=_notification_text(candidate, verification.reasoning),
+                push_embedding=push_embedding,
+                embedding_model=embedding_model,
+                embedding_model_version=embedding_model_version,
+            )
+            if merged_id:
+                suggestion_ids.append(merged_id)
+                auto_merged_count += 1
+                log.info(
+                    "identity_merge.auto_merged",
+                    person_id=person_id,
+                    source_entity_id=candidate.source_id,
+                    target_entity_id=candidate.target_id,
+                )
+            continue
+
+        # disposition == "ask"
         inserted_id = await _insert_scanner_suggestion(
             cursor,
             candidate=candidate,
             verifier_reason=verification.reasoning,
+            confidence=verification.confidence,
         )
         if inserted_id:
             suggestion_ids.append(inserted_id)
@@ -85,13 +130,26 @@ async def scan_identity_merge_suggestions_async(
             "identity_merge.scanner_suggestions_created",
             person_id=person_id,
             count=len(suggestion_ids),
+            auto_merged=auto_merged_count,
         )
     return IdentityMergeScanResponse(
         person_id=person_id,
         candidates_considered=len(candidates),
         verifier_calls=verifier_calls,
-        suggestions_created=len(suggestion_ids),
+        suggestions_created=len(suggestion_ids) - auto_merged_count,
+        auto_merged_count=auto_merged_count,
         suggestion_ids=suggestion_ids,
+    )
+
+
+def _notification_text(candidate: "IdentityMergeCandidate", verifier_reason: str) -> str:
+    """User-facing toast text for an auto-merge. Prefers the LLM sentence."""
+    reason = (verifier_reason or "").strip()
+    if reason:
+        return reason
+    return (
+        f"We combined two entries that both looked like "
+        f"{candidate.target_name!r}. You can undo this if they're different."
     )
 
 
@@ -130,9 +188,13 @@ async def _find_candidates(
                     )
                )
            AND (
+                -- NAME / ALIAS EVIDENCE ONLY. Co-occurrence of one name in
+                -- the other's description is NOT identity evidence and is
+                -- deliberately excluded (it produced false positives like
+                -- "Mokshith" vs "Mokshith's mother"). Embedding distance is
+                -- computed below as verifier context but never triggers a
+                -- candidate. Same-kind is already enforced by the JOIN.
                 lower(a.name) = lower(b.name)
-             OR position(lower(a.name) in lower(COALESCE(b.description, ''))) > 0
-             OR position(lower(b.name) in lower(COALESCE(a.description, ''))) > 0
              OR EXISTS (
                    SELECT 1
                      FROM unnest(COALESCE(a.aliases, '{}')) AS alias
@@ -183,26 +245,29 @@ def _orient_candidate(person_id: str, row: tuple[Any, ...]) -> IdentityMergeCand
     a_aliases = list(a_aliases or [])
     b_aliases = list(b_aliases or [])
 
-    if _label_points_to_target(a_name, target_description=b_description, target_aliases=b_aliases):
-        source = (a_id, a_name, a_description, a_aliases)
-        target = (b_id, b_name, b_description, b_aliases)
-        reason_kind = "alias_or_description"
-    elif _label_points_to_target(b_name, target_description=a_description, target_aliases=a_aliases):
-        source = (b_id, b_name, b_description, b_aliases)
-        target = (a_id, a_name, a_description, a_aliases)
-        reason_kind = "alias_or_description"
-    elif _norm(a_name) == _norm(b_name):
+    if _norm(a_name) == _norm(b_name):
         source, target = _source_target_by_detail(
             (a_id, a_name, a_description, a_aliases),
             (b_id, b_name, b_description, b_aliases),
         )
         reason_kind = "same_name"
+    elif _name_in_aliases(a_name, b_aliases):
+        # a's name is recorded as an alias of b -> a is the older label, b canonical
+        source = (a_id, a_name, a_description, a_aliases)
+        target = (b_id, b_name, b_description, b_aliases)
+        reason_kind = "alias"
+    elif _name_in_aliases(b_name, a_aliases):
+        source = (b_id, b_name, b_description, b_aliases)
+        target = (a_id, a_name, a_description, a_aliases)
+        reason_kind = "alias"
     else:
+        # Should not happen — the candidate gate only matches on name or
+        # alias evidence. Fall back to the by-detail orientation.
         source, target = _source_target_by_detail(
             (a_id, a_name, a_description, a_aliases),
             (b_id, b_name, b_description, b_aliases),
         )
-        reason_kind = "embedding_similarity"
+        reason_kind = "same_name"
 
     source_id, source_name, source_description, source_aliases = source
     target_id, target_name, target_description, target_aliases = target
@@ -228,13 +293,14 @@ async def _insert_scanner_suggestion(
     *,
     candidate: IdentityMergeCandidate,
     verifier_reason: str,
+    confidence: str | None = None,
 ) -> str | None:
     await cursor.execute(
         """
         INSERT INTO identity_merge_suggestions
               (person_id, source_entity_id, target_entity_id,
-               proposed_alias, reason, source)
-        SELECT %s, %s, %s, %s, %s, 'scanner'
+               proposed_alias, reason, source, confidence)
+        SELECT %s, %s, %s, %s, %s, 'scanner', %s
          WHERE NOT EXISTS (
                SELECT 1
                  FROM identity_merge_suggestions
@@ -255,6 +321,7 @@ async def _insert_scanner_suggestion(
             candidate.target_id,
             candidate.proposed_alias,
             _reason(candidate, verifier_reason),
+            confidence,
             candidate.person_id,
             candidate.source_id,
             candidate.target_id,
@@ -266,18 +333,17 @@ async def _insert_scanner_suggestion(
     return row[0] if row else None
 
 
-def _label_points_to_target(
-    label: str,
-    *,
-    target_description: str,
-    target_aliases: list[str],
-) -> bool:
+def _name_in_aliases(label: str, aliases: list[str]) -> bool:
+    """True when ``label`` matches one of ``aliases`` (case-insensitive).
+
+    Note: we intentionally do NOT check descriptions. A name appearing in
+    the other row's free-text description is co-occurrence, not identity
+    evidence, and was the source of false-positive suggestions.
+    """
     label_norm = _norm(label)
     if not label_norm:
         return False
-    if label_norm in {_norm(alias) for alias in target_aliases}:
-        return True
-    return label_norm in _norm(target_description)
+    return label_norm in {_norm(alias) for alias in aliases}
 
 
 def _source_target_by_detail(left, right):
@@ -289,17 +355,19 @@ def _source_target_by_detail(left, right):
 
 
 def _reason(candidate: IdentityMergeCandidate, verifier_reason: str) -> str:
-    basis = {
-        "same_name": f"Both rows are named {candidate.target_name!r}.",
-        "alias_or_description": (
-            f"{candidate.proposed_alias!r} appears in the other row's details."
-        ),
-        "embedding_similarity": "The descriptions are very similar.",
-    }.get(candidate.reason_kind, "The rows matched identity-merge checks.")
+    # The verifier's reasoning is an LLM-authored, user-facing sentence and
+    # is strongly preferred. The template strings below are only a fallback
+    # for when the verifier returned no reasoning text.
     reason = verifier_reason.strip()
     if reason:
-        return f"{basis} {reason}"
-    return basis
+        return reason
+    return {
+        "same_name": f"Both rows are named {candidate.target_name!r}.",
+        "alias": (
+            f"{candidate.proposed_alias!r} is recorded as another name for "
+            f"{candidate.target_name!r}."
+        ),
+    }.get(candidate.reason_kind, "These rows look like the same thing.")
 
 
 def _norm(value: str | None) -> str:

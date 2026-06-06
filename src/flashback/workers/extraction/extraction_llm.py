@@ -46,6 +46,22 @@ class ThemeCatalogEntry:
     description: str
 
 
+@dataclass(frozen=True)
+class EntityCatalogEntry:
+    """One existing active entity shown to the extraction LLM.
+
+    Prevention layer 2 (2026-06-06 design §5.2): the LLM reuses an existing
+    entity's canonical name (adding the new surface form as an alias)
+    instead of coining a duplicate. Covers the different-name identity case
+    ("Mom" = "Ishita") with conversation context. All kinds are listed.
+    """
+
+    name: str
+    kind: str
+    aliases: tuple[str, ...]
+    description: str
+
+
 def run_extraction(
     *,
     cfg: ExtractionLLMConfig,
@@ -57,6 +73,7 @@ def run_extraction(
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    entity_catalog: Iterable[EntityCatalogEntry] = (),
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -72,6 +89,7 @@ def run_extraction(
         contributor_display_name=contributor_display_name,
         candidate_question_ids=candidate_question_ids,
         theme_catalog=theme_catalog,
+        entity_catalog=entity_catalog,
     )
 
     args = asyncio.run(
@@ -106,6 +124,7 @@ def _build_user_message(
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    entity_catalog: Iterable[EntityCatalogEntry] = (),
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -138,6 +157,20 @@ def _build_user_message(
                 f"covers: {xml_text(entry.description)}"
             )
         lines.append("</theme_catalog>")
+
+    entities = list(entity_catalog)
+    if entities:
+        lines.append("")
+        lines.append("<entity_catalog>")
+        for ent in entities:
+            alias_str = ", ".join(a for a in ent.aliases if a)
+            alias_part = f" | aka: {xml_text(alias_str)}" if alias_str else ""
+            desc_part = f" | {xml_text(ent.description)}" if ent.description else ""
+            lines.append(
+                f"- {xml_text(ent.name)} [{xml_text(ent.kind)}]"
+                f"{alias_part}{desc_part}"
+            )
+        lines.append("</entity_catalog>")
 
     lines.extend(
         [

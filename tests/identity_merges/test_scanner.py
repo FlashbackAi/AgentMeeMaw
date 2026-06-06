@@ -34,6 +34,173 @@ async def _unsure(_candidate):
     )
 
 
+async def _same_identity_medium(_candidate):
+    return IdentityMergeVerification(
+        verdict="same_identity",
+        confidence="medium",
+        reasoning="Probably the same person, but worth confirming.",
+    )
+
+
+async def _never_called(_candidate):  # pragma: no cover - asserts gate excludes
+    raise AssertionError("verifier should not be called when no candidate forms")
+
+
+async def _make_person(cur, name="Subject"):
+    await cur.execute(
+        "INSERT INTO persons (name) VALUES (%s) RETURNING id::text", (name,)
+    )
+    return (await cur.fetchone())[0]
+
+
+@pytest.mark.asyncio
+async def test_cross_kind_same_name_never_forms_a_candidate(async_pool):
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                person_id = await _make_person(cur)
+                await cur.execute(
+                    """
+                    INSERT INTO entities (person_id, kind, name, description, aliases)
+                    VALUES (%s, 'object', 'Comet', 'A bicycle.', '{}'),
+                           (%s, 'place',  'Comet', 'A diner.',   '{}')
+                    """,
+                    (person_id, person_id),
+                )
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                result = await scan_identity_merge_suggestions_async(
+                    cur, person_id=person_id, verifier=_never_called
+                )
+    assert result.candidates_considered == 0
+    assert result.suggestions_created == 0
+    assert result.auto_merged_count == 0
+
+
+@pytest.mark.asyncio
+async def test_name_in_description_cooccurrence_never_forms_a_candidate(async_pool):
+    """'Mokshith' appearing in 'Mokshith's mother' is co-occurrence, not
+    identity evidence — the deleted substring rule must stay dead."""
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                person_id = await _make_person(cur)
+                await cur.execute(
+                    """
+                    INSERT INTO entities (person_id, kind, name, description, aliases)
+                    VALUES (%s, 'person', 'Mokshith', 'The contributor.', '{}'),
+                           (%s, 'person', 'Mokshith''s mother',
+                            'Mokshith and his mother at home.', '{}')
+                    """,
+                    (person_id, person_id),
+                )
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                result = await scan_identity_merge_suggestions_async(
+                    cur, person_id=person_id, verifier=_never_called
+                )
+    assert result.candidates_considered == 0
+
+
+@pytest.mark.asyncio
+async def test_same_name_high_confidence_auto_merges(async_pool):
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                person_id = await _make_person(cur)
+                await cur.execute(
+                    """
+                    INSERT INTO entities (person_id, kind, name, description, aliases)
+                    VALUES (%s, 'person', 'Ishita', 'One mention.', '{}'),
+                           (%s, 'person', 'Ishita', 'Another mention.', '{}')
+                    RETURNING id::text
+                    """,
+                    (person_id, person_id),
+                )
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                result = await scan_identity_merge_suggestions_async(
+                    cur, person_id=person_id, verifier=_same_identity
+                )
+
+    assert result.candidates_considered == 1
+    assert result.auto_merged_count == 1
+    assert result.suggestions_created == 0
+
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT count(*) FROM entities
+                 WHERE person_id = %s AND status = 'active' AND name = 'Ishita'
+                """,
+                (person_id,),
+            )
+            assert (await cur.fetchone())[0] == 1
+            await cur.execute(
+                """
+                SELECT status, notification_text, undo_snapshot IS NOT NULL
+                  FROM identity_merge_suggestions WHERE person_id = %s
+                """,
+                (person_id,),
+            )
+            row = await cur.fetchone()
+            assert row[0] == "auto_merged"
+            assert row[1]  # LLM-authored notification text present
+            assert row[2] is True  # undo snapshot captured
+
+
+@pytest.mark.asyncio
+async def test_same_name_medium_confidence_asks(async_pool):
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                person_id = await _make_person(cur)
+                await cur.execute(
+                    """
+                    INSERT INTO entities (person_id, kind, name, description, aliases)
+                    VALUES (%s, 'person', 'Mara', 'One.', '{}'),
+                           (%s, 'person', 'Mara', 'Two.', '{}')
+                    """,
+                    (person_id, person_id),
+                )
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                result = await scan_identity_merge_suggestions_async(
+                    cur, person_id=person_id, verifier=_same_identity_medium
+                )
+
+    assert result.auto_merged_count == 0
+    assert result.suggestions_created == 1
+
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT status, confidence, count(*) OVER ()
+                  FROM identity_merge_suggestions WHERE person_id = %s
+                """,
+                (person_id,),
+            )
+            row = await cur.fetchone()
+            assert row[0] == "pending"
+            assert row[1] == "medium"
+            # both entities remain active (no merge happened)
+            await cur.execute(
+                "SELECT count(*) FROM entities WHERE person_id = %s AND status='active'",
+                (person_id,),
+            )
+            assert (await cur.fetchone())[0] == 2
+
+
 @pytest.mark.asyncio
 async def test_scanner_creates_pending_suggestion_after_verifier_confirms(
     async_pool,

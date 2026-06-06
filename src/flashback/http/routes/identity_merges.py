@@ -20,15 +20,20 @@ from flashback.http.deps import (
 )
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.identity_merges import (
+    AutoMergeNotification,
     IdentityMergeActionResponse,
     IdentityMergeScanRequest,
     IdentityMergeScanResponse,
     IdentityMergeSuggestion,
     IdentityMergeVerifier,
+    UnmergeResponse,
+    acknowledge_auto_merge_async,
     approve_merge_async,
+    list_auto_merged_async,
     list_suggestions_async,
     reject_merge_async,
     scan_identity_merge_suggestions_async,
+    unmerge_async,
 )
 from flashback.workers.extraction.sqs_client import EmbeddingJobSender
 
@@ -42,7 +47,9 @@ log = structlog.get_logger("flashback.http.identity_merges")
 @router.get("/suggestions", response_model=list[IdentityMergeSuggestion])
 async def list_suggestions(
     person_id: UUID,
-    status_filter: Literal["pending", "approved", "rejected"] = "pending",
+    status_filter: Literal[
+        "pending", "approved", "rejected", "auto_merged", "unmerged"
+    ] = "pending",
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
 ) -> list[IdentityMergeSuggestion]:
     async with db_pool.connection() as conn:
@@ -59,7 +66,16 @@ async def scan_suggestions(
     request: IdentityMergeScanRequest,
     verifier: IdentityMergeVerifier = Depends(get_identity_merge_verifier),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    cfg: HttpConfig = Depends(get_http_config),
 ) -> IdentityMergeScanResponse:
+    # The auto-merge disposition re-embeds the survivor; supply the
+    # embedding sender when configured (merge still applies without it).
+    push_embedding = None
+    if cfg.embedding_queue_url:
+        push_embedding = EmbeddingJobSender(
+            queue_url=cfg.embedding_queue_url,
+            region_name=cfg.aws_region,
+        ).send
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -68,12 +84,89 @@ async def scan_suggestions(
                     person_id=str(request.person_id),
                     verifier=verifier.verify,
                     limit=request.limit,
+                    push_embedding=push_embedding,
+                    embedding_model=cfg.embedding_model,
+                    embedding_model_version=cfg.embedding_model_version,
                 )
     log.info(
         "identity_merge.scan_completed",
         person_id=str(request.person_id),
         candidates_considered=result.candidates_considered,
         suggestions_created=result.suggestions_created,
+        auto_merged=result.auto_merged_count,
+    )
+    return result
+
+
+@router.get("/auto_merged", response_model=list[AutoMergeNotification])
+async def list_auto_merged(
+    person_id: UUID,
+    include_acknowledged: bool = False,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> list[AutoMergeNotification]:
+    """Notification feed for silently auto-merged entities (toast source)."""
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            return await list_auto_merged_async(
+                cur,
+                person_id=str(person_id),
+                only_unacknowledged=not include_acknowledged,
+            )
+
+
+@router.post("/{suggestion_id}/acknowledge")
+async def acknowledge_auto_merge(
+    suggestion_id: UUID,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> dict:
+    """Dismiss an auto-merge notification. Idempotent."""
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                ok = await acknowledge_auto_merge_async(
+                    cur, suggestion_id=str(suggestion_id)
+                )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="auto-merged suggestion not found",
+        )
+    return {"suggestion_id": str(suggestion_id), "acknowledged": True}
+
+
+@router.post("/{suggestion_id}/unmerge", response_model=UnmergeResponse)
+async def unmerge_suggestion(
+    suggestion_id: UUID,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    cfg: HttpConfig = Depends(get_http_config),
+) -> UnmergeResponse:
+    """Reverse an auto-merge (or approved merge): survivor stays intact, the
+    merged-away entity is resurrected as a fresh standalone entity."""
+    push_embedding = None
+    if cfg.embedding_queue_url:
+        push_embedding = EmbeddingJobSender(
+            queue_url=cfg.embedding_queue_url,
+            region_name=cfg.aws_region,
+        ).send
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                result = await unmerge_async(
+                    cur,
+                    suggestion_id=str(suggestion_id),
+                    push_embedding=push_embedding,
+                    embedding_model=cfg.embedding_model,
+                    embedding_model_version=cfg.embedding_model_version,
+                )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="reversible merge suggestion not found",
+        )
+    log.info(
+        "identity_merge.unmerged",
+        suggestion_id=str(suggestion_id),
+        resurrected_entity_id=str(result.resurrected_entity_id),
     )
     return result
 

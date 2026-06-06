@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
-MergeStatus = Literal["pending", "approved", "rejected"]
+MergeStatus = Literal["pending", "approved", "rejected", "auto_merged", "unmerged"]
 
 
 class IdentityMergeSuggestion(BaseModel):
@@ -40,6 +40,32 @@ class IdentityMergeActionResponse(BaseModel):
     status: Literal["approved", "rejected"]
 
 
+class AutoMergeNotification(BaseModel):
+    """One unacknowledged auto-merge for the user-facing toast feed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    person_id: UUID
+    source_entity_id: UUID
+    target_entity_id: UUID
+    survivor_name: str
+    notification_text: str
+    confidence: str | None = None
+    acknowledged: bool
+    auto_merged_at: datetime | None = None
+
+
+class UnmergeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestion_id: UUID
+    person_id: UUID
+    survivor_entity_id: UUID
+    resurrected_entity_id: UUID
+    status: Literal["unmerged"]
+
+
 class IdentityMergeScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,4 +80,5 @@ class IdentityMergeScanResponse(BaseModel):
     candidates_considered: int
     verifier_calls: int
     suggestions_created: int
+    auto_merged_count: int = 0
     suggestion_ids: list[UUID]

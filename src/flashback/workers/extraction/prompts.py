@@ -336,6 +336,15 @@ to the SUBJECT, not to the contributor).
 - If the contributor corrects an identity, extract ONE canonical entity with \
 the corrected name and put the mistaken/prior label in `aliases`. Do not emit \
 both as separate entities.
+- REUSE EXISTING ENTITIES. If `<entity_catalog>` is present, it lists entities \
+already known for this subject (name, kind, known aliases). When a mention in \
+this segment clearly refers to one of them — including under a different \
+surface form ("Mom", "my brother", a nickname) — emit the entity using the \
+catalog's EXISTING canonical name, and add the new surface form to `aliases` \
+if it is genuinely a name. Do NOT coin a new entity for someone already in the \
+catalog. Only create a new entity when the mention is genuinely a different \
+person/place/object/organization. Match within the same kind; never merge a \
+place with an object just because they appear together.
 - For person entities with a known signature phrase or behavior, populate \
 `attributes.saying` or `attributes.mannerism`. The Coverage Tracker credits \
 the `voice` dimension when these attributes exist.

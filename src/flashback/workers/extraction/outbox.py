@@ -304,22 +304,21 @@ def _embedding_jobs(
             )
 
     if len(persistence_result.surviving_entities) != len(
-        persistence_result.entity_ids
+        persistence_result.entity_writes
     ):
-        raise ValueError("surviving_entities and entity_ids must match")
-    for entity, eid in zip(
-        persistence_result.surviving_entities,
-        persistence_result.entity_ids,
-        strict=True,
-    ):
-        if entity.description:
+        raise ValueError("surviving_entities and entity_writes must match")
+    for write in persistence_result.entity_writes:
+        # Reused entities push a re-embed only when their description
+        # actually changed; new entities embed their description. Both
+        # cases are captured by ``embed_text``.
+        if write.embed_text:
             jobs.append(
                 (
                     "embedding",
                     {
                         "record_type": "entity",
-                        "record_id": eid,
-                        "source_text": entity.description,
+                        "record_id": write.id,
+                        "source_text": write.embed_text,
                         "embedding_model": embedding_model,
                         "embedding_model_version": embedding_model_version,
                     },
@@ -423,15 +422,18 @@ def _artifact_jobs(
         )
 
     if len(persistence_result.surviving_entities) != len(
-        persistence_result.entity_ids
+        persistence_result.entity_writes
     ):
-        raise ValueError("surviving_entities and entity_ids must match")
-    for entity, eid in zip(
+        raise ValueError("surviving_entities and entity_writes must match")
+    for entity, write in zip(
         persistence_result.surviving_entities,
-        persistence_result.entity_ids,
+        persistence_result.entity_writes,
         strict=True,
     ):
-        if not entity.generation_prompt:
+        # Reused entities already exist — never spend a fresh artifact job
+        # regenerating an image for an entity we matched to an existing row.
+        # This is the resource-waste fix at the heart of the redesign.
+        if write.reused or not entity.generation_prompt:
             continue
         context = build_generation_context(
             prompt=entity.generation_prompt,
@@ -442,7 +444,7 @@ def _artifact_jobs(
             source="auto",
         )
         write_latest_generation_context_sync(
-            cursor, table="entities", record_id=eid, context=context
+            cursor, table="entities", record_id=write.id, context=context
         )
         jobs.append(
             (
@@ -450,7 +452,7 @@ def _artifact_jobs(
                 {
                     "job_id": str(uuid4()),
                     "record_type": "entity",
-                    "record_id": eid,
+                    "record_id": write.id,
                     "person_id": person_id,
                     "artifact_kind": "image",
                     "source": "auto",

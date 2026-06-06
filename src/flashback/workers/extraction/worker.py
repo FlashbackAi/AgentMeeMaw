@@ -51,6 +51,7 @@ from .compatibility_llm import (
 )
 from .extraction_llm import (
     EXTRACTION_PROMPT_VERSION,
+    EntityCatalogEntry,
     ExtractionLLMConfig,
     ThemeCatalogEntry,
     run_extraction,
@@ -65,10 +66,13 @@ from .persistence import (
     LLMProvenance,
     MomentDecision,
     TraitMergeResolution,
+    fetch_active_entities_for_catalog,
     fetch_person,
+    find_existing_active_entities_by_name,
     find_existing_active_traits_by_name,
     persist_extraction,
 )
+from .entity_merge_llm import merge_entity_description
 from .outbox import (
     drain_extraction_outbox,
     enqueue_extraction_fanout,
@@ -262,8 +266,17 @@ class ExtractionWorker:
                 theme_rows = fetch_active_themes_for_person_sync(
                     cur, person_id=str(payload.person_id)
                 )
+                entity_rows = fetch_active_entities_for_catalog(
+                    cur, person_id=str(payload.person_id)
+                )
 
         theme_catalog = _build_theme_catalog(theme_rows)
+        entity_catalog = [
+            EntityCatalogEntry(
+                name=name, kind=kind, aliases=tuple(aliases), description=description
+            )
+            for (name, kind, aliases, description) in entity_rows
+        ]
 
         # 2. Extraction LLM call (slow; outside the transaction).
         extraction = run_extraction(
@@ -278,6 +291,7 @@ class ExtractionWorker:
                 str(question_id) for question_id in payload.candidate_question_ids
             ],
             theme_catalog=theme_catalog,
+            entity_catalog=entity_catalog,
         )
 
         # 2b. Invariant #18: drop orphan traits with no exemplifying moment
@@ -296,6 +310,17 @@ class ExtractionWorker:
         # a duplicate. The merge LLM blends the existing and new
         # descriptions; persistence then UPDATEs and re-embeds.
         extraction, trait_merge_resolutions = self._resolve_trait_merges(
+            extraction=extraction,
+            person_id=str(payload.person_id),
+            subject_name=person.name,
+        )
+
+        # 2d. Prevention layer 1 enrichment: for extracted entities that will
+        # reuse an existing active same-kind row (same normalized name), blend
+        # the existing + new descriptions so later mentions enrich the entity
+        # blurb instead of being dropped. Runs outside the transaction; the
+        # small merge LLM only fires when both descriptions genuinely diverge.
+        entity_description_overrides = self._resolve_entity_description_merges(
             extraction=extraction,
             person_id=str(payload.person_id),
             subject_name=person.name,
@@ -323,6 +348,7 @@ class ExtractionWorker:
                         ),
                         trait_merge_resolutions=trait_merge_resolutions,
                         theme_slug_to_id={r.slug: r.id for r in theme_rows},
+                        entity_description_overrides=entity_description_overrides,
                     )
                     run_coverage_tracker(
                         cur,
@@ -477,6 +503,86 @@ class ExtractionWorker:
             extraction.model_copy(update={"traits": new_traits}),
             resolutions,
         )
+
+    def _resolve_entity_description_merges(
+        self,
+        *,
+        extraction: ExtractionResult,
+        person_id: str,
+        subject_name: str,
+    ) -> dict[tuple[str, str], str]:
+        """Pre-compute blended descriptions for entities that will be reused.
+
+        For each extracted entity that matches an existing active same-kind
+        row by normalized name, decide what description the reused row should
+        end up with. Fast paths avoid the LLM:
+
+          * no new description           -> no override (keep existing)
+          * existing has no description  -> no override (persistence fills it)
+          * one description contains the other -> adopt the richer, no LLM
+          * genuinely divergent          -> small merge LLM blends them
+
+        Returns a map keyed by ``(kind, lower(name))`` so it survives the
+        subject-guard filtering persistence applies. Best-effort: a merge
+        LLM failure is logged and that entity falls back to the existing
+        description (no override).
+        """
+        entities = list(extraction.entities)
+        if not entities:
+            return {}
+
+        keys = [(e.kind, e.name) for e in entities]
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                existing_by_key = find_existing_active_entities_by_name(
+                    cur, person_id=person_id, keys=keys
+                )
+        if not existing_by_key:
+            return {}
+
+        overrides: dict[tuple[str, str], str] = {}
+        merges_run = 0
+        for e in entities:
+            key = (e.kind, (e.name or "").strip().lower())
+            match = existing_by_key.get(key)
+            if match is None:
+                continue
+            _existing_id, existing_desc = match
+            existing_desc = (existing_desc or "").strip()
+            new_desc = (e.description or "").strip()
+            if not new_desc or not existing_desc:
+                # Nothing to blend, or persistence will fill an empty row.
+                continue
+            low_existing, low_new = existing_desc.lower(), new_desc.lower()
+            if low_new in low_existing:
+                continue  # existing already subsumes the new text
+            if low_existing in low_new:
+                overrides[key] = new_desc  # new subsumes existing; adopt it
+                continue
+            try:
+                overrides[key] = merge_entity_description(
+                    cfg=self.trait_merge_cfg,
+                    settings=self.settings,
+                    subject_name=subject_name,
+                    entity_name=e.name,
+                    entity_kind=e.kind,
+                    existing_description=existing_desc,
+                    new_description=new_desc,
+                )
+                merges_run += 1
+            except (LLMError, LLMTimeout) as exc:  # best-effort
+                log.warning(
+                    "extraction.entity_description_merge_failed",
+                    entity_name=e.name,
+                    error_type=type(exc).__name__,
+                )
+        if merges_run or overrides:
+            log.info(
+                "extraction.entity_descriptions_resolved",
+                merges_run=merges_run,
+                overrides=len(overrides),
+            )
+        return overrides
 
     def _build_moment_decisions(
         self, *, extraction: ExtractionResult, person_id: str

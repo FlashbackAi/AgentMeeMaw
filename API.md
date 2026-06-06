@@ -119,6 +119,9 @@ rejected with `422`.
 | `POST` | `/identity_merges/scan` | Manually scan a person for merge candidates |
 | `POST` | `/identity_merges/suggestions/{id}/approve` | Apply a user-approved merge |
 | `POST` | `/identity_merges/suggestions/{id}/reject` | Mark a suggestion rejected |
+| `GET` | `/identity_merges/auto_merged` | Feed of silently auto-merged entities (toast source) |
+| `POST` | `/identity_merges/{id}/acknowledge` | Dismiss an auto-merge notification |
+| `POST` | `/identity_merges/{id}/unmerge` | Reverse an auto/approved merge (resurrect as new entity) |
 | `POST` | `/nodes/{node_type}/{node_id}/edit` | Generic edit for moments and entities |
 | `POST` | `/admin/reset_phase` | Force a person back to `starter` phase |
 
@@ -744,6 +747,62 @@ Mark a pending suggestion `rejected` without changing graph entities.
 
 **Errors**
 - `404` — pending suggestion not found
+
+---
+
+### `GET /identity_merges/auto_merged`
+
+Notification feed of entities the reconcile auto-merged silently (the
+`same_identity`+`high` disposition). Node polls this to render an
+"we combined these — undo?" toast.
+
+**Query**: `person_id` (UUID, required); `include_acknowledged` (bool,
+default `false`).
+
+**Response 200** — array of:
+```json
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "source_entity_id": "uuid",
+  "target_entity_id": "uuid",
+  "survivor_name": "Ishita",
+  "notification_text": "You mentioned Ishita again — combined with the earlier one.",
+  "confidence": "high",
+  "acknowledged": false,
+  "auto_merged_at": "2026-06-06T12:00:00Z"
+}
+```
+
+### `POST /identity_merges/{suggestion_id}/acknowledge`
+
+Dismiss an auto-merge notification (sets `acknowledged=true`). Idempotent.
+
+**Response 200**: `{ "suggestion_id": "uuid", "acknowledged": true }`
+
+**Errors**
+- `404` — auto-merged suggestion not found
+
+### `POST /identity_merges/{suggestion_id}/unmerge`
+
+Reverse an auto-merge (or an approved merge). The survivor stays intact;
+the merged-away entity is resurrected as a **fresh standalone entity**
+with its repointed edges moved back and its deleted duplicate edges
+re-created. Pushes a re-embed for the resurrected entity.
+
+**Response 200**:
+```json
+{
+  "suggestion_id": "uuid",
+  "person_id": "uuid",
+  "survivor_entity_id": "uuid",
+  "resurrected_entity_id": "uuid",
+  "status": "unmerged"
+}
+```
+
+**Errors**
+- `404` — suggestion not in a reversible state (`auto_merged`/`approved`)
 
 ---
 

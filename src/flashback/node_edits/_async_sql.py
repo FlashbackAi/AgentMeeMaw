@@ -21,6 +21,7 @@ from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
 from flashback.workers.extraction.persistence import (
+    EntityWriteResult,
     LLMProvenance,
     PersonRow,
 )
@@ -198,9 +199,77 @@ async def insert_entities_async(
     person_id: str,
     entities: list[ExtractedEntity],
     llm_provenance: LLMProvenance | None,
-) -> list[str]:
-    ids: list[str] = []
+) -> list[EntityWriteResult]:
+    """Persist edit-refinement entities with prevention layer 1.
+
+    Async port of
+    :func:`flashback.workers.extraction.persistence._persist_entities`:
+    reuse an existing active same-kind entity on a normalized-name match
+    instead of inserting a duplicate. This stops the "Edit-refinement
+    created another active entity named 'Aarav'" flood at the source.
+    Returns one :class:`EntityWriteResult` per entity, in input order.
+    """
+    results: list[EntityWriteResult] = []
     for e in entities:
+        normalized = (e.name or "").strip().lower()
+        existing = None
+        if normalized:
+            await cur.execute(
+                """
+                SELECT id::text, description, COALESCE(aliases, '{}')
+                  FROM entities
+                 WHERE person_id = %s
+                   AND status = 'active'
+                   AND kind = %s
+                   AND lower(btrim(name)) = %s
+                 ORDER BY created_at ASC
+                 LIMIT 1
+                """,
+                (person_id, e.kind, normalized),
+            )
+            existing = await cur.fetchone()
+
+        if existing is not None:
+            existing_id, existing_desc, existing_aliases = (
+                existing[0],
+                existing[1],
+                list(existing[2] or []),
+            )
+            merged_aliases = _fold_aliases(existing_aliases, list(e.aliases))
+            aliases_changed = merged_aliases != existing_aliases
+            final_desc = existing_desc
+            desc_changed = False
+            if not (existing_desc or "").strip() and (e.description or "").strip():
+                final_desc = e.description
+                desc_changed = True
+            if desc_changed:
+                await cur.execute(
+                    """
+                    UPDATE entities
+                       SET aliases = %s,
+                           description = %s,
+                           description_embedding = NULL,
+                           embedding_model = NULL,
+                           embedding_model_version = NULL
+                     WHERE id = %s
+                    """,
+                    (merged_aliases, final_desc, existing_id),
+                )
+            elif aliases_changed:
+                await cur.execute(
+                    "UPDATE entities SET aliases = %s WHERE id = %s",
+                    (merged_aliases, existing_id),
+                )
+            results.append(
+                EntityWriteResult(
+                    id=existing_id,
+                    reused=True,
+                    description_changed=desc_changed,
+                    embed_text=final_desc if desc_changed else None,
+                )
+            )
+            continue
+
         await cur.execute(
             """
             INSERT INTO entities
@@ -226,8 +295,28 @@ async def insert_entities_async(
             ),
         )
         row = await cur.fetchone()
-        ids.append(row[0])
-    return ids
+        results.append(
+            EntityWriteResult(
+                id=row[0],
+                reused=False,
+                description_changed=bool(e.description),
+                embed_text=e.description or None,
+            )
+        )
+    return results
+
+
+def _fold_aliases(existing: list[str], additions: list[str]) -> list[str]:
+    """Append new aliases (case-insensitive dedup), preserving order."""
+    out = list(existing or [])
+    seen = {a.strip().lower() for a in out if a and a.strip()}
+    for raw in additions or []:
+        alias = (raw or "").strip()
+        if not alias or alias.lower() in seen:
+            continue
+        seen.add(alias.lower())
+        out.append(alias)
+    return out
 
 
 async def insert_moment_async(
@@ -447,167 +536,6 @@ async def supersede_moment_async(
 
 
 # ---------------------------------------------------------------------------
-# Entity merge suggestions (async port)
-# ---------------------------------------------------------------------------
-
-
-async def create_entity_merge_suggestions_async(
-    cur,
-    *,
-    person_id: str,
-    target_entity_ids: list[str],
-) -> list[str]:
-    """Async port of
-    :func:`flashback.identity_merges.repository.create_entity_merge_suggestions`.
-    """
-    suggestion_ids: list[str] = []
-    for target_id in target_entity_ids:
-        await cur.execute(
-            """
-            SELECT id::text, kind, name, COALESCE(description, ''), aliases
-              FROM entities
-             WHERE id = %s
-               AND person_id = %s
-               AND status = 'active'
-            """,
-            (target_id, person_id),
-        )
-        row = await cur.fetchone()
-        if row is None:
-            continue
-        _target_id, target_kind, target_name, target_description, aliases = row
-        labels = [a.strip() for a in (aliases or []) if a and a.strip()]
-
-        await cur.execute(
-            """
-            SELECT id::text, name
-              FROM entities
-             WHERE person_id = %s
-               AND status = 'active'
-               AND id <> %s
-               AND kind = %s
-            """,
-            (person_id, target_id, target_kind),
-        )
-        candidates = await cur.fetchall()
-        seen_sources: set[str] = set()
-        for source_id, source_name in candidates:
-            match_label = _merge_match_label(
-                source_name=source_name,
-                target_name=target_name,
-                target_description=target_description,
-                aliases=labels,
-            )
-            if match_label is None or source_id in seen_sources:
-                continue
-            seen_sources.add(source_id)
-            inserted_id = await _insert_suggestion_async(
-                cur,
-                person_id=person_id,
-                source_id=source_id,
-                target_id=target_id,
-                proposed_alias=match_label,
-                reason=_suggestion_reason(
-                    source_name=source_name,
-                    target_name=target_name,
-                    match_label=match_label,
-                ),
-            )
-            if inserted_id:
-                suggestion_ids.append(inserted_id)
-    return suggestion_ids
-
-
-def _merge_match_label(
-    *,
-    source_name: str,
-    target_name: str,
-    target_description: str,
-    aliases: list[str],
-) -> str | None:
-    source_norm = _norm(source_name)
-    target_norm = _norm(target_name)
-    if not source_norm:
-        return None
-    if source_norm == target_norm:
-        return source_name
-    if source_norm in {_norm(alias) for alias in aliases}:
-        return source_name
-    if source_norm in _norm(target_description):
-        return source_name
-    return None
-
-
-def _suggestion_reason(
-    *,
-    source_name: str,
-    target_name: str,
-    match_label: str,
-) -> str:
-    if _norm(source_name) == _norm(target_name):
-        return (
-            f"Edit-refinement created another active entity named "
-            f"{target_name!r}; existing entity {source_name!r} may be the "
-            f"same identity."
-        )
-    return (
-        f"Edit-refinement treated {match_label!r} as an alias or "
-        f"description for {target_name!r}; existing entity "
-        f"{source_name!r} matches that label."
-    )
-
-
-def _norm(value: str | None) -> str:
-    return (value or "").strip().lower()
-
-
-async def _insert_suggestion_async(
-    cur,
-    *,
-    person_id: str,
-    source_id: str,
-    target_id: str,
-    proposed_alias: str,
-    reason: str,
-) -> str | None:
-    await cur.execute(
-        """
-        INSERT INTO identity_merge_suggestions
-              (person_id, source_entity_id, target_entity_id,
-               proposed_alias, reason, source)
-        SELECT %s, %s, %s, %s, %s, 'extraction'
-         WHERE NOT EXISTS (
-               SELECT 1
-                 FROM identity_merge_suggestions
-                WHERE person_id = %s
-                  AND (
-                       (source_entity_id = %s AND target_entity_id = %s)
-                    OR (source_entity_id = %s AND target_entity_id = %s)
-                  )
-         )
-        ON CONFLICT (person_id, source_entity_id, target_entity_id)
-        WHERE status = 'pending'
-        DO NOTHING
-        RETURNING id::text
-        """,
-        (
-            person_id,
-            source_id,
-            target_id,
-            proposed_alias,
-            reason,
-            person_id,
-            source_id,
-            target_id,
-            target_id,
-            source_id,
-        ),
-    )
-    inserted = await cur.fetchone()
-    return inserted[0] if inserted else None
-
-
-# ---------------------------------------------------------------------------
 # In-place entity update
 # ---------------------------------------------------------------------------
 
@@ -672,7 +600,6 @@ __all__ = [
     "SupersedeCounts",
     "apply_subject_guard_pure",
     "build_entity_index_map",
-    "create_entity_merge_suggestions_async",
     "fetch_active_entity_async",
     "fetch_active_moment_async",
     "fetch_person_async",
