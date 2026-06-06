@@ -701,28 +701,59 @@ natural no-op — the second call returns the existing row id. No
 
 ---
 
-## 11. Identity merges — Node-surfaced review
+## 11. Identity merges — Node-surfaced review + auto-merge
 
-The agent detects probable duplicate entities and writes `pending`
-rows to `identity_merge_suggestions`. **It never merges entities on
-its own.** The UI must surface a review pane (out-of-band toast,
-review queue, etc. — not inside the conversation).
+Duplicate-entity handling is now three layers (agent invariant #17):
+
+- **Prevention (automatic, internal).** Extraction reuses an existing
+  same-kind entity on a name match instead of creating a duplicate, and
+  the extraction LLM reuses known entities via a catalog. **Node/UI need
+  do nothing for this** — it just means fewer duplicate entities and far
+  fewer review items. Most of the old "review queue" volume disappears.
+- **Auto-merge (high confidence).** When the verifier is near-certain two
+  entities are the same, the agent merges them **silently** and records a
+  notification + an undo snapshot. The user is told after the fact and can
+  reverse it.
+- **Ask (medium / unsure).** Lower-confidence cases still become `pending`
+  review items, exactly as before.
+
+So the old statement "it never merges on its own" is **no longer true**:
+high-confidence merges happen automatically. Everything stays reversible.
+
+### Status values Node may now see on `identity_merge_suggestions`
+
+`pending` (ask), `approved`, `rejected`, **`auto_merged`** (silent merge,
+reversible), **`unmerged`** (a prior merge the user reversed). New columns:
+`confidence`, `acknowledged`, `notification_text`, `undo_snapshot`,
+`auto_merged_at`, `unmerged_at` (migration 0024 — one Postgres, applied by
+the agent's migrate step; Node only needs to tolerate the new
+columns/statuses). Existing `status='pending'` review queries are
+unaffected.
 
 ### Recommended Node flow
 
-1. Periodically (or on-demand) call `POST /identity_merges/scan` for
-   active legacies — rate-limit this; it's a costly LLM fan-out.
-2. Read pending suggestions via `GET /identity_merges/suggestions?person_id=...`.
-   (Node could also read the table directly; the GET endpoint exists
-   for symmetry and forward-compat.)
-3. Render them in a review pane with both entity names + the
-   `reason` field.
-4. On user click → `POST /identity_merges/suggestions/{id}/approve` or
-   `.../reject`.
+1. **Trigger the reconcile.** Call `POST /identity_merges/scan` for active
+   legacies — e.g. once at session-wrap, or a low-frequency cron. Cheap by
+   default: candidates are name/alias-gated, so it usually makes zero LLM
+   calls. **If Node never calls it, auto-merge never fires** (prevention
+   still works); the manual review queue is the only path.
+2. **Review pane (unchanged).** Read pending items via
+   `GET /identity_merges/suggestions?person_id=...`; render with both
+   entity names + the now LLM-authored `reason`; on click →
+   `POST /identity_merges/suggestions/{id}/approve|reject`.
+3. **Auto-merge toast (new).** Poll
+   `GET /identity_merges/auto_merged?person_id=...` for unacknowledged
+   silent merges; render a toast using `notification_text` with an "Undo"
+   action. Dismiss → `POST /identity_merges/{id}/acknowledge`.
+4. **Undo (new).** "Undo" → `POST /identity_merges/{id}/unmerge`. The
+   survivor stays intact; the merged-away entity is resurrected as a fresh
+   standalone entity with its edges moved back. Works for both auto-merges
+   and user-approved merges.
 
-Approval mutates the graph atomically (repoints edges, marks source
-`merged`, queues survivor re-embedding). Treat the response as the
-final state; don't roll back on the Node side.
+Approval and auto-merge mutate the graph atomically (repoint edges, mark
+source `merged`, queue survivor re-embedding) and capture an undo snapshot.
+Treat each response as the final state; reverse via `/unmerge`, not a
+Node-side rollback.
 
 ---
 
