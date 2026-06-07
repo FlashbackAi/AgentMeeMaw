@@ -136,42 +136,43 @@ class ExtractionResult(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _validate_moment_indexes(self) -> "ExtractionResult":
-        """Bounds-check entity / trait indexes referenced by moments."""
+    def _sanitize_moment_indexes(self) -> "ExtractionResult":
+        """Drop dangling / self-referential index edges instead of rejecting
+        the whole extraction.
+
+        A truncated LLM tool-call (output hitting ``max_tokens`` mid-array)
+        emits moments that reference entity indexes which never got generated,
+        producing e.g. ``involves_entity_indexes=[3]`` while only 3 entities
+        landed. Raising here discarded the *entire* segment — every salvageable
+        moment, entity, and trait — which violates invariant #6 (under-extract;
+        drop low-confidence material, don't fail the batch) and is what sent
+        content-dense legacies to the DLQ.
+
+        We instead drop the out-of-range / self-referential edges and keep the
+        valid rows, mirroring :func:`drop_orphan_traits`' handling of trait
+        indexes. The ``max_tokens`` bump and the truncation log in
+        ``flashback.llm.interface`` reduce how often this fires; this is the
+        backstop that keeps a partial extraction from being lost.
+        """
         n_entities = len(self.entities)
         n_traits = len(self.traits)
-        for m_idx, moment in enumerate(self.moments):
-            for i in moment.involves_entity_indexes:
-                if not (0 <= i < n_entities):
-                    raise ValueError(
-                        f"moments[{m_idx}].involves_entity_indexes contains "
-                        f"out-of-range index {i} (entities length={n_entities})"
-                    )
-            if (
-                moment.happened_at_entity_index is not None
-                and not (0 <= moment.happened_at_entity_index < n_entities)
+        for moment in self.moments:
+            moment.involves_entity_indexes = [
+                i for i in moment.involves_entity_indexes if 0 <= i < n_entities
+            ]
+            if moment.happened_at_entity_index is not None and not (
+                0 <= moment.happened_at_entity_index < n_entities
             ):
-                raise ValueError(
-                    f"moments[{m_idx}].happened_at_entity_index {moment.happened_at_entity_index} "
-                    f"out of range (entities length={n_entities})"
-                )
-            for i in moment.exemplifies_trait_indexes:
-                if not (0 <= i < n_traits):
-                    raise ValueError(
-                        f"moments[{m_idx}].exemplifies_trait_indexes contains "
-                        f"out-of-range index {i} (traits length={n_traits})"
-                    )
+                moment.happened_at_entity_index = None
+            moment.exemplifies_trait_indexes = [
+                i for i in moment.exemplifies_trait_indexes if 0 <= i < n_traits
+            ]
         for e_idx, entity in enumerate(self.entities):
-            for i in entity.related_to_entity_indexes:
-                if not (0 <= i < n_entities):
-                    raise ValueError(
-                        f"entities[{e_idx}].related_to_entity_indexes contains "
-                        f"out-of-range index {i} (entities length={n_entities})"
-                    )
-                if i == e_idx:
-                    raise ValueError(
-                        f"entities[{e_idx}].related_to_entity_indexes references self"
-                    )
+            entity.related_to_entity_indexes = [
+                i
+                for i in entity.related_to_entity_indexes
+                if 0 <= i < n_entities and i != e_idx
+            ]
         return self
 
 

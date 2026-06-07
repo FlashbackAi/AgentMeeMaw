@@ -188,10 +188,21 @@ class ExtractionConfig:
                 "LLM_EXTRACTION_MODEL", big_model
             ),
             llm_extraction_timeout_seconds=float(
-                os.environ.get("LLM_EXTRACTION_TIMEOUT_SECONDS", "45")
+                # 90, not 45: with the larger token ceiling a dense segment can
+                # generate ~3k tokens (~40s+), brushing the old timeout. 90s
+                # sits comfortably inside the 120s SQS visibility window the
+                # heartbeat extends, so a slow call retries cleanly instead of
+                # timing out and redriving toward the DLQ.
+                os.environ.get("LLM_EXTRACTION_TIMEOUT_SECONDS", "90")
             ),
             llm_extraction_max_tokens=int(
-                os.environ.get("LLM_EXTRACTION_MAX_TOKENS", "4000")
+                # 8000, not 4000: a content-dense segment naming many people
+                # forces an unbounded entities array (each with a verbose
+                # generation_prompt), and the tool-call output truncated at the
+                # ceiling — producing dangling indexes that DLQ'd whole
+                # segments. See schema._sanitize_moment_indexes for the
+                # tolerance backstop.
+                os.environ.get("LLM_EXTRACTION_MAX_TOKENS", "8000")
             ),
             llm_compatibility_provider=os.environ.get(
                 "LLM_COMPATIBILITY_PROVIDER", small_provider

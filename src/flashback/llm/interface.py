@@ -13,12 +13,15 @@ from typing import Literal
 
 import anthropic
 import openai
+import structlog
 
 from flashback.llm.clients import get_anthropic_client, get_openai_client
 from flashback.llm.errors import LLMError, LLMMalformedResponse, LLMTimeout
 from flashback.llm.tool_spec import ToolSpec
 
 Provider = Literal["openai", "anthropic"]
+
+log = structlog.get_logger("flashback.llm.interface")
 
 
 @dataclass
@@ -179,6 +182,19 @@ async def _call_anthropic(
         raise LLMTimeout(str(e)) from e
     except anthropic.APIError as e:
         raise LLMError(f"Anthropic API error: {e}") from e
+
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        # Output hit the token ceiling mid-tool-call. The JSON may be
+        # truncated — moments can reference entity indexes that never landed.
+        # Downstream sanitization (extraction schema) drops the dangling
+        # edges, but surface it so we can see when the ceiling is too low.
+        log.warning(
+            "llm.tool_call_truncated",
+            provider="anthropic",
+            model=model,
+            tool=tool.name,
+            max_tokens=max_tokens,
+        )
 
     for block in response.content:
         if getattr(block, "type", None) == "tool_use":

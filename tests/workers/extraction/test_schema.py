@@ -42,32 +42,62 @@ def test_dropped_reference_without_themes_rejected() -> None:
         ExtractionResult.model_validate(payload)
 
 
-def test_out_of_range_entity_index_rejected() -> None:
+def test_out_of_range_entity_index_dropped_not_rejected() -> None:
+    """A dangling entity index (the truncation signature that DLQ'd
+    content-dense legacies) drops the bad edge and keeps the moment, rather
+    than discarding the whole extraction. Invariant #6."""
     payload = sample_extractions.empty_extraction()
     payload["moments"] = [
         {
             "title": "x",
             "narrative": "y",
             "generation_prompt": "z",
-            "involves_entity_indexes": [5],  # no entities
+            "involves_entity_indexes": [5],  # no entities emitted
+            "happened_at_entity_index": 2,  # also dangling
         }
     ]
-    with pytest.raises(ValidationError):
-        ExtractionResult.model_validate(payload)
+    result = ExtractionResult.model_validate(payload)
+    assert len(result.moments) == 1
+    assert result.moments[0].involves_entity_indexes == []
+    assert result.moments[0].happened_at_entity_index is None
 
 
-def test_self_referential_entity_rejected() -> None:
+def test_partially_truncated_indexes_keep_valid_edges() -> None:
+    """Valid edges survive; only the out-of-range ones are dropped — the
+    real-world truncation case where moments reference entities beyond the
+    array that actually landed."""
+    payload = sample_extractions.empty_extraction()
+    payload["entities"] = [
+        {"kind": "person", "name": "Chandraiah", "generation_prompt": "p"},
+        {"kind": "place", "name": "Gudi Vellagula Palli", "generation_prompt": "p"},
+        {"kind": "person", "name": "Manjula", "generation_prompt": "p"},
+    ]
+    payload["moments"] = [
+        {
+            "title": "x",
+            "narrative": "y",
+            "generation_prompt": "z",
+            "involves_entity_indexes": [0, 2, 7],  # 7 is past the truncation
+            "happened_at_entity_index": 1,
+        }
+    ]
+    result = ExtractionResult.model_validate(payload)
+    assert result.moments[0].involves_entity_indexes == [0, 2]
+    assert result.moments[0].happened_at_entity_index == 1
+
+
+def test_self_referential_entity_edge_dropped_not_rejected() -> None:
     payload = sample_extractions.empty_extraction()
     payload["entities"] = [
         {
             "kind": "person",
             "name": "X",
             "generation_prompt": "p",
-            "related_to_entity_indexes": [0],  # self-ref
+            "related_to_entity_indexes": [0, 9],  # self-ref + dangling
         }
     ]
-    with pytest.raises(ValidationError):
-        ExtractionResult.model_validate(payload)
+    result = ExtractionResult.model_validate(payload)
+    assert result.entities[0].related_to_entity_indexes == []
 
 
 # ---------------------------------------------------------------------------
