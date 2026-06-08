@@ -261,3 +261,6 @@ class ExtractionMessage(BaseModel):
     seeded_question_id: UUID | None = None
     candidate_question_ids: list[UUID] = Field(default_factory=list)
     contributor_display_name: str = ""
+    is_final: bool = False
+    """True only for the wrap-forced tail segment of a session (invariant #12).
+    Drives the completion signal's session-complete flag."""

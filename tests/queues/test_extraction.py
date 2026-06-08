@@ -46,7 +46,25 @@ async def test_extraction_push_uses_architecture_payload_shape():
         "seeded_question_id": str(question_id),
         "candidate_question_ids": [],
         "contributor_display_name": "",
+        "is_final": False,
     }
+
+
+async def test_extraction_push_marks_final_segment():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=None,
+        is_final=True,
+    )
+
+    assert sqs.body["is_final"] is True
 
 
 async def test_extraction_push_carries_contributor_display_name():

@@ -26,6 +26,7 @@ class ExtractionQueueProducer:
         seeded_question_id: UUID | None,
         candidate_question_ids: list[UUID] | None = None,
         contributor_display_name: str = "",
+        is_final: bool = False,
     ) -> str:
         """Push an extraction job and return the SQS MessageId."""
 
@@ -44,5 +45,6 @@ class ExtractionQueueProducer:
                 str(question_id) for question_id in (candidate_question_ids or [])
             ],
             "contributor_display_name": contributor_display_name or "",
+            "is_final": is_final,
         }
         return await self._sqs.send_message(self._url, payload)
