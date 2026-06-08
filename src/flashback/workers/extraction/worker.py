@@ -365,6 +365,10 @@ class ExtractionWorker:
                         person_id=str(payload.person_id),
                         session_id=str(payload.session_id),
                         moments_written=len(persistence_result.moment_ids),
+                        entities_written=len(persistence_result.entity_ids),
+                        traits_written=len(persistence_result.trait_ids),
+                        is_final=payload.is_final,
+                        status="done",
                     )
                     outbox_jobs = enqueue_extraction_fanout(
                         cur,

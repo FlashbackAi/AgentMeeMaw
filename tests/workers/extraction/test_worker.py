@@ -250,6 +250,51 @@ def test_llm_failure_does_not_ack_or_persist(
             assert cur.fetchone()[0] == 0
 
 
+def test_worker_records_is_final_and_counts(
+    db_pool,
+    make_person,
+    monkeypatch,
+    stub_extraction_cfg,
+    stub_compat_cfg,
+    stub_trait_merge_cfg,
+    stub_settings,
+):
+    person_id = make_person("Final Flag")
+    monkeypatch.setattr(
+        ext_llm_mod, "call_with_tool", _stub_call(sample_extractions.clean_extraction())
+    )
+    worker = _build_worker(
+        db_pool=db_pool,
+        extraction_cfg=stub_extraction_cfg,
+        compat_cfg=stub_compat_cfg,
+        trait_merge_cfg=stub_trait_merge_cfg,
+        settings=stub_settings,
+    )
+    msg = make_received_message(person_id=person_id, is_final=True)
+
+    worker.process_message(msg)
+
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT moments_written, entities_written, traits_written,
+                       is_final, status
+                  FROM processed_extractions WHERE sqs_message_id=%s
+                """,
+                (msg.message_id,),
+            )
+            row = cur.fetchone()
+    assert row is not None
+    moments_written, entities_written, traits_written, is_final, status = row
+    # clean_extraction() => 2 moments, 3 entities, 1 trait.
+    assert moments_written == 2
+    assert entities_written == 3
+    assert traits_written == 1
+    assert is_final is True
+    assert status == "done"
+
+
 def test_refinement_supersedes_existing_moment(
     db_pool,
     make_person,

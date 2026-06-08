@@ -146,12 +146,14 @@ def make_received_message(
     prior_rolling_summary: str = "",
     receipt_handle: str | None = None,
     message_id: str | None = None,
+    is_final: bool = False,
 ) -> ReceivedMessage:
     """Build a fully-typed :class:`ReceivedMessage` for tests."""
     payload = ExtractionMessage.model_validate(
         {
             "session_id": session_id or str(uuid4()),
             "person_id": person_id,
+            "is_final": is_final,
             "segment_turns": segment_turns
             or [
                 {
