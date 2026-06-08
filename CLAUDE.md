@@ -448,6 +448,23 @@ Every piece of code touching the graph or queues must respect these.
     turn's source from the candidate sources, falling back when the
     cooldown would empty the pool.
 
+25. **Extraction completion is announced via transactional `NOTIFY`, not
+    polling.** When the Extraction Worker commits a segment, it issues
+    `pg_notify('extraction_complete', …)` inside the persistence
+    transaction (in `mark_processed`). Because it is transactional, the
+    notification fires iff the commit succeeds and never on rollback; a
+    **zero-moment segment still notifies** — that is what disambiguates
+    "finished empty" from "still running" for the UI. Postgres is
+    authoritative: the durable per-segment status lives on
+    `processed_extractions` (`moments_written`, `entities_written`,
+    `traits_written`, `is_final`, `status`) and is exposed to Node via
+    the `session_extraction_status` view; the notification carries only
+    identifiers + convenience counts (mirrors the artifact trigger rule
+    in §3). `is_final` marks the wrap-forced tail segment (#12). No new
+    queue and no call to Node — delivery rides the shared Postgres the
+    boundary already grants Node read access to. The DLQ path emits
+    nothing; Node falls back to a wrap timeout.
+
 ---
 
 ## 5. Schema invariants

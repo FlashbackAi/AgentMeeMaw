@@ -600,16 +600,55 @@ For new moments/entities, render a placeholder until the URL appears.
 For edits, the **old** URL is still on the record until your worker
 overwrites — that's a feature, not a bug. The UI shouldn't flash empty.
 
-### 8.3 `/session/wrap` returns before extraction completes
+### 8.3 Extraction completes asynchronously — listen, don't poll
 
-Wrap synchronously generates the session summary and pushes the
-unflushed segment onto the `extraction` queue. The actual moments,
-entities, traits, etc. land in Postgres **later**, after the
-Extraction Worker → Trait Synthesizer → Profile Summary chain runs.
+`/session/wrap` returns after generating the session summary and
+pushing the unflushed (tail) segment onto the `extraction` queue. The
+actual moments, entities, traits, etc. land in Postgres **later**, as
+the Extraction Worker drains each segment (then the Trait Synthesizer →
+Profile Summary chain runs).
 
-**UI implication.** The legacy profile may not show the latest
-session's moments for ~30s after wrap. Don't poll the agent — just
-re-query Postgres on next page load.
+**Do not poll for the appearance of moment rows.** A segment can
+legitimately extract **zero** moments (under-extraction, agent
+invariant #6), so "no row yet" is ambiguous between "still running" and
+"nothing will ever come" — no polling interval resolves that.
+
+Instead, the agent emits a Postgres `NOTIFY` on channel
+**`extraction_complete`** inside the extraction transaction, once per
+segment. Payload (JSON — identifiers + convenience counts; Postgres is
+authoritative):
+
+```json
+{
+  "event": "extraction_complete",
+  "session_id": "…",
+  "person_id": "…",
+  "segment_message_id": "…",
+  "is_final": true,
+  "status": "done",
+  "moments_written": 3
+}
+```
+
+**Node integration:**
+- Hold one dedicated `LISTEN extraction_complete` connection — a
+  direct/session-pinned connection. A transaction-mode pooler (e.g.
+  PgBouncer) silently drops `LISTEN`; the listener must bypass it.
+  Listen on the same database the agent writes to (the canonical-graph
+  DB you already read).
+- Treat the `NOTIFY` as a wake-up only. Read the authoritative set from
+  the **`session_extraction_status`** view (`WHERE session_id = …`),
+  aggregating `sum(moments_written)` and `bool_or(is_final)`.
+- `is_final = true` marks the session's wrap-forced tail segment — the
+  cue to render the final "session complete, N new moments" state
+  (N may be 0).
+- **Durability backstop:** on listener (re)connect, re-query
+  `session_extraction_status` for any rows newer than your last-seen
+  `processed_at` watermark, to catch notifications missed while
+  disconnected. The `NOTIFY` is fire-and-forget; the row is the truth.
+- A segment that permanently fails extraction (lands in the DLQ) emits
+  **no** notification. If no `is_final` arrives within your wrap
+  timeout, surface "still processing" and re-query.
 
 ### 8.4 Phase transitions are sticky and asynchronous
 

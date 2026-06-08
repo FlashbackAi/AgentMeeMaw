@@ -599,6 +599,54 @@ extraction queue by this wrap (typically 0 or 1 — the unflushed tail).
 - `409` — no working memory for `session_id` (already wrapped, or
   never started)
 
+#### Extraction completion — `NOTIFY extraction_complete` + `session_extraction_status`
+
+Moments/entities/traits from a wrapped session land asynchronously, as
+the Extraction Worker drains each segment. Rather than polling, the
+agent emits a transactional Postgres `NOTIFY` on channel
+**`extraction_complete`** once per committed segment. It fires iff the
+extraction transaction commits and never on rollback; a **zero-moment**
+segment still notifies (so the UI can tell "finished empty" from "still
+running"). Postgres is authoritative — the notification is a trigger
+only (mirrors the artifact rule in §3 / CLAUDE.md §3).
+
+**Notification payload (channel `extraction_complete`)**
+```json
+{
+  "event": "extraction_complete",
+  "session_id": "uuid",
+  "person_id": "uuid",
+  "segment_message_id": "string",
+  "is_final": true,
+  "status": "done",
+  "moments_written": 3
+}
+```
+`is_final` is `true` only for the wrap-forced tail segment of a session.
+
+**Authoritative read surface — view `session_extraction_status`**
+
+| column              | type        | meaning                                   |
+|---------------------|-------------|-------------------------------------------|
+| `session_id`        | uuid        | session the segment belonged to           |
+| `person_id`         | uuid        | legacy subject                            |
+| `segment_message_id`| text        | SQS message id of the extracted segment   |
+| `moments_written`   | int         | moments persisted from this segment       |
+| `entities_written`  | int         | entities persisted                        |
+| `traits_written`    | int         | traits persisted                          |
+| `is_final`          | bool        | wrap-forced tail segment                  |
+| `status`            | text        | `done`                                    |
+| `processed_at`      | timestamptz | commit time (use as the catch-up watermark)|
+
+One row per extracted segment. Node reads this view directly (it is the
+contract surface; `processed_extractions` is the agent's internal
+table). Node holds a dedicated `LISTEN extraction_complete` connection
+(not behind a transaction-mode pooler), and on each notify re-queries
+the view for the authoritative set, aggregating per `session_id`. On
+listener reconnect, re-query rows newer than the last-seen
+`processed_at` to recover any notifications missed while disconnected.
+See `NODE_INTEGRATION.md` §8.3.
+
 ---
 
 ## 5. Profile facts
