@@ -203,6 +203,7 @@ async def test_boundary_pushes_queue_then_updates_wm_and_state():
     assert queue.calls[0]["person_id"] == state.person_id
     assert queue.calls[0]["rolling_summary"] == "New summary."
     assert queue.calls[0]["prior_rolling_summary"] == "Old summary."
+    assert queue.calls[0]["is_final"] is False
     assert wm.updated_summary == "New summary."
     assert wm.reset_calls == 1
     assert wm.increment_calls == 1

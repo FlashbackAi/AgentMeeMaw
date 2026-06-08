@@ -110,6 +110,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
             seeded_question_id=seeded_question_id,
             candidate_question_ids=candidate_question_ids,
             contributor_display_name=wm_state.contributor_display_name or "",
+            is_final=False,
         )
     except Exception as exc:
         log.warning(

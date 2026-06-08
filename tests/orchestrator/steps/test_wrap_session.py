@@ -190,6 +190,7 @@ async def test_force_close_happy_path(monkeypatch):
 
     assert detector.calls[0]["force"] is True
     assert extraction_queue.calls[0]["rolling_summary"] == "New summary."
+    assert extraction_queue.calls[0]["is_final"] is True
     assert wm.updated_summary == "New summary."
     assert wm.reset_calls == 1
     assert wm.seeded_updates == [None]
