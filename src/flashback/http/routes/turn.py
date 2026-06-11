@@ -17,6 +17,7 @@ from flashback.http.deps import (
     get_redis,
     get_working_memory,
 )
+from flashback.http.ground_truth_answer import persist_ground_truth_answer
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.http.models import (
     QuestionChipsOut,
@@ -88,6 +89,17 @@ async def turn(
             "question_decision.recorded",
             question_id=str(body.question_decision.question_id),
             action=body.question_decision.action,
+        )
+
+    if body.ground_truth_answer is not None:
+        # Persist before the pipeline runs (mirrors question_decision):
+        # the same-call gap-selector and extraction context must see it.
+        await persist_ground_truth_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.ground_truth_answer,
+            wm=wm,
+            db_pool=db_pool,
         )
 
     return await run_idempotent(

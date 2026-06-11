@@ -46,6 +46,20 @@ class QuestionDecisionInput(BaseModel):
     action: Literal["skip", "suppress", "defer"]
 
 
+class GroundTruthAnswerInput(BaseModel):
+    """Structured answer to a ground-truth / segment-anchor tap, carried
+    on the next /turn. The conversation text never carries this Q&A —
+    extraction never mines it (design 2026-06-11 §3c)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["ground_truth", "segment_anchor"]
+    field: str | None = Field(default=None, max_length=64)
+    option_label: str | None = Field(default=None, max_length=200)
+    free_text: str | None = Field(default=None, max_length=500)
+    skipped: bool = False
+
+
 # --- /session/start --------------------------------------------------------
 
 
@@ -91,6 +105,7 @@ class TurnRequest(BaseModel):
     role_id: UUID
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None
+    ground_truth_answer: GroundTruthAnswerInput | None = None
     mode: Mode = "text"
 
 
