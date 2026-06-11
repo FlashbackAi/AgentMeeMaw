@@ -25,9 +25,11 @@ from flashback.http.models import (
 )
 from flashback.llm.interface import Provider
 from flashback.onboarding import parse_free_text_answer
+from flashback.ground_truth.store import upsert_ground_truth_field
 from flashback.onboarding.archetypes import (
     answer_with_label,
     expected_question_ids,
+    ground_truth_writes_from_answers,
     public_questions_for_relationship,
     render_pronouns,
     resolve_answer,
@@ -124,6 +126,17 @@ async def archetype_answers(
                     answers=answers,
                     implies_blocks=implies_blocks,
                 )
+                for gt_field, gt_value in ground_truth_writes_from_answers(
+                    answers
+                ):
+                    await upsert_ground_truth_field(
+                        cur,
+                        body.person_id,
+                        field=gt_field,
+                        value=gt_value,
+                        provenance="onboarding",
+                        confidence="high",
+                    )
 
     await _push_entity_embeddings(
         sqs=sqs,

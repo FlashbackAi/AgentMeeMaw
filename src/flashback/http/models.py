@@ -243,7 +243,7 @@ class ArchetypeAnswersRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     person_id: UUID
-    answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=5)
+    answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=8)
     contributor_display_name: str | None = Field(default=None, max_length=64)
 
     @field_validator("contributor_display_name", mode="before")

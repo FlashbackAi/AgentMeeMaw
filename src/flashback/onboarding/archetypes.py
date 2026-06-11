@@ -747,6 +747,65 @@ ARCHETYPES: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# --- Ground-truth onboarding questions (design 2026-06-11 §3d) ------------
+# Appended to EVERY archetype set. `ground_truth_field` is server-only
+# (stripped from the public payload, like `implies`). Answers route to
+# persons.ground_truth with provenance='onboarding'; the implies
+# machinery does not apply to these.
+
+GROUND_TRUTH_QUESTIONS: list[dict[str, Any]] = [
+    {
+        "id": "gt_region",
+        "text": "Where did most of their life happen?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "ground_truth_field": "region",
+        "options": [
+            {"id": "same_place", "label": "Same place as me"},
+            {"id": "another_town", "label": "A town they later left"},
+            {"id": "another_state", "label": "Another part of the country"},
+            {"id": "abroad", "label": "Another country"},
+        ],
+    },
+    {
+        "id": "gt_birth_era",
+        "text": "Roughly when were they born?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "ground_truth_field": "birth_era",
+        "options": [
+            {"id": "era_40s_earlier", "label": "1940s or earlier"},
+            {"id": "era_50s_60s", "label": "1950s or 60s"},
+            {"id": "era_70s_80s", "label": "1970s or 80s"},
+            {"id": "era_90s_later", "label": "1990s or later"},
+        ],
+    },
+]
+
+_GT_QUESTION_FIELDS: dict[str, str] = {
+    str(q["id"]): str(q["ground_truth_field"]) for q in GROUND_TRUTH_QUESTIONS
+}
+
+
+def ground_truth_writes_from_answers(
+    answers: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Extract (field, value) writes from resolved onboarding answers.
+    Free-text wins over chip label when both somehow present; skipped
+    and non-GT answers are ignored."""
+    writes: list[tuple[str, str]] = []
+    for answer in answers:
+        gt_field = _GT_QUESTION_FIELDS.get(str(answer.get("question_id") or ""))
+        if gt_field is None or answer.get("skipped"):
+            continue
+        value = str(
+            answer.get("free_text") or answer.get("label") or ""
+        ).strip()
+        if value:
+            writes.append((gt_field, value))
+    return writes
+
+
 RELATIONSHIP_ALIASES: dict[str, str] = {
     "friend": "friend",
     "best friend": "friend",
@@ -895,9 +954,10 @@ def public_questions_for_relationship(
     """Return ``(archetype, questions)`` with server-only implies removed."""
 
     archetype = archetype_for_relationship(relationship)
-    questions = deepcopy(ARCHETYPES[archetype])
+    questions = deepcopy(questions_for_archetype(archetype))
     for question in questions:
         question["text"] = render_pronouns(str(question["text"]), gender)
+        question.pop("ground_truth_field", None)
         for option in question.get("options", []):
             option["label"] = render_pronouns(str(option["label"]), gender)
             option.pop("implies", None)
@@ -905,7 +965,8 @@ def public_questions_for_relationship(
 
 
 def questions_for_archetype(archetype: str) -> list[dict[str, Any]]:
-    return ARCHETYPES.get(archetype, ARCHETYPES["generic"])
+    base = ARCHETYPES.get(archetype, ARCHETYPES["generic"])
+    return [*base, *GROUND_TRUTH_QUESTIONS]
 
 
 def resolve_answer(
