@@ -243,6 +243,17 @@ class SegmentTurn(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class SegmentAnchor(BaseModel):
+    """A tapped time-anchor answer for the live story in this segment
+    (design 2026-06-11 §4). Authoritative time evidence for the
+    moment(s) of the story the question referenced."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    question_text: str = ""
+    answer: str = ""
+
+
 class ExtractionMessage(BaseModel):
     """
     Parsed ``extraction`` queue body.
@@ -264,3 +275,5 @@ class ExtractionMessage(BaseModel):
     is_final: bool = False
     """True only for the wrap-forced tail segment of a session (invariant #12).
     Drives the completion signal's session-complete flag."""
+
+    segment_anchor: SegmentAnchor | None = None

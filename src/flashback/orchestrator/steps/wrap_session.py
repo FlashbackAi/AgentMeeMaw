@@ -134,6 +134,14 @@ async def _force_close_segment(
             seeded_question_id=seeded_question_id,
             contributor_display_name=wm_state.contributor_display_name or "",
             is_final=True,
+            segment_anchor=(
+                {
+                    "question_text": wm_state.segment_anchor_question,
+                    "answer": wm_state.segment_anchor_answer,
+                }
+                if wm_state.segment_anchor_answer
+                else None
+            ),
         )
     except Exception as exc:
         log.warning(
@@ -150,6 +158,8 @@ async def _force_close_segment(
     await deps.working_memory.reset_segment(str(state.session_id))
     await deps.working_memory.set_seeded_question(str(state.session_id), None)
     await deps.working_memory.increment_segments_pushed(str(state.session_id))
+    if wm_state.segment_anchor_answer:
+        await deps.working_memory.clear_segment_anchor(str(state.session_id))
     state.final_segment_pushed = True
 
 
