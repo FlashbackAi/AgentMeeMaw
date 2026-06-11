@@ -97,6 +97,20 @@ class WorkingMemoryState(BaseModel):
     # greeting") gets classified as story / deepen, not switch.
     signal_pending_tap_question: str = ""
 
+    # ---- Ground-truth capture (design 2026-06-11) -----------------------
+    # Count of GT taps emitted this session (cap = 1).
+    gt_taps_emitted_this_session: int = 0
+    # JSON payload of the pending GT tap: {"kind","field","question_text"}.
+    # Empty when none pending. The /turn sidecar handler reads it to know
+    # what the answer refers to, then clears it.
+    signal_pending_gt_tap: str = ""
+    # Fields the user skipped this session — never re-asked this session.
+    gt_declined_fields: list[str] = Field(default_factory=list)
+    # Pending segment time-anchor answer for the OPEN segment. Carried
+    # into the extraction payload at boundary/wrap, then cleared.
+    segment_anchor_question: str = ""
+    segment_anchor_answer: str = ""
+
     # ---- Voice mode -----------------------------------------------------
     # ``mode`` is set on /session/start and read by /turn so the response
     # generator can swap to the voice prompt variant. Sticky for the life
@@ -130,6 +144,7 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "segments_pushed_this_session",
         "taps_emitted_this_session",
         "user_turns_since_last_tap",
+        "gt_taps_emitted_this_session",
     }
 )
 
@@ -154,7 +169,7 @@ def parse_state_hash(raw: dict[str, str | bytes]) -> WorkingMemoryState:
             parsed[key] = datetime.fromisoformat(value)
         elif key in _INT_FIELDS:
             parsed[key] = int(value)
-        elif key == "emitted_tap_question_ids":
+        elif key in ("emitted_tap_question_ids", "gt_declined_fields"):
             parsed[key] = json.loads(value) if value else []
         else:
             parsed[key] = value
@@ -184,6 +199,11 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "emitted_tap_question_ids": json.dumps(state.emitted_tap_question_ids),
         "user_turns_since_last_tap": str(state.user_turns_since_last_tap),
         "signal_pending_tap_question": state.signal_pending_tap_question,
+        "gt_taps_emitted_this_session": str(state.gt_taps_emitted_this_session),
+        "signal_pending_gt_tap": state.signal_pending_gt_tap,
+        "gt_declined_fields": json.dumps(state.gt_declined_fields),
+        "segment_anchor_question": state.segment_anchor_question,
+        "segment_anchor_answer": state.segment_anchor_answer,
         "current_theme_id": state.current_theme_id,
         "current_theme_slug": state.current_theme_slug,
         "current_theme_display_name": state.current_theme_display_name,
