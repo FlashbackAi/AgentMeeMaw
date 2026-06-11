@@ -30,6 +30,7 @@ def compose_scene_prompt(
     prior_instructions: list[str] | None = None,
     instructions: str | list[str] | None = None,
     preset: str | None = None,
+    ground_truth_context: str | None = None,
 ) -> str:
     """Compose a scene prompt for moment / entity / thread artifact regen + edit.
 
@@ -50,6 +51,10 @@ def compose_scene_prompt(
         parts.append(fragment)
     for fragment in _normalize_instructions(instructions):
         parts.append(fragment)
+    if ground_truth_context and ground_truth_context.strip():
+        # Subject-world grounding (region/era/setting), read at compose
+        # time — grounds even old generic base prompts on regenerate.
+        parts.append(ground_truth_context.strip())
     composed = ", ".join(parts)
     return apply_preset(composed, preset)
 

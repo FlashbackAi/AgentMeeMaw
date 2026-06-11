@@ -48,6 +48,9 @@ class StarterContext(BaseModel):
     current_theme_kind: str | None = None  # 'universal' | 'emergent'
     theme_archetype_answers: list[dict] = Field(default_factory=list)
 
+    # Rendered ground-truth block (audience='responder'); empty = unknown.
+    ground_truth_block: str = ""
+
     mode: Mode = "text"
 
 
@@ -99,6 +102,9 @@ class TurnContext(BaseModel):
     # Active deepen-session theme, if any. Soft bias: the agent should
     # tilt toward this theme but follow the user when conversation drifts.
     current_theme_display_name: str | None = None
+
+    # Rendered ground-truth block (audience='responder'); empty = unknown.
+    ground_truth_block: str = ""
 
     mode: Mode = "text"
 

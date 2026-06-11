@@ -54,6 +54,7 @@ def compose_image_prompt(
     relationship: str | None = None,
     user_instructions: str | list[str] | None = None,
     preset: str | None = None,
+    ground_truth_context: str | None = None,
 ) -> str:
     """Return a painterly semi-realistic portrait prompt for the image model.
 
@@ -85,6 +86,11 @@ def compose_image_prompt(
             f"depicted as an ordinary contemporary {relationship}, "
             f"modern everyday clothing"
         )
+    if ground_truth_context and ground_truth_context.strip():
+        # Derived subject grounding (region/era/attire/features) — design
+        # 2026-06-11 §5. Read at compose time so a manual regenerate after
+        # ground truth lands produces the corrected portrait.
+        parts.append(ground_truth_context.strip())
     parts += [
         "in the visual style of Red Dead Redemption 2 character art",
         "naturalistic features with subtle painterly brushwork",

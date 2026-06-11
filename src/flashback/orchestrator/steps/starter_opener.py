@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import psycopg
 import structlog
 
+from flashback.ground_truth.render import render_ground_truth_block
 from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.errors import PersonNotFound
 from flashback.orchestrator.instrumentation import timed_step
@@ -24,6 +25,7 @@ class PersonRow:
     phase: str
     gender: str | None = None
     profile_summary: str | None = None
+    ground_truth: dict = field(default_factory=dict)
 
 
 async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
@@ -31,7 +33,8 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT name, relationship, phase, gender, profile_summary
+                SELECT name, relationship, phase, gender, profile_summary,
+                       ground_truth
                 FROM persons
                 WHERE id = %s
                 """,
@@ -44,14 +47,19 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         name, relationship, phase = row
         gender = None
         profile_summary = None
-    else:
+        ground_truth: Any = {}
+    elif len(row) == 5:
         name, relationship, phase, gender, profile_summary = row
+        ground_truth = {}
+    else:
+        name, relationship, phase, gender, profile_summary, ground_truth = row
     return PersonRow(
         name=name,
         relationship=relationship,
         phase=phase,
         gender=gender,
         profile_summary=profile_summary,
+        ground_truth=ground_truth if isinstance(ground_truth, dict) else {},
     )
 
 
@@ -62,6 +70,7 @@ async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
         state.person_relationship = person.relationship
         state.person_phase = person.phase
         state.person_gender = person.gender or "they"
+        state.person_ground_truth = person.ground_truth
         if person.profile_summary and not state.session_metadata.get(
             "prior_session_summary"
         ):
@@ -143,6 +152,9 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         person_name=state.person_name,
         person_relationship=state.person_relationship,
         person_gender=state.person_gender,
+        ground_truth_block=render_ground_truth_block(
+            state.person_ground_truth, "responder"
+        ),
         contributor_display_name=_string_or_none(
             state.session_metadata.get("contributor_display_name")
         ),

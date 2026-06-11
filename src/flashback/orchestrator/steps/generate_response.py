@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import structlog
 
+from flashback.ground_truth.render import render_ground_truth_block
 from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.state import TurnState
@@ -41,6 +42,9 @@ async def build_turn_context(
         person_name=person.name,
         person_relationship=person.relationship,
         person_gender=state.person_gender,
+        ground_truth_block=render_ground_truth_block(
+            person.ground_truth, "responder"
+        ),
         intent=state.effective_intent,
         emotional_temperature=state.effective_temperature,
         rolling_summary=wm_state.rolling_summary,

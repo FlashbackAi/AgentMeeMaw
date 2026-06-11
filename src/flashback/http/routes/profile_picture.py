@@ -29,6 +29,8 @@ from flashback.artifacts import (
     write_latest_generation_context_async,
 )
 from flashback.artifacts.presets import resolve_preset
+from flashback.ground_truth.render import render_ground_truth_block
+from flashback.ground_truth.store import fetch_ground_truth
 from flashback.http.auth import require_service_token
 from flashback.http.deps import get_db_pool, get_profile_picture_queue
 from flashback.http.models import (
@@ -129,12 +131,15 @@ async def _enqueue_portrait_job(
     stacked_instructions: list[str] = (
         [*prior_instructions, instructions] if instructions else list(prior_instructions)
     )
+    ground_truth = await fetch_ground_truth(db_pool, person_id)
     image_prompt = compose_image_prompt(
         name=person.name,
         gender=person.gender,
         relationship=person.relationship,
         user_instructions=stacked_instructions or None,
         preset=preset_slug,
+        ground_truth_context=render_ground_truth_block(ground_truth, "portrait")
+        or None,
     )
     context = build_generation_context(
         prompt=image_prompt,

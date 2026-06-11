@@ -75,6 +75,9 @@ class SessionStartState:
     person_relationship: str | None = None
     person_phase: str = ""
     person_gender: str = "they"
+    # persons.ground_truth JSONB, loaded by load_person; rendered into
+    # the opener context (audience='responder').
+    person_ground_truth: dict[str, Any] = field(default_factory=dict)
     selection: SelectionResult | None = None
     response: ResponseResult | None = None
     voice_style: str | None = None

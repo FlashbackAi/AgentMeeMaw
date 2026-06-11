@@ -14,6 +14,11 @@ from flashback.response_generator.schema import (
 def render_turn_context(ctx: TurnContext) -> str:
     sections: list[str] = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
 
+    if ctx.ground_truth_block.strip():
+        sections.append(
+            _block("subject_ground_truth", xml_text(ctx.ground_truth_block.strip()))
+        )
+
     if ctx.prior_session_summary.strip():
         sections.append(
             _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
@@ -100,6 +105,10 @@ def render_turn_context(ctx: TurnContext) -> str:
 
 def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
+    if ctx.ground_truth_block.strip():
+        sections.append(
+            _block("subject_ground_truth", xml_text(ctx.ground_truth_block.strip()))
+        )
     if ctx.contributor_display_name:
         sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
     if ctx.current_theme_display_name:
