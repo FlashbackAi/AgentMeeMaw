@@ -42,6 +42,12 @@ import structlog
 from pydantic import ValidationError
 
 from flashback.db.edges import EdgeValidationError
+from flashback.ground_truth.render import render_ground_truth_block
+from flashback.ground_truth.store import (
+    apply_observations_sync,
+    fetch_ground_truth_sync,
+    recompute_era_span_sync,
+)
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
 
@@ -269,6 +275,9 @@ class ExtractionWorker:
                 entity_rows = fetch_active_entities_for_catalog(
                     cur, person_id=str(payload.person_id)
                 )
+                ground_truth = fetch_ground_truth_sync(
+                    cur, str(payload.person_id)
+                )
 
         theme_catalog = _build_theme_catalog(theme_rows)
         entity_catalog = [
@@ -292,6 +301,10 @@ class ExtractionWorker:
             ],
             theme_catalog=theme_catalog,
             entity_catalog=entity_catalog,
+            ground_truth_block=render_ground_truth_block(
+                ground_truth, "extraction"
+            ),
+            segment_anchor=payload.segment_anchor,
         )
 
         # 2b. Invariant #18: drop orphan traits with no exemplifying moment
@@ -359,6 +372,12 @@ class ExtractionWorker:
                     auto_unlocked_themes = auto_unlock_rich_themes_sync(
                         cur, person_id=str(payload.person_id)
                     )
+                    gt_written = apply_observations_sync(
+                        cur,
+                        str(payload.person_id),
+                        extraction.ground_truth_observations,
+                    )
+                    recompute_era_span_sync(cur, str(payload.person_id))
                     mark_processed(
                         cur,
                         message_id=message_id,
@@ -416,6 +435,7 @@ class ExtractionWorker:
             subject_guard_dropped=persistence_result.dropped_entities_count,
             outbox_jobs=outbox_jobs,
             auto_unlocked_themes=len(auto_unlocked_themes),
+            ground_truth_written=gt_written,
         )
         if auto_unlocked_themes:
             log.info(

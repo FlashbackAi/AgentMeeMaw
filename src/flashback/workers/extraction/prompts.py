@@ -16,6 +16,7 @@ gains a new entity kind, that test fails until this file is updated.
 
 from __future__ import annotations
 
+from flashback.ground_truth.registry import INFERRABLE_KEYS
 from flashback.llm.tool_spec import ToolSpec
 
 
@@ -180,6 +181,31 @@ EXTRACTION_TOOL = ToolSpec(
                     "additionalProperties": False,
                 },
             },
+            "ground_truth_observations": {
+                "type": "array",
+                "description": (
+                    "Stable facts about the SUBJECT this segment reveals "
+                    "(where their life happened, rough birth decade, what "
+                    "they wore, physical features, cultural background, "
+                    "languages). Emit ONLY what the segment clearly "
+                    "supports — confidence 'high' means you would not ask "
+                    "the contributor to confirm. 0-3 typical."
+                ),
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string", "enum": list(INFERRABLE_KEYS)},
+                        "value": {"type": "string"},
+                        "confidence": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                    },
+                    "required": ["field", "value", "confidence"],
+                    "additionalProperties": False,
+                },
+            },
             "extraction_notes": {
                 "type": "string",
                 "description": (
@@ -308,6 +334,16 @@ both 'family' AND 'milestones'; a story about a friend's funeral is \
 return an empty themes array — do NOT force a tag. Do NOT invent slugs that \
 are not in the catalog; unknown slugs are dropped silently.
 
+6. GROUND TRUTH OBSERVATIONS — stable facts about the SUBJECT (not about \
+one moment): region where their life happened, approximate birth decade, \
+usual attire, distinctive physical features, build, cultural background, \
+languages. If <subject_ground_truth> is present in the user message, those \
+fields are ALREADY KNOWN — re-emit one only to refine it with strictly more \
+specific information (e.g. known "India" → observed "Karimnagar, Telangana, \
+India"). Mark confidence honestly; only 'high' is persisted. A mention of \
+Hyderabad means region is 'Hyderabad, Telangana, India' at high confidence; \
+a guess from a name alone is never high confidence.
+
 CRITICAL RULES:
 - UNDER-EXTRACT. If uncertain whether something is a moment, drop it. Better \
 to miss material than to pollute the graph.
@@ -351,6 +387,14 @@ the `voice` dimension when these attributes exist.
 - Time anchors: be conservative. If the contributor said "the summer of '76" \
 set year=1976. If they said "the 80s" set decade="1980s". If unclear, leave \
 time_anchor blank.
+- If `<subject_ground_truth>` is present, treat it as established context \
+about the subject's world (region, era, setting). Ground every \
+`generation_prompt` in it — a kitchen in 1960s rural Telangana, not a \
+generic western kitchen.
+- If `<segment_time_anchor>` is present, it is the contributor's tapped \
+answer anchoring the story of THIS segment in time. Treat it as \
+authoritative time evidence: set `time_anchor` / `life_period_estimate` \
+on the moment(s) of the story it refers to.
 
 For `generation_prompt` fields: produce a one-sentence visual description in \
 present tense. Cinematic painterly realism in the style of Red Dead \

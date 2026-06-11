@@ -23,7 +23,7 @@ from flashback.llm.interface import call_with_tool
 from flashback.llm.prompt_safety import tagged, xml_text
 
 from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TOOL
-from .schema import ExtractionResult, SegmentTurn
+from .schema import ExtractionResult, SegmentAnchor, SegmentTurn
 
 log = structlog.get_logger("flashback.workers.extraction.extraction_llm")
 EXTRACTION_PROMPT_VERSION = "extraction.v1"
@@ -74,6 +74,8 @@ def run_extraction(
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
+    ground_truth_block: str = "",
+    segment_anchor: SegmentAnchor | None = None,
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -90,6 +92,8 @@ def run_extraction(
         candidate_question_ids=candidate_question_ids,
         theme_catalog=theme_catalog,
         entity_catalog=entity_catalog,
+        ground_truth_block=ground_truth_block,
+        segment_anchor=segment_anchor,
     )
 
     args = asyncio.run(
@@ -125,6 +129,8 @@ def _build_user_message(
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
+    ground_truth_block: str = "",
+    segment_anchor: SegmentAnchor | None = None,
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -171,6 +177,27 @@ def _build_user_message(
                 f"{alias_part}{desc_part}"
             )
         lines.append("</entity_catalog>")
+
+    if ground_truth_block.strip():
+        lines.extend(
+            [
+                "",
+                "<subject_ground_truth>",
+                xml_text(ground_truth_block),
+                "</subject_ground_truth>",
+            ]
+        )
+
+    if segment_anchor is not None and segment_anchor.answer.strip():
+        lines.extend(
+            [
+                "",
+                "<segment_time_anchor>",
+                f"question: {xml_text(segment_anchor.question_text)}",
+                f"answer: {xml_text(segment_anchor.answer)}",
+                "</segment_time_anchor>",
+            ]
+        )
 
     lines.extend(
         [

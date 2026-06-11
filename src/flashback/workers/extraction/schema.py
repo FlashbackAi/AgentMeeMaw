@@ -102,6 +102,18 @@ class DroppedReference(BaseModel):
     themes: list[str] = Field(min_length=1)
 
 
+class GroundTruthObservation(BaseModel):
+    """A stable subject fact the LLM observed in this segment (design
+    2026-06-11 §3a). Only high-confidence observations are persisted —
+    provenance 'inferred', never overwriting explicit answers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    value: str
+    confidence: Literal["low", "medium", "high"]
+
+
 class ExtractionResult(BaseModel):
     """
     Parsed ``extract_segment`` tool arguments.
@@ -119,6 +131,9 @@ class ExtractionResult(BaseModel):
     traits: list[ExtractedTrait] = Field(default_factory=list)
     dropped_references: list[DroppedReference] = Field(
         default_factory=list, max_length=3
+    )
+    ground_truth_observations: list[GroundTruthObservation] = Field(
+        default_factory=list, max_length=6
     )
     extraction_notes: str = ""
 
