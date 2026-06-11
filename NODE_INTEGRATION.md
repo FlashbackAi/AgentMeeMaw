@@ -796,6 +796,41 @@ Node-side rollback.
 
 ---
 
+## 11b. Ground-truth taps — the third tap kind (agent invariant #26)
+
+The agent now captures stable subject facts (region, birth decade,
+attire, physical features) via the existing tap-card surface, plus a
+"when did this happen?" anchor card. What changes for Node:
+
+- **Tap shape.** `metadata.taps[]` entries gained `kind`
+  (`coverage | ground_truth | segment_anchor`) and `field` (registry
+  key, null for coverage). `question_id` is **null** for the two new
+  kinds. Render all three with the same card (question + 4 chips +
+  free text + Skip); do **not** post `question_decision` for
+  null-`question_id` taps.
+- **Answer channel.** When the user taps/types/skips on a
+  `ground_truth` or `segment_anchor` card, send the result on the next
+  `POST /turn` (or `/turn/stream`) as the optional
+  `ground_truth_answer` field:
+  `{kind, field, option_label?, free_text?, skipped}`. Do not echo the
+  answer into `message` — the sidecar is the only channel, which is
+  what keeps demographic Q&A out of the transcript and extraction.
+  An answer with no pending tap is silently ignored (replay-safe).
+- **Onboarding.** `GET /api/v1/onboarding/archetype-questions` now
+  appends two questions (`gt_region`, `gt_birth_era`) to every set;
+  the answers array on `archetype-answers` must include them
+  (3-8 answers accepted). No other onboarding changes.
+- **Reading it.** `persons.ground_truth` JSONB is readable directly
+  (one key per field, `{value, provenance, confidence, updated_at}`).
+  Read-only for Node — a `POST /ground_truth/upsert` user-edit surface
+  is a v2 hook (`provenance='user_edit'` is reserved for it).
+- **Artifacts.** Nothing auto-regenerates when ground truth lands. The
+  agent injects ground truth into prompt composition at compose time,
+  so a manual portrait/scene **regenerate** after a few sessions is
+  the recovery path for the wrong-face / wrong-era artifacts.
+
+---
+
 ## 12. Local dev / staging / prod
 
 | Environment | Agent base URL | `SERVICE_TOKEN_AUTH_DISABLED` | Notes |

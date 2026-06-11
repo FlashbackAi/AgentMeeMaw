@@ -42,6 +42,7 @@ The subject of a legacy. One row per legacy.
 | `coverage_state` | JSONB NOT NULL DEFAULT `{sensory:0,voice:0,place:0,relation:0,era:0}` | 5 anchor dims |
 | `phase_locked_at` | TIMESTAMPTZ | Set when Handover Check fires |
 | `moments_at_last_thread_run` | INT NOT NULL DEFAULT 0 | Drives Thread Detector cadence |
+| `ground_truth` | JSONB NOT NULL DEFAULT `'{}'` | Ground-truth layer (migration 0026, CLAUDE.md invariant 26). One key per registry field (region, birth_era, setting_type, attire, distinctive_features, build, cultural_context, era_span, languages); each value is `{value, provenance, confidence, updated_at}` with provenance in (`onboarding`, `inferred`, `tap`, `user_edit`). Agent-written only (precedence-aware upsert); Node reads |
 | `image_url` | TEXT | Written by Node consumer of the artifact queue |
 | `thumbnail_url` | TEXT | Written by Node consumer |
 | `generation_prompt` | TEXT | Written by **agent**, consumed by Node |

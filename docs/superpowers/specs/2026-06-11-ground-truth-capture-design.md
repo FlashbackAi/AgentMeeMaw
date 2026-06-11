@@ -47,7 +47,7 @@ priority (tie-break only — selection is relevance-first), consumers.
 
 | # | Field | Shape | Asked? | Feeds |
 |---|---|---|---|---|
-| 1 | `region` | `{country, locale}` | yes (+ onboarding) | portrait, scenes, responder |
+| 1 | `region` | short free string ("Karimnagar, Telangana, India") | yes (+ onboarding) | portrait, scenes, responder |
 | 2 | `birth_era` | decade string `"1950s"` | yes (+ onboarding) | portrait, scenes, anchor-chip derivation |
 | 3 | `setting_type` | `village / small town / city / farm` | yes | scenes |
 | 4 | `attire` | short free string | yes | portrait, scenes |
@@ -72,8 +72,9 @@ Registry rules:
 
 ## 2. Storage
 
-Migration 0024: `ALTER TABLE persons ADD COLUMN ground_truth JSONB
-NOT NULL DEFAULT '{}'`.
+Migration 0026: `ALTER TABLE persons ADD COLUMN ground_truth JSONB
+NOT NULL DEFAULT '{}'` (0024/0025 were taken by identity-merge and
+extraction-completion work).
 
 Shape — one key per registry field:
 
@@ -169,9 +170,9 @@ The route persists it **before** the pipeline runs
 (`provenance='tap'`), then clears the signal. The conversation never
 carries the boring Q&A, so extraction never mines it. `skipped: true`
 marks the field `declined` in Working Memory for this session (never
-re-asked this session; eligible again later). Free-text answers to
-shaped fields (`region`) pass through a small normalizer call;
-free-string fields store as-is.
+re-asked this session; eligible again later). Answer values are stored
+as the tapped label or free text verbatim; prompts consume text
+directly, so there is no normalizer call.
 
 ### 3d. Onboarding additions
 
@@ -233,7 +234,7 @@ not blazers).
 
 ## 6. API / Node contract changes
 
-- **Migration 0024** — `persons.ground_truth` (above).
+- **Migration 0026** — `persons.ground_truth` (above).
 - **`POST /turn` (+ `/turn/stream`) request** — optional
   `ground_truth_answer` (§3c), persisted pre-pipeline.
 - **`/turn` response metadata** — tap entries gain
@@ -256,9 +257,8 @@ not blazers).
   normally (mirrors `tap_options` best-effort rule).
 - Unknown field key in an observation or answer → dropped silently
   (invariant #6 analogue).
-- Normalizer failure on free-text → store raw string with
-  `confidence='medium'` if the field accepts free strings; otherwise
-  drop.
+- Free-text answers store verbatim (no normalizer); empty values are
+  dropped by the store's `apply_field` validation.
 - Sidecar answer for a session with no pending GT tap → ignored
   (idempotent; protects against UI replays).
 

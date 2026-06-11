@@ -978,9 +978,40 @@ What the Extraction Worker is allowed to write per segment:
 - **Inline P1 `dropped_reference` questions** — when a named entity is
   mentioned but unexplored, write a question with
   `source='dropped_reference'`, `attributes.dropped_phrase` set.
+- **Ground-truth observations** — stable subject facts the segment
+  clearly supports (`ground_truth_observations` on the tool output),
+  written to `persons.ground_truth` with `provenance='inferred'`
+  (high confidence only, precedence-gated — never overwrites an
+  explicit answer). `era_span` is recomputed in code from moment time
+  anchors at the tail of the same transaction. See CLAUDE.md
+  invariant #26.
 
 Subject identity reminder: the subject is in `persons`, never
 duplicated into `entities`.
+
+The worker also *consumes* ground truth: the active
+`persons.ground_truth` is rendered as `<subject_ground_truth>` into
+the extraction user message (grounding every emitted
+`generation_prompt` in the subject's region/era/setting), and a tapped
+`<segment_time_anchor>` riding the queue payload is authoritative time
+evidence for the segment's moments.
+
+### 9b. Ground-truth capture surface (invariant #26)
+
+Three fill paths into `persons.ground_truth`, cheapest first:
+extraction inference (above); **one contextual tap card per session**
+selected by `select_ground_truth_tap` on `story`/`deepen` turns
+(temperature-gated, ≥3 user turns in, small-LLM skip-gate so nothing
+already said in the conversation is ever asked); and two onboarding
+questions (`gt_region`, `gt_birth_era`). Tap answers return as the
+structured `ground_truth_answer` sidecar on `/turn` — never as chat
+text, so extraction never mines demographic Q&A. Consumers read at
+compose time: the extraction prompt, the portrait composer
+(`profile_picture/prompt.py`), scene regenerate/edit
+(`artifacts/compose.py`), the response generator
+(`<subject_ground_truth>` block), and both chip-generation calls.
+Nothing auto-regenerates on ground-truth change; manual regenerate is
+the recovery path.
 
 ---
 

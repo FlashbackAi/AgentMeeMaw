@@ -168,7 +168,11 @@ display name, relationship, subject gender, and contributor name. DOB
 
 ### `GET /api/v1/onboarding/archetype-questions`
 
-Return 2-3 tappable questions tailored to `persons.relationship`.
+Return tappable questions tailored to `persons.relationship` (4-5
+relationship questions), plus the two ground-truth questions appended
+to every set: `gt_region` ("Where did most of their life happen?") and
+`gt_birth_era` ("Roughly when were they born?") — CLAUDE.md invariant
+26. Both are skippable.
 
 **Query**
 ```
@@ -228,7 +232,11 @@ embeddings when configured, and return the first session id.
 ```
 
 Each answer must choose exactly one of `option_id`, `free_text`, or
-`skipped`.
+`skipped`. The answers array must cover every question returned by
+`archetype-questions` exactly once — including `gt_region` and
+`gt_birth_era` (3-8 answers accepted). Ground-truth answers are written
+to `persons.ground_truth` with `provenance='onboarding'`; they do not
+seed entities or coverage.
 
 **Response 200**
 ```json
@@ -349,6 +357,13 @@ One user message in, one assistant reply out. Idempotent on
   "question_decision": {
     "question_id": "uuid",
     "action": "skip | suppress | defer"
+  },
+  "ground_truth_answer": {
+    "kind": "ground_truth | segment_anchor",
+    "field": "string | null",
+    "option_label": "string | null",
+    "free_text": "string | null",
+    "skipped": false
   }
 }
 ```
@@ -357,6 +372,17 @@ One user message in, one assistant reply out. Idempotent on
 decision in the `question_decisions` table before the turn pipeline
 runs, so the same call's selector excludes the decided question. See
 CLAUDE.md invariant 23.
+
+`ground_truth_answer` is **optional**. It carries the user's tap on a
+`ground_truth` / `segment_anchor` card from a prior turn (CLAUDE.md
+invariant 26). The agent persists it before the pipeline runs:
+person-field answers write to `persons.ground_truth`
+(`provenance='tap'`); segment-anchor answers stash in Working Memory
+and ride the extraction payload at the next segment boundary;
+`skipped: true` suppresses that field for the rest of the session. The
+answer is ignored (not an error) when no GT tap is pending — safe
+against UI replays. The conversation `message` should NOT duplicate the
+answer text; the sidecar is the only channel.
 
 **Headers**
 - `Idempotency-Key` *(optional)*
@@ -371,9 +397,12 @@ CLAUDE.md invariant 23.
     "segment_boundary": false,
     "taps": [
       {
-        "question_id": "uuid",
+        "question_id": "uuid | null",
         "text": "string",
-        "dimension": "era | relation | place | voice | sensory"
+        "dimension": "era | relation | place | voice | sensory | ''",
+        "options": ["string"],
+        "kind": "coverage | ground_truth | segment_anchor",
+        "field": "string | null"
       }
     ],
     "question_chips": {
@@ -387,7 +416,17 @@ CLAUDE.md invariant 23.
 `segment_boundary` is `true` on the turn at which the Segment Detector
 decided to close a segment and push it onto the extraction queue.
 `metadata.taps` is always present. v1 emits at most one coverage-gap tap
-on eligible `switch` or `clarify` turns; otherwise it is `[]`.
+on eligible `switch` or `clarify` turns, and at most one ground-truth /
+segment-anchor tap per session on `story` / `deepen` turns; otherwise it
+is `[]`.
+
+Tap `kind` distinguishes the three surfaces. `coverage` taps carry a
+real `question_id`; `ground_truth` and `segment_anchor` taps carry
+`question_id: null` and (for `ground_truth`) the registry key in
+`field`. All three render with the same card UI. Answers to
+`ground_truth` / `segment_anchor` taps return via the next `/turn`'s
+`ground_truth_answer` sidecar — never as the chat message — and the UI
+must not post `question_decision` for null-`question_id` taps.
 
 `metadata.question_chips` is set when the agent inlines a producer-bank
 question (sources `dropped_reference`, `underdeveloped_entity`,

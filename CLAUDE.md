@@ -465,6 +465,34 @@ Every piece of code touching the graph or queues must respect these.
     boundary already grants Node read access to. The DLQ path emits
     nothing; Node falls back to a wrap timeout.
 
+26. **Ground truth is captured structured, never mined.** Stable subject
+    facts (the 9-field registry in `flashback/ground_truth/registry.py`:
+    region, birth_era, setting_type, attire, distinctive_features,
+    build, cultural_context, era_span, languages) live in
+    `persons.ground_truth` JSONB, each value carrying
+    `{value, provenance, confidence, updated_at}` with precedence
+    `user_edit > tap > onboarding > inferred` — inference never
+    overwrites an explicit answer. Complexion/ethnicity is **not** a
+    field and is never asked; prompts derive it from region + era +
+    cultural context. DOB is still never stored — `birth_era` is a
+    decade estimate. Capture paths: (a) the Extraction Worker emits
+    `ground_truth_observations` as a byproduct (high-confidence only,
+    `provenance='inferred'`); (b) one contextual tap card per session
+    max, on `story`/`deepen` intents only (never `switch` — that
+    surface belongs to the question bank), gated on emotional
+    temperature, ≥3 user turns, and a small-LLM skip-gate that never
+    asks what the conversation already revealed; (c) two onboarding
+    questions (region, birth decade). Answers return as the structured
+    `ground_truth_answer` sidecar on `/turn` — never as chat text, so
+    extraction never mines demographic Q&A. Segment-anchor taps
+    ("about when was that?") write to Working Memory and ride the
+    extraction payload as `<segment_time_anchor>`; the worker treats
+    them as authoritative time evidence for that segment's moments.
+    Consumption is read-at-compose-time only (extraction prompt,
+    portrait/scene composers, responder context) — nothing
+    auto-regenerates when ground truth changes; manual regenerate is
+    the recovery path.
+
 ---
 
 ## 5. Schema invariants
@@ -525,6 +553,10 @@ Every piece of code touching the graph or queues must respect these.
 - `phase_locked_at TIMESTAMP NULL`
 - `moments_at_last_thread_run INT NOT NULL DEFAULT 0` — used by the
   Thread Detector trigger (every 15 new active moments).
+- `ground_truth JSONB NOT NULL DEFAULT '{}'` — the ground-truth layer
+  (invariant #26, migration 0026). One key per registry field; each
+  value is `{value, provenance, confidence, updated_at}`. Node reads
+  it; all writes go through the agent's precedence-aware upsert.
 
 ### Artifact columns (Node writes URLs, we write prompts)
 
@@ -854,6 +886,14 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
   Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
+  Optional `ground_truth_answer` field (`{kind, field?, option_label?,
+  free_text?, skipped}`) carries a ground-truth / segment-anchor tap
+  answer; it is persisted before the pipeline runs and ignored when no
+  GT tap is pending (invariant #26). `metadata.taps[]` entries carry
+  `kind` (`coverage | ground_truth | segment_anchor`) and `field`;
+  `question_id` is null for non-coverage kinds — Node renders all
+  three with the same card and must not post `question_decision` for
+  null-question_id taps.
 - `POST /turn/stream` and `POST /session/start/stream` — SSE twins of
   the JSON endpoints above. Same request bodies, same pre-stream
   checks (working memory existence, rate limit, optional
