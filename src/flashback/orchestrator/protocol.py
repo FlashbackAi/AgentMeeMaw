@@ -18,14 +18,23 @@ class Tap(BaseModel):
     `options` are short tappable answer chips generated per-turn by a
     small LLM call. Empty list when generation failed or was skipped —
     the UI falls back to free-text input only.
+
+    `kind` distinguishes the three tap surfaces: `coverage` (P0 bank,
+    has a question row), `ground_truth` (registry field capture — no
+    question row, `field` carries the registry key), and
+    `segment_anchor` (time anchor for the live story). Ground-truth and
+    anchor answers return as the structured `ground_truth_answer`
+    sidecar on the next /turn, never as mined text.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    question_id: UUID
+    question_id: UUID | None
     text: str
     dimension: str
     options: list[str] = Field(default_factory=list)
+    kind: Literal["coverage", "ground_truth", "segment_anchor"] = "coverage"
+    field: str | None = None
 
 
 class QuestionChips(BaseModel):

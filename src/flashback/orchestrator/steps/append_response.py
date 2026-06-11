@@ -22,7 +22,9 @@ async def append_assistant(state: TurnState, deps: OrchestratorDeps) -> None:
             metadata["selected_question_id"] = str(state.selection.question_id)
         if state.taps:
             metadata["tap_question_ids"] = [
-                str(tap.question_id) for tap in state.taps
+                str(tap.question_id)
+                for tap in state.taps
+                if tap.question_id is not None
             ]
         await deps.working_memory.append_turn(
             session_id=str(state.session_id),
