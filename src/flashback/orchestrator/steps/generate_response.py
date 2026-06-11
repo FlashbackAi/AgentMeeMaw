@@ -61,12 +61,20 @@ async def build_turn_context(
         seeded_question_text=(
             state.selection.question_text if state.selection else None
         ),
-        tap_pending=bool(state.taps),
-        tap_question_text=(state.taps[0].text if state.taps else None),
-        tap_dimension=(
-            state.taps[0].dimension
-            if state.taps and state.taps[0].dimension
-            else None
+        # Only coverage/promoted taps switch the prompt to acknowledgment-
+        # only mode. A ground-truth / anchor tap is a side-capture riding
+        # beneath a normal engaged reply (design 2026-06-11 §3b).
+        tap_pending=any(t.kind == "coverage" for t in state.taps),
+        tap_question_text=next(
+            (t.text for t in state.taps if t.kind == "coverage"), None
+        ),
+        tap_dimension=next(
+            (
+                t.dimension
+                for t in state.taps
+                if t.kind == "coverage" and t.dimension
+            ),
+            None,
         ),
         current_theme_display_name=(
             wm_state.current_theme_display_name

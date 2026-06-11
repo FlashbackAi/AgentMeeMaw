@@ -54,6 +54,7 @@ from flashback.orchestrator.steps import (
     retrieve,
     scan_entity_mentions,
     select_coverage_tap,
+    select_ground_truth_tap,
     select_question,
     select_starter_question,
 )
@@ -335,6 +336,13 @@ class Orchestrator:
                     fn=lambda: retrieve(state, self._deps),
                     state=state,
                 )
+            if state.effective_intent in {"story", "deepen"}:
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_ground_truth_tap",
+                    fn=lambda: select_ground_truth_tap(state, self._deps),
+                    state=state,
+                )
             if (
                 state.effective_intent == "switch"
                 and self._deps.response_generator is not None
@@ -462,6 +470,13 @@ class Orchestrator:
                     policies=TURN_POLICIES,
                     step_name="retrieve",
                     fn=lambda: retrieve(state, self._deps),
+                    state=state,
+                )
+            if state.effective_intent in {"story", "deepen"}:
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_ground_truth_tap",
+                    fn=lambda: select_ground_truth_tap(state, self._deps),
                     state=state,
                 )
             if (
