@@ -69,7 +69,8 @@ class TestArchetypeQuestions:
         body = resp.json()
         assert body["relationship"] == "friend"
         assert body["archetype"] == "friend"
-        assert 3 <= len(body["questions"]) <= 5
+        # 3-5 relationship questions + the 2 appended ground-truth questions
+        assert 5 <= len(body["questions"]) <= 7
         assert [q["id"] for q in body["questions"][:3]] == [
             "friend_meet",
             "friend_shared_place",
@@ -98,6 +99,8 @@ class TestArchetypeAnswers:
                     {"question_id": "friend_usual_activity", "skipped": True},
                     {"question_id": "friend_kind", "skipped": True},
                     {"question_id": "friend_first_memory", "skipped": True},
+                    {"question_id": "gt_region", "option_id": "another_state"},
+                    {"question_id": "gt_birth_era", "option_id": "era_50s_60s"},
                 ],
             },
         )
@@ -145,12 +148,27 @@ class TestArchetypeAnswers:
         coverage = coverage_row[0]
         assert coverage["place"] == 1
         assert coverage["era"] == 1
-        assert coverage["relation"] == 1
+        # 'Through school' and 'On calls or messages' both imply relation
+        assert coverage["relation"] == 2
         assert coverage["voice"] == 1
+
+        # Ground-truth onboarding answers land in persons.ground_truth
+        # with provenance='onboarding' (invariant #26).
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT ground_truth FROM persons WHERE id = %s",
+                    (person_id,),
+                )
+                gt_row = await cur.fetchone()
+        ground_truth = gt_row[0]
+        assert ground_truth["region"]["value"] == "Another part of the country"
+        assert ground_truth["region"]["provenance"] == "onboarding"
+        assert ground_truth["birth_era"]["value"] == "1950s or 60s"
 
         assert entity_rows
         assert entity_rows[0][0] == "place"
-        assert entity_rows[0][1] == "school or college"
+        assert entity_rows[0][1] == "school"
         assert entity_rows[0][2]["source"] == "archetype_onboarding"
 
     async def test_complete_person_returns_409(
