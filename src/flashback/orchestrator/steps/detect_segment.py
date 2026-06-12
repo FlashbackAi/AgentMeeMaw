@@ -111,14 +111,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
             candidate_question_ids=candidate_question_ids,
             contributor_display_name=wm_state.contributor_display_name or "",
             is_final=False,
-            segment_anchor=(
-                {
-                    "question_text": wm_state.segment_anchor_question,
-                    "answer": wm_state.segment_anchor_answer,
-                }
-                if wm_state.segment_anchor_answer
-                else None
-            ),
+            segment_anchor=_segment_anchor_payload(wm_state),
         )
     except Exception as exc:
         log.warning(
@@ -135,7 +128,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     await deps.working_memory.reset_segment(str(state.session_id))
     await deps.working_memory.set_seeded_question(str(state.session_id), None)
     await deps.working_memory.increment_segments_pushed(str(state.session_id))
-    if wm_state.segment_anchor_answer:
+    if _segment_anchor_payload(wm_state) is not None:
         await deps.working_memory.clear_segment_anchor(str(state.session_id))
 
     state.segment_boundary_detected = True
@@ -150,6 +143,18 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         sqs_message_id=message_id,
         seeded_question_id=str(seeded_question_id) if seeded_question_id else None,
     )
+
+
+def _segment_anchor_payload(wm_state) -> dict | None:
+    """Tapped time-anchor answer for the open segment, if any.
+    getattr-tolerant: WM state fakes in tests may predate the fields."""
+    answer = getattr(wm_state, "segment_anchor_answer", "") or ""
+    if not answer:
+        return None
+    return {
+        "question_text": getattr(wm_state, "segment_anchor_question", "") or "",
+        "answer": answer,
+    }
 
 
 def _answered_question_candidates(segment_turns) -> list[UUID]:

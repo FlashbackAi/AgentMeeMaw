@@ -99,10 +99,20 @@ def _clean_value(value: Any, value_type: str) -> Any | None:
 
 
 async def fetch_ground_truth(db_pool, person_id: UUID | str) -> dict[str, Any]:
-    async with db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(_SELECT, (str(person_id),))
-            row = await cur.fetchone()
+    """Best-effort read for prompt enrichment. Never raises — every
+    consumer treats missing ground truth as 'nothing known yet'."""
+    try:
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(_SELECT, (str(person_id),))
+                row = await cur.fetchone()
+    except Exception as exc:  # noqa: BLE001 - enrichment must not block a turn
+        log.warning(
+            "ground_truth.fetch_failed",
+            error_type=type(exc).__name__,
+            detail=str(exc),
+        )
+        return {}
     if row is None or not isinstance(row[0], dict):
         return {}
     return row[0]

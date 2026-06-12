@@ -47,6 +47,7 @@ async def test_extraction_push_uses_architecture_payload_shape():
         "candidate_question_ids": [],
         "contributor_display_name": "",
         "is_final": False,
+        "segment_anchor": None,
     }
 
 
