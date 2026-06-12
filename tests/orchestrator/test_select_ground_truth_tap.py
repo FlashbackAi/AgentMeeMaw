@@ -22,7 +22,7 @@ def _turn(role, content):
                 timestamp=datetime(2026, 6, 11, tzinfo=timezone.utc))
 
 
-def _state(intent="story", temperature="medium", user_turns=4):
+def _state(intent="story", temperature="medium", user_turns=10):
     state = TurnState(
         turn_id=uuid4(), session_id=uuid4(), person_id=uuid4(),
         role_id=uuid4(), user_message="...",

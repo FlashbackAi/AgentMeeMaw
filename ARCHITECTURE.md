@@ -1002,9 +1002,10 @@ Three fill paths into `persons.ground_truth`, cheapest first:
 extraction inference (above); **contextual tap cards** selected by
 `select_ground_truth_tap` on `story`/`deepen` turns (session cap
 `GT_TAPS_PER_SESSION_CAP` + 2-user-turn cooldown so cards never land
-back-to-back, temperature-gated, ≥3 user turns in, small-LLM skip-gate
-so nothing already said in the conversation is ever asked); and two
-onboarding questions (`gt_region`, `gt_birth_era`). Tap answers return as the
+back-to-back, temperature-gated, ≥9 user turns in
+(`MIN_USER_TURNS_BEFORE_GT_TAP`), small-LLM skip-gate so nothing
+already said in the conversation is ever asked); and two onboarding
+questions (`gt_region`, `gt_birth_era`). Tap answers return as the
 structured `ground_truth_answer` sidecar on `/turn` — never as chat
 text, so extraction never mines demographic Q&A. Consumers read at
 compose time: the extraction prompt, the portrait composer

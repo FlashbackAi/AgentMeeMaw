@@ -27,7 +27,7 @@ from flashback.orchestrator.state import TurnState
 log = structlog.get_logger("flashback.orchestrator")
 
 GT_TAPS_PER_SESSION_CAP = 9
-MIN_USER_TURNS_BEFORE_GT_TAP = 3
+MIN_USER_TURNS_BEFORE_GT_TAP = 9
 # With a cap this high, per-turn pacing comes from the shared
 # 2-user-turn tap cooldown plus the LLM skip-gate (which only asks what
 # the live story naturally touches).

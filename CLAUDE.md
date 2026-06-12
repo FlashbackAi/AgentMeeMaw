@@ -482,8 +482,9 @@ Every piece of code touching the graph or queues must respect these.
     belongs to the question bank), capped per session
     (`GT_TAPS_PER_SESSION_CAP`, currently 9) with a 2-user-turn
     cooldown so cards never land back-to-back, gated on emotional
-    temperature, ≥3 user turns, and a small-LLM skip-gate that never
-    asks what the conversation already revealed; (c) two onboarding
+    temperature, ≥9 user turns into the session, and a small-LLM
+    skip-gate that never asks what the conversation already revealed;
+    (c) two onboarding
     questions (region, birth decade). Answers return as the structured
     `ground_truth_answer` sidecar on `/turn` — never as chat text, so
     extraction never mines demographic Q&A. Segment-anchor taps
