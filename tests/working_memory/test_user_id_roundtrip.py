@@ -42,4 +42,5 @@ def test_parse_state_hash_drops_legacy_role_id_key():
     mapping = serialise_state_for_init(state)
     mapping["role_id"] = "some-stale-uuid"
     parsed = parse_state_hash(mapping)
+    # user_id key absent from legacy HASH → model default "" applied
     assert parsed.user_id == ""

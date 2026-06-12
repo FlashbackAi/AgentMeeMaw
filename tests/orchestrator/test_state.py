@@ -11,7 +11,6 @@ def test_turn_state_defaults_are_empty_and_mutable():
         turn_id=uuid4(),
         session_id=uuid4(),
         person_id=uuid4(),
-        role_id=uuid4(),
         user_message="hello",
         started_at=datetime.now(timezone.utc),
     )
@@ -32,7 +31,6 @@ def test_session_start_state_defaults_are_empty_and_mutable():
     state = SessionStartState(
         session_id=uuid4(),
         person_id=uuid4(),
-        role_id=uuid4(),
         session_metadata={},
         started_at=datetime.now(timezone.utc),
     )

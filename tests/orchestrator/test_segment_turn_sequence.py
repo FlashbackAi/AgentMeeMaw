@@ -111,11 +111,10 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
     )
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     await wm.initialize(
         str(session_id),
         str(person_id),
-        str(role_id),
+        "",
         datetime.now(timezone.utc),
     )
 

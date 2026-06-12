@@ -29,9 +29,9 @@ class TurnState:
     turn_id: UUID
     session_id: UUID
     person_id: UUID
-    role_id: UUID
     user_message: str
     started_at: datetime
+    user_id: UUID | None = None
     mode: Mode = "text"
 
     transcript: list[Turn] = field(default_factory=list)
@@ -66,9 +66,9 @@ class SessionStartState:
 
     session_id: UUID
     person_id: UUID
-    role_id: UUID
     session_metadata: dict[str, Any]
     started_at: datetime
+    user_id: UUID | None = None
     mode: Mode = "text"
 
     person_name: str = ""

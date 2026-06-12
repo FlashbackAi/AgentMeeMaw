@@ -118,7 +118,7 @@ async def _run_turn(
     result = await orch.handle_turn(
         session_id=body.session_id,
         person_id=body.person_id,
-        role_id=body.role_id,
+        user_id=body.user_id,
         user_message=body.message,
         mode=body.mode,
     )

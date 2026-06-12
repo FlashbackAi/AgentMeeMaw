@@ -126,7 +126,7 @@ async def turn_stream(
             async for event in orch.handle_turn_stream(
                 session_id=body.session_id,
                 person_id=body.person_id,
-                role_id=body.role_id,
+                user_id=body.user_id,
                 user_message=body.message,
                 mode=body.mode,
             ):
@@ -184,7 +184,7 @@ async def session_start_stream(
             async for event in orch.handle_session_start_stream(
                 session_id=body.session_id,
                 person_id=body.person_id,
-                role_id=body.role_id,
+                user_id=body.user_id,
                 session_metadata=metadata_with_name,
                 mode=body.mode,
             ):

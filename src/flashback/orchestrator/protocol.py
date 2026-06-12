@@ -111,7 +111,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: Mode = "text",
     ) -> SessionStartResult: ...
@@ -120,7 +120,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: Mode = "text",
     ) -> SessionStartResult: ...
@@ -129,7 +129,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         user_message: str,
         mode: Mode = "text",
     ) -> TurnResult: ...
@@ -144,7 +144,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...
@@ -153,7 +153,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...
@@ -162,7 +162,7 @@ class OrchestratorProtocol(Protocol):
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         user_message: str,
         mode: Mode = "text",
     ) -> AsyncIterator["StreamEvent"]: ...

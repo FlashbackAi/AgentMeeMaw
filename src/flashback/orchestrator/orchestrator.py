@@ -89,14 +89,14 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: str = "text",
     ) -> SessionStartResult:
         state = SessionStartState(
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -104,7 +104,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             mode=state.mode,
         )
         started = time.perf_counter()
@@ -157,7 +157,7 @@ class Orchestrator:
                 "session_start_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -190,7 +190,7 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: str = "text",
     ) -> SessionStartResult:
@@ -205,7 +205,7 @@ class Orchestrator:
         state = SessionStartState(
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -213,7 +213,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             opener_path="first_time",
             mode=state.mode,
         )
@@ -249,7 +249,7 @@ class Orchestrator:
                 "first_time_opener_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -282,7 +282,7 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         user_message: str,
         mode: str = "text",
     ) -> TurnResult:
@@ -290,7 +290,7 @@ class Orchestrator:
             turn_id=uuid4(),
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -299,7 +299,7 @@ class Orchestrator:
             turn_id=str(state.turn_id),
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             mode=state.mode,
         )
         started = time.perf_counter()
@@ -382,7 +382,7 @@ class Orchestrator:
                 turn_id=str(state.turn_id),
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 intent=(
                     state.intent_result.intent if state.intent_result else None
@@ -402,7 +402,7 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         user_message: str,
         mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
@@ -418,7 +418,7 @@ class Orchestrator:
             turn_id=uuid4(),
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -427,7 +427,7 @@ class Orchestrator:
             turn_id=str(state.turn_id),
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             transport="stream",
             mode=state.mode,
         )
@@ -555,7 +555,7 @@ class Orchestrator:
                 turn_id=str(state.turn_id),
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 intent=(
                     state.intent_result.intent if state.intent_result else None
@@ -582,7 +582,7 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
@@ -590,7 +590,7 @@ class Orchestrator:
         state = SessionStartState(
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -598,7 +598,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             transport="stream",
             mode=state.mode,
         )
@@ -646,7 +646,7 @@ class Orchestrator:
                 "session_start_stream_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -663,7 +663,7 @@ class Orchestrator:
         self,
         session_id: UUID,
         person_id: UUID,
-        role_id: UUID,
+        user_id: UUID | None,
         session_metadata: dict,
         mode: str = "text",
     ) -> AsyncIterator[StreamEvent]:
@@ -671,7 +671,7 @@ class Orchestrator:
         state = SessionStartState(
             session_id=session_id,
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
@@ -679,7 +679,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             opener_path="first_time",
             transport="stream",
             mode=state.mode,
@@ -711,7 +711,7 @@ class Orchestrator:
                 "first_time_opener_stream_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                role_id=str(state.role_id),
+                user_id=str(state.user_id) if state.user_id else "",
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 degraded_steps=list(state.failures.keys()),

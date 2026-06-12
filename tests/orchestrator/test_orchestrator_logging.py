@@ -162,11 +162,10 @@ async def test_turn_logs_correlation_ids_and_steps(fake_redis):
     app = await _app(fake_redis, FixedClassifier())
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     await app.state.working_memory.initialize(
         str(session_id),
         str(person_id),
-        str(role_id),
+        "",
         datetime.now(timezone.utc),
     )
 
@@ -178,7 +177,6 @@ async def test_turn_logs_correlation_ids_and_steps(fake_redis):
                 json={
                     "session_id": str(session_id),
                     "person_id": str(person_id),
-                    "role_id": str(role_id),
                     "message": "She loved making pasta from scratch.",
                 },
             )
@@ -212,11 +210,10 @@ async def test_degraded_step_logs_error_type(fake_redis):
     app = await _app(fake_redis, FailingClassifier())
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     await app.state.working_memory.initialize(
         str(session_id),
         str(person_id),
-        str(role_id),
+        "",
         datetime.now(timezone.utc),
     )
 
@@ -228,7 +225,6 @@ async def test_degraded_step_logs_error_type(fake_redis):
                 json={
                     "session_id": str(session_id),
                     "person_id": str(person_id),
-                    "role_id": str(role_id),
                     "message": "She loved making pasta from scratch.",
                 },
             )
@@ -254,11 +250,10 @@ async def test_boundary_turn_logs_detect_segment_message_id(fake_redis):
     app.state.orchestrator = _orchestrator_with_boundary_detector(wm)
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     await app.state.working_memory.initialize(
         str(session_id),
         str(person_id),
-        str(role_id),
+        "",
         datetime.now(timezone.utc),
     )
 
@@ -270,7 +265,6 @@ async def test_boundary_turn_logs_detect_segment_message_id(fake_redis):
                 json={
                     "session_id": str(session_id),
                     "person_id": str(person_id),
-                    "role_id": str(role_id),
                     "message": "She loved making pasta from scratch.",
                 },
             )

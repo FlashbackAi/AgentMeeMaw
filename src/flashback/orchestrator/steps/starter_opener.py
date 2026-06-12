@@ -243,7 +243,7 @@ async def init_working_memory(
         await deps.working_memory.initialize(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            role_id=str(state.role_id),
+            user_id=str(state.user_id) if state.user_id else "",
             started_at=state.started_at,
             seed_prior_session_summary=str(seed_summary),
             contributor_display_name=str(contributor_display_name).strip(),

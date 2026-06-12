@@ -51,7 +51,7 @@ async def session_start(
     result = await orch.handle_session_start(
         session_id=body.session_id,
         person_id=body.person_id,
-        role_id=body.role_id,
+        user_id=body.user_id,
         session_metadata=metadata_with_name,
         mode=body.mode,
     )
@@ -60,7 +60,7 @@ async def session_start(
         await wm.initialize(
             session_id=str(body.session_id),
             person_id=str(body.person_id),
-            role_id=str(body.role_id),
+            user_id=str(body.user_id) if body.user_id else "",
             started_at=started_at,
             seed_prior_session_summary=seed_summary,
             contributor_display_name=contributor_name,

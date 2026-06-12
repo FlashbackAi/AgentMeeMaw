@@ -98,7 +98,6 @@ def _state() -> TurnState:
         turn_id=uuid4(),
         session_id=uuid4(),
         person_id=uuid4(),
-        role_id=uuid4(),
         user_message="Tell me more.",
         started_at=datetime.now(timezone.utc),
     )

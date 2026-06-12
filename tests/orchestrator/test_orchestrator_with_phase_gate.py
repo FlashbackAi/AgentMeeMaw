@@ -164,11 +164,11 @@ async def _client(app):
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
-async def _init_wm(app, session_id, person_id, role_id):
+async def _init_wm(app, session_id, person_id, user_id):
     await app.state.working_memory.initialize(
         session_id=session_id,
         person_id=person_id,
-        role_id=role_id,
+        user_id=user_id,
         started_at=datetime.now(timezone.utc),
     )
 

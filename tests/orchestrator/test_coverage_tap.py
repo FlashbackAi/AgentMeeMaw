@@ -94,9 +94,8 @@ def _intent(name: str) -> IntentResult:
 async def _state(wm: WorkingMemory, *, intent: str = "switch") -> TurnState:
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     now = datetime.now(timezone.utc)
-    await wm.initialize(str(session_id), str(person_id), str(role_id), now)
+    await wm.initialize(str(session_id), str(person_id), "", now)
     await wm.append_turn(str(session_id), "assistant", "opener", now)
     await wm.append_turn(str(session_id), "user", "first answer", now)
     await wm.append_turn(str(session_id), "assistant", "reply", now)
@@ -105,7 +104,6 @@ async def _state(wm: WorkingMemory, *, intent: str = "switch") -> TurnState:
         turn_id=uuid4(),
         session_id=session_id,
         person_id=person_id,
-        role_id=role_id,
         user_message="switch please",
         started_at=now,
         intent_result=_intent(intent),
@@ -190,16 +188,14 @@ async def test_bank_exhaustion_returns_empty_list(wm):
 async def test_no_tap_on_first_user_turn(wm):
     session_id = uuid4()
     person_id = uuid4()
-    role_id = uuid4()
     now = datetime.now(timezone.utc)
-    await wm.initialize(str(session_id), str(person_id), str(role_id), now)
+    await wm.initialize(str(session_id), str(person_id), "", now)
     await wm.append_turn(str(session_id), "assistant", "opener", now)
     await wm.append_turn(str(session_id), "user", "switch please", now)
     state = TurnState(
         turn_id=uuid4(),
         session_id=session_id,
         person_id=person_id,
-        role_id=role_id,
         user_message="switch please",
         started_at=now,
         intent_result=_intent("switch"),

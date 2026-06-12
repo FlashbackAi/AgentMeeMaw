@@ -134,9 +134,7 @@ async def archetype_answers(
     opener_result = await orch.handle_first_time_opener(
         session_id=result.session_id,
         person_id=person.person_id,
-        # V1 has one contributor per legacy, so the person id is a stable
-        # working-memory role stand-in for this onboarding-created session.
-        role_id=person.person_id,
+        user_id=None,  # onboarding has no Node user in scope; creator-era NULL (spec D2)
         session_metadata={
             "archetype_answers": answers,
             "contributor_display_name": body.contributor_display_name or "",
