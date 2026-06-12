@@ -54,7 +54,15 @@ class SessionStartRequest(BaseModel):
 
     session_id: UUID
     person_id: UUID
-    role_id: UUID
+    # The authoring Node user. Optional during the contract transition;
+    # NULL provenance = "creator era" (spec D2). This is the ONLY
+    # identity field — see role_id below.
+    user_id: UUID | None = None
+    # DEPRECATED (spec D1): retired v1 field with no Node-side concept
+    # behind it. Declared only so extra="forbid" doesn't 422 an
+    # un-updated Node. Never read; never provenance. Remove once Node
+    # ships user_id.
+    role_id: UUID | None = None
     contributor_display_name: str | None = None
     session_metadata: dict = Field(default_factory=dict)
     mode: Mode = "text"
@@ -88,7 +96,9 @@ class TurnRequest(BaseModel):
 
     session_id: UUID
     person_id: UUID
-    role_id: UUID
+    user_id: UUID | None = None
+    # DEPRECATED: tolerated and ignored — see SessionStartRequest.role_id.
+    role_id: UUID | None = None
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None
     mode: Mode = "text"
