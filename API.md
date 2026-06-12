@@ -417,7 +417,8 @@ answer text; the sidecar is the only channel.
 decided to close a segment and push it onto the extraction queue.
 `metadata.taps` is always present. v1 emits at most one coverage-gap tap
 on eligible `switch` or `clarify` turns, and at most one ground-truth /
-segment-anchor tap per session on `story` / `deepen` turns; otherwise it
+segment-anchor tap per turn on `story` / `deepen` turns (session-capped,
+with a 2-user-turn cooldown between tap cards); otherwise it
 is `[]`.
 
 Tap `kind` distinguishes the three surfaces. `coverage` taps carry a

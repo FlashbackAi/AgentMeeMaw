@@ -477,9 +477,11 @@ Every piece of code touching the graph or queues must respect these.
     cultural context. DOB is still never stored — `birth_era` is a
     decade estimate. Capture paths: (a) the Extraction Worker emits
     `ground_truth_observations` as a byproduct (high-confidence only,
-    `provenance='inferred'`); (b) one contextual tap card per session
-    max, on `story`/`deepen` intents only (never `switch` — that
-    surface belongs to the question bank), gated on emotional
+    `provenance='inferred'`); (b) contextual tap cards on
+    `story`/`deepen` intents only (never `switch` — that surface
+    belongs to the question bank), capped per session
+    (`GT_TAPS_PER_SESSION_CAP`, currently 9) with a 2-user-turn
+    cooldown so cards never land back-to-back, gated on emotional
     temperature, ≥3 user turns, and a small-LLM skip-gate that never
     asks what the conversation already revealed; (c) two onboarding
     questions (region, birth decade). Answers return as the structured

@@ -26,12 +26,17 @@ from flashback.orchestrator.state import TurnState
 
 log = structlog.get_logger("flashback.orchestrator")
 
-GT_TAPS_PER_SESSION_CAP = 1
+GT_TAPS_PER_SESSION_CAP = 9
 MIN_USER_TURNS_BEFORE_GT_TAP = 3
+# With a cap this high, per-turn pacing comes from the shared
+# 2-user-turn tap cooldown plus the LLM skip-gate (which only asks what
+# the live story naturally touches).
+GT_TAP_COOLDOWN_USER_TURNS = 2
 
 
 async def select_ground_truth_tap(state: TurnState, deps: OrchestratorDeps) -> None:
-    """Emit at most one ground-truth / segment-anchor tap per session."""
+    """Emit at most one ground-truth / segment-anchor tap per turn,
+    capped per session and cooled down between taps."""
 
     with timed_step(log, "select_ground_truth_tap"):
         if state.intent_result is None or state.intent_result.intent not in {
@@ -52,6 +57,15 @@ async def select_ground_truth_tap(state: TurnState, deps: OrchestratorDeps) -> N
         state.working_memory_state = wm_state
         if wm_state.gt_taps_emitted_this_session >= GT_TAPS_PER_SESSION_CAP:
             log.info("gt_tap.skipped", reason="session_cap")
+            return
+        if wm_state.user_turns_since_last_tap < GT_TAP_COOLDOWN_USER_TURNS:
+            # Shared cooldown with coverage taps: never tap cards on
+            # back-to-back user turns.
+            log.info(
+                "gt_tap.skipped",
+                reason="cooldown",
+                user_turns_since_last_tap=wm_state.user_turns_since_last_tap,
+            )
             return
 
         transcript = state.transcript or await deps.working_memory.get_transcript(

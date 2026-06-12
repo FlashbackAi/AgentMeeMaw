@@ -81,7 +81,23 @@ async def test_skips_when_session_cap_reached(monkeypatch):
     called = AsyncMock()
     monkeypatch.setattr(step_mod, "fetch_ground_truth", called)
     state = _state()
-    deps = _deps(_wm_state(gt_taps_emitted_this_session=1))
+    deps = _deps(
+        _wm_state(
+            gt_taps_emitted_this_session=step_mod.GT_TAPS_PER_SESSION_CAP
+        )
+    )
+    await step_mod.select_ground_truth_tap(state, deps)
+    assert state.taps == []
+    called.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_skips_during_tap_cooldown(monkeypatch):
+    """A tap fired on the previous user turn — never two back-to-back."""
+    called = AsyncMock()
+    monkeypatch.setattr(step_mod, "fetch_ground_truth", called)
+    state = _state()
+    deps = _deps(_wm_state(user_turns_since_last_tap=1))
     await step_mod.select_ground_truth_tap(state, deps)
     assert state.taps == []
     called.assert_not_awaited()
