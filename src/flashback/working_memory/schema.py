@@ -65,7 +65,7 @@ class WorkingMemoryState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     person_id: str
-    role_id: str
+    user_id: str = ""
     started_at: datetime
 
     rolling_summary: str = ""
@@ -158,6 +158,9 @@ def parse_state_hash(raw: dict[str, str | bytes]) -> WorkingMemoryState:
             parsed[key] = json.loads(value) if value else []
         else:
             parsed[key] = value
+    # Live sessions started before the rename still carry a role_id key
+    # in the HASH; the model no longer has that field (spec D1).
+    parsed.pop("role_id", None)
     return WorkingMemoryState.model_validate(parsed)
 
 
@@ -165,7 +168,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
     """Render a state model into the str-only mapping HSET expects."""
     return {
         "person_id": state.person_id,
-        "role_id": state.role_id,
+        "user_id": state.user_id,
         "started_at": state.started_at.isoformat(),
         "rolling_summary": state.rolling_summary,
         "prior_rolling_summary": state.prior_rolling_summary,

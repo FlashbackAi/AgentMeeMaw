@@ -88,7 +88,7 @@ class WorkingMemory:
         self,
         session_id: str,
         person_id: str,
-        role_id: str,
+        user_id: str,
         started_at: datetime,
         seed_prior_session_summary: str = "",
         contributor_display_name: str = "",
@@ -133,7 +133,7 @@ class WorkingMemory:
         )
         state = WorkingMemoryState(
             person_id=person_id,
-            role_id=role_id,
+            user_id=user_id,
             started_at=started_at,
             prior_session_summary=seed_prior_session_summary,
             contributor_display_name=contributor_display_name,

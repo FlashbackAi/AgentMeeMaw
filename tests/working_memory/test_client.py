@@ -18,7 +18,7 @@ from flashback.working_memory.keys import segment_key, state_key, transcript_key
 UTC = timezone.utc
 SESSION_ID = "11111111-2222-3333-4444-555555555555"
 PERSON_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-ROLE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+USER_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
 def _now() -> datetime:
@@ -30,11 +30,11 @@ def _now() -> datetime:
 
 class TestInitialize:
     async def test_creates_state_hash_with_identity(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
 
         raw = await redis_client.hgetall(state_key(SESSION_ID))
         assert raw[b"person_id"] == PERSON_ID.encode()
-        assert raw[b"role_id"] == ROLE_ID.encode()
+        assert raw[b"user_id"] == USER_ID.encode()
         assert raw[b"rolling_summary"] == b""
         assert raw[b"prior_rolling_summary"] == b""
         assert raw[b"signal_user_turns_since_segment_check"] == b"0"
@@ -45,7 +45,7 @@ class TestInitialize:
         """A second initialize call with a different person_id must not
         clobber the original state — Node never reissues a session_id, so
         if we see the key already exists, treat it as an idle refresh."""
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "hello", _now())
         await wm.initialize(SESSION_ID, "other-person", "other-role", _now())
 
@@ -57,7 +57,7 @@ class TestInitialize:
 
     async def test_seed_prior_session_summary(self, wm: WorkingMemory):
         await wm.initialize(
-            SESSION_ID, PERSON_ID, ROLE_ID, _now(), seed_prior_session_summary="prev"
+            SESSION_ID, PERSON_ID, USER_ID, _now(), seed_prior_session_summary="prev"
         )
         state = await wm.get_state(SESSION_ID)
         assert state.prior_session_summary == "prev"
@@ -68,7 +68,7 @@ class TestInitialize:
         await wm.initialize(
             SESSION_ID,
             PERSON_ID,
-            ROLE_ID,
+            USER_ID,
             _now(),
             contributor_display_name="Sarah",
         )
@@ -79,12 +79,12 @@ class TestInitialize:
     async def test_contributor_display_name_defaults_empty(
         self, wm: WorkingMemory
     ):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         assert await wm.get_contributor_display_name(SESSION_ID) == ""
 
     async def test_exists_after_initialize(self, wm: WorkingMemory):
         assert not await wm.exists(SESSION_ID)
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         assert await wm.exists(SESSION_ID)
 
 
@@ -93,7 +93,7 @@ class TestInitialize:
 
 class TestAppendTurn:
     async def test_appends_to_both_lists(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "hi", _now())
 
         transcript = await wm.get_transcript(SESSION_ID)
@@ -104,7 +104,7 @@ class TestAppendTurn:
         assert transcript[0].role == "user"
 
     async def test_chronological_order(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "first", _now())
         await wm.append_turn(SESSION_ID, "assistant", "second", _now())
         await wm.append_turn(SESSION_ID, "user", "third", _now())
@@ -117,7 +117,7 @@ class TestAppendTurn:
         """35 turns -> transcript trims to 30 (the configured limit),
         segment still holds 35 (segment is bounded by boundary firing,
         not by the rolling window)."""
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         for i in range(35):
             await wm.append_turn(SESSION_ID, "user", f"msg-{i}", _now())
 
@@ -135,7 +135,7 @@ class TestAppendTurn:
 
 class TestResetSegment:
     async def test_reads_and_clears(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "a", _now())
         await wm.append_turn(SESSION_ID, "user", "b", _now())
 
@@ -153,7 +153,7 @@ class TestResetSegment:
     async def test_concurrent_reset_one_winner(self, wm: WorkingMemory):
         """Two concurrent reset_segment calls — only one sees the data,
         the other sees an empty list. Atomic at the Valkey level."""
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         for i in range(5):
             await wm.append_turn(SESSION_ID, "user", f"m-{i}", _now())
 
@@ -171,7 +171,7 @@ class TestResetSegment:
 
 class TestUpdateRollingSummary:
     async def test_promotes_current_to_prior(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.update_rolling_summary(SESSION_ID, "v1")
         await wm.update_rolling_summary(SESSION_ID, "v2")
         state = await wm.get_state(SESSION_ID)
@@ -179,7 +179,7 @@ class TestUpdateRollingSummary:
         assert state.prior_rolling_summary == "v1"
 
     async def test_two_consecutive_updates(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.update_rolling_summary(SESSION_ID, "v1")
         await wm.update_rolling_summary(SESSION_ID, "v2")
         state = await wm.get_state(SESSION_ID)
@@ -192,7 +192,7 @@ class TestUpdateRollingSummary:
 
 class TestUpdateSignals:
     async def test_partial_update(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.update_signals(
             SESSION_ID,
             signal_last_intent="recall",
@@ -207,14 +207,14 @@ class TestUpdateSignals:
         assert state.person_id == PERSON_ID
 
     async def test_empty_kwargs_noop(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         # Should not raise even without args.
         await wm.update_signals(SESSION_ID)
         state = await wm.get_state(SESSION_ID)
         assert state.person_id == PERSON_ID
 
     async def test_set_seeded_question(self, wm: WorkingMemory):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.set_seeded_question(SESSION_ID, "qid-42")
         state = await wm.get_state(SESSION_ID)
         assert state.last_seeded_question_id == "qid-42"
@@ -229,12 +229,12 @@ class TestUpdateSignals:
 
 class TestTTL:
     async def test_ttl_set_on_initialize(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         ttl = await redis_client.ttl(state_key(SESSION_ID))
         assert 0 < ttl <= 100
 
     async def test_ttl_set_after_append(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "hi", _now())
 
         for key in (
@@ -246,7 +246,7 @@ class TestTTL:
             assert 0 < ttl <= 100, f"missing TTL on {key}"
 
     async def test_ttl_refreshed_on_signal_update(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         # Push down the TTL artificially.
         await redis_client.expire(state_key(SESSION_ID), 5)
         await wm.update_signals(SESSION_ID, signal_last_intent="recall")
@@ -259,7 +259,7 @@ class TestTTL:
 
 class TestClear:
     async def test_clear_deletes_all_three_keys(self, wm: WorkingMemory, redis_client):
-        await wm.initialize(SESSION_ID, PERSON_ID, ROLE_ID, _now())
+        await wm.initialize(SESSION_ID, PERSON_ID, USER_ID, _now())
         await wm.append_turn(SESSION_ID, "user", "hi", _now())
 
         await wm.clear(SESSION_ID)

@@ -14,7 +14,7 @@ from flashback.working_memory.schema import (
 def test_default_theme_fields_are_empty() -> None:
     state = WorkingMemoryState(
         person_id="p1",
-        role_id="r1",
+        user_id="r1",
         started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     assert state.current_theme_id == ""
@@ -25,7 +25,7 @@ def test_default_theme_fields_are_empty() -> None:
 def test_theme_fields_round_trip_via_serialise_parse() -> None:
     state = WorkingMemoryState(
         person_id="p1",
-        role_id="r1",
+        user_id="r1",
         started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         current_theme_id="t-123",
         current_theme_slug="family",
