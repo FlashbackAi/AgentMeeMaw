@@ -22,8 +22,9 @@ read the columns this one populates.
 
 ## Context discovered in this repo
 
-- `role_id` (UUID) already arrives on every `/session/start` and `/turn` and is
-  stored in Working Memory. It is **not** used for provenance (decision below).
+- A `role_id` (UUID) field already arrives on every `/session/start` and
+  `/turn` and is stored in Working Memory — a v1 single-contributor leftover
+  with no Node-side concept behind it. It is retired by this sub-project (D1).
 - `contributor_display_name` already flows request → Working Memory →
   extraction queue payload → extraction prompts → response generator. It is
   used for attribution phrasing but never persisted.
@@ -33,12 +34,18 @@ read the columns this one populates.
 
 ## Decisions
 
-### D1 — Provenance identifier is the Node `user_id`
+### D1 — Provenance identifier is the Node `user_id`; `role_id` is retired
 
-Per the parent strategy doc. Node adds `user_id: UUID` to the request bodies of
-`/session/start`, `/turn`, and both stream variants. The agent stores it as
-provenance. `role_id` remains in the contract and in Working Memory, accepted
-and stored as today, but is **not** provenance.
+Per the parent strategy doc, the only identity concept is the Node `user_id`.
+Node sends `user_id: UUID` in the request bodies of `/session/start`, `/turn`,
+and both stream variants.
+
+The existing `role_id` field (a v1 single-contributor leftover) is **removed
+from the contract**, not carried alongside. During the transition window the
+agent tolerates an incoming `role_id` field (no 422 for an un-updated Node)
+but ignores it entirely — provenance is never derived from it. The
+`role_id` field in Working Memory and orchestrator state is renamed to
+`user_id`, and `role_id` is deleted from API.md / NODE_INTEGRATION.md.
 
 Accepted trade-offs (from the strategy doc): re-invite "fresh start" relies on
 status flips on old moments; GDPR account deletion becomes a cross-table scrub
@@ -97,14 +104,18 @@ Node-owned session data (§3 boundary).
 ### Contract (API.md, NODE_INTEGRATION.md)
 
 - `SessionStartRequest`, `TurnRequest`, and the stream request models gain
-  `user_id: UUID | None = None`.
+  `user_id: UUID | None = None` and drop `role_id` as a required field. An
+  incoming `role_id` is tolerated and ignored (transition window), then the
+  tolerance is removed once Node ships its side.
 - `ProfileFactUpsertRequest` gains optional `user_id`.
 - Docs updated to state: `user_id` is the authoring Node user, required for
   multi-contributor legacies, omitted/null tolerated for single-contributor.
+  `role_id` is deleted from both docs.
 
 ### Working Memory
 
-- `WorkingMemoryState` gains `user_id: str = ""` beside `role_id`.
+- `WorkingMemoryState.role_id` is renamed to `user_id: str = ""`; every
+  consumer (orchestrator state/protocol, routes, steps) follows the rename.
 - Hydrated at `/session/start`, serialized in the HSET mapping, surfaced on the
   state object the orchestrator steps read. Ephemeral as always (invariant #7).
 
@@ -153,9 +164,10 @@ Node-owned session data (§3 boundary).
 ## Testing
 
 - **Request models:** accept `user_id`, default to `None`; reject malformed
-  UUIDs (existing pydantic behavior).
+  UUIDs (existing pydantic behavior); a request carrying a legacy `role_id`
+  field is accepted and the field ignored.
 - **Working Memory:** `user_id` round-trips through initialize → hydrate →
-  serialize.
+  serialize; no `role_id` field remains.
 - **Queue payload:** `push` includes `told_by_user_id`; both push sites pass it
   from WM state; omitted → `null` in payload.
 - **Extraction persistence:** moments stamped with id + display name; NULL
