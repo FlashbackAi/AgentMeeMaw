@@ -74,7 +74,7 @@ ALTER TABLE processed_extractions
 
 -- Speaker-first retrieval (sub-project 2) and removal (sub-project 6)
 -- both filter on exactly (person_id, told_by_user_id) over active rows.
-CREATE INDEX idx_moments_person_told_by_active
+CREATE INDEX moments_person_told_by_active_idx
     ON moments (person_id, told_by_user_id)
     WHERE status = 'active';
 
@@ -90,7 +90,7 @@ COMMIT;
 
 BEGIN;
 
-DROP INDEX IF EXISTS idx_moments_person_told_by_active;
+DROP INDEX IF EXISTS moments_person_told_by_active_idx;
 
 ALTER TABLE processed_extractions DROP COLUMN IF EXISTS told_by_user_id;
 ALTER TABLE profile_facts         DROP COLUMN IF EXISTS told_by_user_id;
