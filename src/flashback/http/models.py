@@ -97,7 +97,9 @@ class TurnRequest(BaseModel):
     session_id: UUID
     person_id: UUID
     user_id: UUID | None = None
-    # DEPRECATED: tolerated and ignored — see SessionStartRequest.role_id.
+    # DEPRECATED (spec D1): tolerated and ignored so extra="forbid"
+    # doesn't 422 an un-updated Node. Never read; never provenance.
+    # Remove once Node ships user_id. See SessionStartRequest.role_id.
     role_id: UUID | None = None
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None

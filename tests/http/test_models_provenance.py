@@ -39,6 +39,7 @@ class TestSessionStartRequest:
         # must not become provenance.
         req = SessionStartRequest(**_session_body(role_id=str(uuid4())))
         assert req.user_id is None
+        assert req.role_id is not None  # tolerated: parsed, not dropped
 
     def test_rejects_malformed_user_id(self):
         with pytest.raises(ValidationError):
@@ -58,3 +59,8 @@ class TestTurnRequest:
     def test_legacy_role_id_tolerated_and_ignored(self):
         req = TurnRequest(**_turn_body(role_id=str(uuid4())))
         assert req.user_id is None
+        assert req.role_id is not None  # tolerated: parsed, not dropped
+
+    def test_rejects_malformed_user_id(self):
+        with pytest.raises(ValidationError):
+            TurnRequest(**_turn_body(user_id="not-a-uuid"))
