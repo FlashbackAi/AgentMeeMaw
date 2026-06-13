@@ -170,3 +170,20 @@ async def test_extraction_push_told_by_user_id_defaults_to_none():
     )
 
     assert sqs.body["told_by_user_id"] is None
+
+
+async def test_extraction_push_empty_user_id_coerces_to_none():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=None,
+        told_by_user_id="",
+    )
+
+    assert sqs.body["told_by_user_id"] is None
