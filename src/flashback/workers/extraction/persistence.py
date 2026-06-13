@@ -748,6 +748,7 @@ def _insert_moment(
     told_by_user_id: str | None = None,
     told_by_display_name: str | None = None,
 ) -> str:
+    told_by_display_name = told_by_display_name or None
     time_anchor_payload: Any = None
     if moment.time_anchor is not None:
         ta = moment.time_anchor.model_dump(exclude_none=True)
