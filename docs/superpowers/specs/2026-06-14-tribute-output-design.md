@@ -252,9 +252,15 @@ On `POST /tributes/{id}/generate`:
 2. **Compose two compiled contexts**, written to `latest_generation_context`
    on the tribute row **before** pushing (per CLAUDE.md §3):
    - **video** → `record_type='tribute'`, `artifact_kind='tribute_video'`:
-     `{scenes:[{prompt, negative, reference_s3_key?}], message_text, captions,
-     order, style_preset (RDR2 painterly), composed_at}`.
+     `{scenes:[{prompt, negative, reference_s3_key?, duration_seconds}],
+     message_text, captions, order, style_preset (RDR2 painterly),
+     target_duration_seconds, composed_at}`.
      `generation_prompt` retains the immutable base scene descriptions.
+     **Video length:** `target_duration_seconds` comes from the skin config
+     (default **45s**, social-friendly range 30–60s). Assembly bounds the
+     scene count and per-scene `duration_seconds` so the sum lands on the
+     target; Node's renderer honors it. Length is a **contract field** the
+     compiled-renderer must respect (see §8 dependency).
    - **storybook** → `record_type='storybook'`, `artifact_kind='storybook'`:
      `{pages:[...], cover, composed_at}`. **Hard cap: 9 pages max** (cover +
      up to 8 content pages, or 9 content pages — finalize during
@@ -290,6 +296,7 @@ Pure config + copy, no logic fork. A campaign descriptor
   message_card_copy: "Fathers and sons don't always say it out loud...",
   archetype_extra_context: "<framing for the expanded Q set>",
   featured: true,
+  video_target_seconds: 45,
   active_window: [2026-06-14, 2026-06-22] }
 ```
 
@@ -340,7 +347,7 @@ Pure config + copy, no logic fork. A campaign descriptor
 1. **Node compiled-renderer** (other repo) — critical path for the video (§8).
 2. Final ingredient weights + the storybook minimum page count (tunable in
    code; pick defaults during implementation). Storybook **max is fixed at 9
-   pages**.
+   pages**. Video **target length default 45s** (skin-configurable, 30–60s).
 3. Confirm the `tribute_status` view can express all probes in SQL, or which
    fall back to agent-stamped fields (§7).
 4. Father's Day copy + the expanded archetype question framing (skin content).
