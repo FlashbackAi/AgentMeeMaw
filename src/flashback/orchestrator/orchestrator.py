@@ -75,6 +75,17 @@ from flashback.session_summary import SessionSummaryGenerator
 log = structlog.get_logger("flashback.orchestrator")
 
 
+def _user_id_str(user_id: UUID | None) -> str:
+    """Render an optional user_id for Working Memory storage.
+
+    None (the creator-era / pre-Node-rollout case) becomes the empty
+    string, never the literal "None". WM treats "" as "no user". Keep
+    this the single conversion point so a future call site can't
+    reintroduce a bare str(None). (spec D1/D2)
+    """
+    return str(user_id) if user_id else ""
+
+
 class Orchestrator:
     """Coordinates the synchronous turn loop components."""
 
@@ -104,7 +115,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             mode=state.mode,
         )
         started = time.perf_counter()
@@ -157,7 +168,7 @@ class Orchestrator:
                 "session_start_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -213,7 +224,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             opener_path="first_time",
             mode=state.mode,
         )
@@ -249,7 +260,7 @@ class Orchestrator:
                 "first_time_opener_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -299,7 +310,7 @@ class Orchestrator:
             turn_id=str(state.turn_id),
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             mode=state.mode,
         )
         started = time.perf_counter()
@@ -382,7 +393,7 @@ class Orchestrator:
                 turn_id=str(state.turn_id),
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 intent=(
                     state.intent_result.intent if state.intent_result else None
@@ -427,7 +438,7 @@ class Orchestrator:
             turn_id=str(state.turn_id),
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             transport="stream",
             mode=state.mode,
         )
@@ -555,7 +566,7 @@ class Orchestrator:
                 turn_id=str(state.turn_id),
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 intent=(
                     state.intent_result.intent if state.intent_result else None
@@ -598,7 +609,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             transport="stream",
             mode=state.mode,
         )
@@ -646,7 +657,7 @@ class Orchestrator:
                 "session_start_stream_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 question_seeded=(
@@ -679,7 +690,7 @@ class Orchestrator:
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
             person_id=str(state.person_id),
-            user_id=str(state.user_id) if state.user_id else "",
+            user_id=_user_id_str(state.user_id),
             opener_path="first_time",
             transport="stream",
             mode=state.mode,
@@ -711,7 +722,7 @@ class Orchestrator:
                 "first_time_opener_stream_complete",
                 session_id=str(state.session_id),
                 person_id=str(state.person_id),
-                user_id=str(state.user_id) if state.user_id else "",
+                user_id=_user_id_str(state.user_id),
                 duration_ms=duration_ms,
                 phase=state.person_phase,
                 degraded_steps=list(state.failures.keys()),
