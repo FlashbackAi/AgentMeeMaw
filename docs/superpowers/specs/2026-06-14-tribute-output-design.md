@@ -63,6 +63,12 @@ launch.
 - A Father's Day campaign skin (copy + featured flag + expanded question set).
 - The **storybook** as a general compiled output usable by any legacy.
 
+**Visual register (applies to BOTH video scenes and storybook pages)**
+- **Painterly-realism only, in the Red Dead Redemption 2 register** —
+  naturalistic features + lighting with painterly brushwork. **No
+  photorealism.** Photoreal/deepfake likeness of real living people is
+  negative-prompted on every composed scene/page prompt, per CLAUDE.md §1.
+
 **Non-goals (v1)**
 - Voice cloning / narration in the subject's voice (negative-prompted, per
   product rules). The video uses text-on-screen + the polished message;
@@ -250,7 +256,11 @@ On `POST /tributes/{id}/generate`:
      order, style_preset (RDR2 painterly), composed_at}`.
      `generation_prompt` retains the immutable base scene descriptions.
    - **storybook** → `record_type='storybook'`, `artifact_kind='storybook'`:
-     `{pages:[...], cover, composed_at}`.
+     `{pages:[...], cover, composed_at}`. **Hard cap: 9 pages max** (cover +
+     up to 8 content pages, or 9 content pages — finalize during
+     implementation); assembly truncates/curates the strongest moments to fit.
+   - Every scene/page `prompt` carries the painterly-realism style preset and
+     the photoreal/deepfake **negative prompt** (see Visual register, §2).
 3. **Push `artifact_generation` jobs** carrying identifiers only: `job_id`,
    `record_type`, `record_id` (= tribute id), `person_id`, `artifact_kind`,
    `source`, `composed_at`.
@@ -300,7 +310,8 @@ Pure config + copy, no logic fork. A campaign descriptor
 - **Message freeze/skip:** video gated, storybook still generates; agent
   re-invites once next session, never nags.
 - **Too few moments:** steering biases hard toward `memories`; storybook
-  enforces a minimum page count before its generate is allowed.
+  enforces a minimum page count before its generate is allowed and a **hard
+  9-page max** above it (assembly curates the strongest moments to fit).
 - **Edits / regenerate:** tribute row follows supersession-style status
   discipline; regenerate re-composes context + re-pushes (reusing the artifact
   regenerate pattern).
@@ -328,7 +339,8 @@ Pure config + copy, no logic fork. A campaign descriptor
 
 1. **Node compiled-renderer** (other repo) — critical path for the video (§8).
 2. Final ingredient weights + the storybook minimum page count (tunable in
-   code; pick defaults during implementation).
+   code; pick defaults during implementation). Storybook **max is fixed at 9
+   pages**.
 3. Confirm the `tribute_status` view can express all probes in SQL, or which
    fall back to agent-stamped fields (§7).
 4. Father's Day copy + the expanded archetype question framing (skin content).
