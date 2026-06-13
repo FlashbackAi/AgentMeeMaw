@@ -349,6 +349,14 @@ class ExtractionWorker:
                         trait_merge_resolutions=trait_merge_resolutions,
                         theme_slug_to_id={r.slug: r.id for r in theme_rows},
                         entity_description_overrides=entity_description_overrides,
+                        told_by_user_id=(
+                            str(payload.told_by_user_id)
+                            if payload.told_by_user_id
+                            else None
+                        ),
+                        told_by_display_name=(
+                            payload.contributor_display_name or None
+                        ),
                     )
                     run_coverage_tracker(
                         cur,

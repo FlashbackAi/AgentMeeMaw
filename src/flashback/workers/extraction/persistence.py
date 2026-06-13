@@ -173,6 +173,8 @@ def persist_extraction(
     trait_merge_resolutions: list[TraitMergeResolution | None] | None = None,
     theme_slug_to_id: dict[str, str] | None = None,
     entity_description_overrides: dict[tuple[str, str], str] | None = None,
+    told_by_user_id: str | None = None,
+    told_by_display_name: str | None = None,
 ) -> PersistenceResult:
     """Run the full transactional write. Caller owns BEGIN/COMMIT/ROLLBACK.
 
@@ -205,6 +207,7 @@ def persist_extraction(
         entities=surviving_entities,
         llm_provenance=llm_provenance,
         description_overrides=entity_description_overrides,
+        told_by_user_id=told_by_user_id,
     )
     entity_ids = [w.id for w in entity_writes]
     trait_ids = _insert_traits(
@@ -213,6 +216,7 @@ def persist_extraction(
         traits=extraction.traits,
         llm_provenance=llm_provenance,
         merge_resolutions=trait_merge_resolutions,
+        told_by_user_id=told_by_user_id,
     )
 
     # Map original-index -> UUID, accounting for entities that were dropped
@@ -234,6 +238,8 @@ def persist_extraction(
             person_id=person.id,
             moment=decision.moment,
             llm_provenance=llm_provenance,
+            told_by_user_id=told_by_user_id,
+            told_by_display_name=told_by_display_name,
         )
         moment_ids.append(moment_id)
 
@@ -286,6 +292,7 @@ def persist_extraction(
         person_id=person.id,
         dropped_references=extraction.dropped_references,
         llm_provenance=llm_provenance,
+        told_by_user_id=told_by_user_id,
     )
 
     answered_question_ids = _dedupe_question_ids(seeded_question_id, seeded_question_ids)
@@ -398,6 +405,7 @@ def _persist_entities(
     entities: list[ExtractedEntity],
     llm_provenance: LLMProvenance | None,
     description_overrides: dict[tuple[str, str], str] | None = None,
+    told_by_user_id: str | None = None,
 ) -> list["EntityWriteResult"]:
     """Persist entities, reusing an existing active row on a name match.
 
@@ -437,10 +445,12 @@ def _persist_entities(
             INSERT INTO entities
                   (person_id, kind, name, description, aliases,
                    attributes, generation_prompt,
-                   llm_provider, llm_model, prompt_version)
+                   llm_provider, llm_model, prompt_version,
+                   told_by_user_id)
             VALUES (%s,        %s,   %s,   %s,          %s,
                     %s,         %s,
-                    %s,           %s,        %s)
+                    %s,           %s,        %s,
+                    %s)
             RETURNING id::text
             """,
             (
@@ -454,6 +464,7 @@ def _persist_entities(
                 llm_provenance.provider if llm_provenance else None,
                 llm_provenance.model if llm_provenance else None,
                 llm_provenance.prompt_version if llm_provenance else None,
+                told_by_user_id,
             ),
         )
         new_id = cursor.fetchone()[0]
@@ -658,6 +669,7 @@ def _insert_traits(
     traits,
     llm_provenance: LLMProvenance | None,
     merge_resolutions: list["TraitMergeResolution | None"] | None = None,
+    told_by_user_id: str | None = None,
 ) -> list[str]:
     """Insert new traits or UPDATE existing rows for cross-session merges.
 
@@ -706,9 +718,11 @@ def _insert_traits(
             """
             INSERT INTO traits
                   (person_id, name, description, strength,
-                   llm_provider, llm_model, prompt_version)
+                   llm_provider, llm_model, prompt_version,
+                   told_by_user_id)
             VALUES (%s,        %s,   %s,          'mentioned_once',
-                    %s,           %s,        %s)
+                    %s,           %s,        %s,
+                    %s)
             RETURNING id::text
             """,
             (
@@ -718,6 +732,7 @@ def _insert_traits(
                 llm_provenance.provider if llm_provenance else None,
                 llm_provenance.model if llm_provenance else None,
                 llm_provenance.prompt_version if llm_provenance else None,
+                told_by_user_id,
             ),
         )
         ids.append(cursor.fetchone()[0])
@@ -730,6 +745,8 @@ def _insert_moment(
     person_id: str,
     moment: ExtractedMoment,
     llm_provenance: LLMProvenance | None,
+    told_by_user_id: str | None = None,
+    told_by_display_name: str | None = None,
 ) -> str:
     time_anchor_payload: Any = None
     if moment.time_anchor is not None:
@@ -742,11 +759,13 @@ def _insert_moment(
               (person_id, title, narrative, time_anchor,
                life_period_estimate, sensory_details, emotional_tone,
                contributor_perspective, generation_prompt,
-               llm_provider, llm_model, prompt_version)
+               llm_provider, llm_model, prompt_version,
+               told_by_user_id, told_by_display_name)
         VALUES (%s,        %s,    %s,        %s,
                 %s,                  %s,              %s,
                 %s,                       %s,
-                %s,           %s,        %s)
+                %s,           %s,        %s,
+                %s,              %s)
         RETURNING id::text
         """,
         (
@@ -762,6 +781,8 @@ def _insert_moment(
             llm_provenance.provider if llm_provenance else None,
             llm_provenance.model if llm_provenance else None,
             llm_provenance.prompt_version if llm_provenance else None,
+            told_by_user_id,
+            told_by_display_name,
         ),
     )
     return cursor.fetchone()[0]
@@ -773,6 +794,7 @@ def _insert_dropped_reference_questions(
     person_id: str,
     dropped_references,
     llm_provenance: LLMProvenance | None,
+    told_by_user_id: str | None = None,
 ) -> list[str]:
     ids: list[str] = []
     for dr in dropped_references:
@@ -793,9 +815,11 @@ def _insert_dropped_reference_questions(
             """
             INSERT INTO questions
                   (person_id, text, source, attributes,
-                   llm_provider, llm_model, prompt_version)
+                   llm_provider, llm_model, prompt_version,
+                   told_by_user_id)
             VALUES (%s,        %s,   'dropped_reference', %s,
-                    %s,           %s,        %s)
+                    %s,           %s,        %s,
+                    %s)
             RETURNING id::text
             """,
             (
@@ -805,6 +829,7 @@ def _insert_dropped_reference_questions(
                 llm_provenance.provider if llm_provenance else None,
                 llm_provenance.model if llm_provenance else None,
                 llm_provenance.prompt_version if llm_provenance else None,
+                told_by_user_id,
             ),
         )
         ids.append(cursor.fetchone()[0])
