@@ -46,6 +46,7 @@ async def test_extraction_push_uses_architecture_payload_shape():
         "seeded_question_id": str(question_id),
         "candidate_question_ids": [],
         "contributor_display_name": "",
+        "told_by_user_id": None,
         "is_final": False,
     }
 
@@ -136,3 +137,36 @@ async def test_extraction_push_serializes_turns_as_json_ready_objects():
     assert set(first_turn) == {"role", "content", "timestamp", "metadata"}
     assert first_turn["role"] == "user"
     assert isinstance(first_turn["timestamp"], str)
+
+
+async def test_extraction_push_carries_told_by_user_id():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=None,
+        told_by_user_id="11111111-1111-1111-1111-111111111111",
+    )
+
+    assert sqs.body["told_by_user_id"] == "11111111-1111-1111-1111-111111111111"
+
+
+async def test_extraction_push_told_by_user_id_defaults_to_none():
+    sqs = CapturingSQS()
+    producer = ExtractionQueueProducer(sqs, "queue-url")
+
+    await producer.push(
+        session_id=uuid4(),
+        person_id=uuid4(),
+        segment_turns=SAMPLE_SEGMENT,
+        rolling_summary="",
+        prior_rolling_summary="",
+        seeded_question_id=None,
+    )
+
+    assert sqs.body["told_by_user_id"] is None

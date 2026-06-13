@@ -133,6 +133,7 @@ async def _force_close_segment(
             prior_rolling_summary=prior_rolling_summary,
             seeded_question_id=seeded_question_id,
             contributor_display_name=wm_state.contributor_display_name or "",
+            told_by_user_id=wm_state.user_id or None,
             is_final=True,
         )
     except Exception as exc:

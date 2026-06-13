@@ -32,6 +32,7 @@ class FakeWorkingMemory:
             last_seeded_question_id="",
             segments_pushed_this_session=0,
             contributor_display_name=contributor_display_name,
+            user_id="",
         )
         self.updated_summary = None
         self.reset_calls = 0

@@ -2,14 +2,58 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
 from flashback.workers.extraction.schema import (
+    ExtractionMessage,
     ExtractionResult,
     drop_orphan_traits,
 )
 from tests.workers.extraction.fixtures import sample_extractions
+
+
+# ---------------------------------------------------------------------------
+# Minimal valid ExtractionMessage body (reused across tests)
+# ---------------------------------------------------------------------------
+
+def _minimal_extraction_message_body() -> dict:
+    return {
+        "session_id": str(uuid4()),
+        "person_id": str(uuid4()),
+        "segment_turns": [
+            {
+                "role": "assistant",
+                "content": "Tell me about him.",
+                "timestamp": "2026-05-04T12:00:00+00:00",
+            },
+            {
+                "role": "user",
+                "content": "He was warm.",
+                "timestamp": "2026-05-04T12:00:30+00:00",
+            },
+        ],
+        "rolling_summary": "",
+        "prior_rolling_summary": "",
+        "seeded_question_id": None,
+        "is_final": False,
+    }
+
+
+def test_extraction_message_carries_told_by_user_id() -> None:
+    body = _minimal_extraction_message_body()
+    body["told_by_user_id"] = "11111111-1111-1111-1111-111111111111"
+    msg = ExtractionMessage.model_validate(body)
+    assert str(msg.told_by_user_id) == "11111111-1111-1111-1111-111111111111"
+
+
+def test_extraction_message_told_by_user_id_defaults_to_none() -> None:
+    body = _minimal_extraction_message_body()
+    # told_by_user_id is deliberately absent
+    msg = ExtractionMessage.model_validate(body)
+    assert msg.told_by_user_id is None
 
 
 def test_clean_extraction_validates() -> None:
