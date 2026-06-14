@@ -60,6 +60,19 @@ class GroundTruthAnswerInput(BaseModel):
     skipped: bool = False
 
 
+class MessageAnswerInput(BaseModel):
+    """Structured answer to a tribute message-invitation tap, carried on
+    the next /turn. Never enters the transcript — extraction never mines
+    it (design 2026-06-14 §5). The free text is polished into
+    ``tributes.message_text``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    option_label: str | None = Field(default=None, max_length=200)
+    free_text: str | None = Field(default=None, max_length=2000)
+    skipped: bool = False
+
+
 # --- /session/start --------------------------------------------------------
 
 
@@ -106,6 +119,7 @@ class TurnRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None
     ground_truth_answer: GroundTruthAnswerInput | None = None
+    message_answer: MessageAnswerInput | None = None
     mode: Mode = "text"
 
 

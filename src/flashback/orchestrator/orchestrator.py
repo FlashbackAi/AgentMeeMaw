@@ -55,6 +55,7 @@ from flashback.orchestrator.steps import (
     scan_entity_mentions,
     select_coverage_tap,
     select_ground_truth_tap,
+    select_message_invitation,
     select_question,
     select_starter_question,
 )
@@ -343,6 +344,15 @@ class Orchestrator:
                     fn=lambda: select_ground_truth_tap(state, self._deps),
                     state=state,
                 )
+                # Tribute message invitation runs after the GT tap; both
+                # bail when state.taps is already set, so at most one tap
+                # fires per turn.
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_message_invitation",
+                    fn=lambda: select_message_invitation(state, self._deps),
+                    state=state,
+                )
             if (
                 state.effective_intent == "switch"
                 and self._deps.response_generator is not None
@@ -477,6 +487,15 @@ class Orchestrator:
                     policies=TURN_POLICIES,
                     step_name="select_ground_truth_tap",
                     fn=lambda: select_ground_truth_tap(state, self._deps),
+                    state=state,
+                )
+                # Tribute message invitation runs after the GT tap; both
+                # bail when state.taps is already set, so at most one tap
+                # fires per turn.
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_message_invitation",
+                    fn=lambda: select_message_invitation(state, self._deps),
                     state=state,
                 )
             if (

@@ -28,6 +28,7 @@ from flashback.http.models import (
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.question_decisions import QuestionDecisionRepository
+from flashback.tribute.message_capture import persist_message_answer
 from flashback.working_memory import WorkingMemory
 
 try:  # AsyncConnectionPool is a runtime dependency; type-only here.
@@ -100,6 +101,19 @@ async def turn(
             answer=body.ground_truth_answer,
             wm=wm,
             db_pool=db_pool,
+        )
+
+    if body.message_answer is not None:
+        # Persist before the pipeline (mirrors ground_truth_answer): the
+        # contributor's message is polished into the tribute row and never
+        # enters the transcript, so extraction never mines it.
+        await persist_message_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.message_answer,
+            wm=wm,
+            db_pool=db_pool,
+            settings=cfg,
         )
 
     return await run_idempotent(
