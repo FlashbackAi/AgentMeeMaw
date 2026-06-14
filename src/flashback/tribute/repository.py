@@ -121,3 +121,76 @@ _SET_STATUS_SQL = "UPDATE tributes SET status = %(status)s WHERE id = %(id)s"
 def set_status_sync(cur, *, tribute_id: UUID | str, status: str) -> None:
     """Advance the lifecycle status (draft/ready/generating/complete/superseded)."""
     cur.execute(_SET_STATUS_SQL, {"id": str(tribute_id), "status": status})
+
+
+# ---------------------------------------------------------------------------
+# Async surfaces (HTTP route + orchestrator steps)
+# ---------------------------------------------------------------------------
+
+_OPEN_STATUSES = ("draft", "ready", "generating")
+
+
+async def fetch_open_tribute_id_async(
+    cur, *, person_id: UUID | str, theme_id: UUID | str
+) -> str | None:
+    """Return the most-recent non-complete tribute id for (person, theme)."""
+    await cur.execute(
+        """
+        SELECT id::text
+          FROM tributes
+         WHERE person_id = %(person_id)s
+           AND theme_id = %(theme_id)s
+           AND status = ANY(%(statuses)s)
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        {
+            "person_id": str(person_id),
+            "theme_id": str(theme_id),
+            "statuses": list(_OPEN_STATUSES),
+        },
+    )
+    row = await cur.fetchone()
+    return row[0] if row is not None else None
+
+
+async def ensure_open_tribute_async(
+    cur, *, person_id: UUID | str, theme_id: UUID | str
+) -> str:
+    """Return an open tribute for (person, theme), creating a draft if none.
+
+    Idempotent within a session: a second call returns the same row.
+    """
+    existing = await fetch_open_tribute_id_async(
+        cur, person_id=person_id, theme_id=theme_id
+    )
+    if existing is not None:
+        return existing
+    await cur.execute(
+        """
+        INSERT INTO tributes (person_id, theme_id, status)
+        VALUES (%(person_id)s, %(theme_id)s, 'draft')
+        RETURNING id::text
+        """,
+        {"person_id": str(person_id), "theme_id": str(theme_id)},
+    )
+    (tribute_id,) = await cur.fetchone()
+    return tribute_id
+
+
+async def set_message_async(
+    cur,
+    *,
+    tribute_id: UUID | str,
+    message_text: str,
+    source_turns: list[dict[str, Any]] | None = None,
+) -> None:
+    """Async twin of ``set_message_sync``."""
+    await cur.execute(
+        _SET_MESSAGE_SQL,
+        {
+            "id": str(tribute_id),
+            "message_text": message_text,
+            "source_turns": Json(source_turns) if source_turns is not None else None,
+        },
+    )
