@@ -26,6 +26,7 @@ class ProducerMessage(BaseModel):
     producer: ProducerTag
     session_id: UUID | None = None
     idempotency_key: str | None = None
+    told_by_user_id: UUID | None = None
 
 
 class GeneratedQuestion(BaseModel):

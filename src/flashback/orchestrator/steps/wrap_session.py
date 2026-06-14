@@ -230,6 +230,18 @@ async def _read_contributor_display_name(
         return ""
 
 
+async def _read_user_id(
+    state: SessionWrapState,
+    deps: OrchestratorDeps,
+) -> str | None:
+    """Session user for provenance stamping; None if missing (creator era)."""
+    try:
+        wm_state = await deps.working_memory.get_state(str(state.session_id))
+    except Exception:  # noqa: BLE001
+        return None
+    return wm_state.user_id or None
+
+
 async def _push_producers_per_session(
     state: SessionWrapState,
     deps: OrchestratorDeps,
@@ -237,10 +249,12 @@ async def _push_producers_per_session(
     if deps.producers_per_session_queue is None:
         log.info("producers_per_session_push_skipped", reason="not_configured")
         return
+    user_id = await _read_user_id(state, deps)
     try:
         msg_id = await deps.producers_per_session_queue.push(
             person_id=state.person_id,
             session_id=state.session_id,
+            told_by_user_id=user_id,
         )
     except Exception as exc:
         raise QueueSendError(str(exc)) from exc

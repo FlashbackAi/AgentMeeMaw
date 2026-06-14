@@ -64,6 +64,7 @@ class ProducerWorker:
                     idempotency_key=idempotency_key,
                     embedding_model=self.embedding_model,
                     embedding_model_version=self.embedding_model_version,
+                    told_by_user_id=msg.payload.told_by_user_id,
                 )
             )
         except LLMTimeout as exc:

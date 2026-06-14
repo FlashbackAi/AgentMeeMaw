@@ -37,7 +37,18 @@ async def test_push_payload_shape_and_message_id():
         "idempotency_key": str(session_id),
         "producer": "P2",
         "triggered_by": "session_wrap",
+        "told_by_user_id": None,
     }
+
+
+async def test_push_includes_told_by_user_id_when_supplied():
+    sqs = CapturingSQS()
+    producer = ProducersPerSessionQueueProducer(sqs, "p2-url")
+    uid = str(uuid4())
+
+    await producer.push(person_id=uuid4(), session_id=uuid4(), told_by_user_id=uid)
+
+    assert sqs.body["told_by_user_id"] == uid
 
 
 async def test_push_propagates_sqs_errors():

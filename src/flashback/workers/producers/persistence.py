@@ -23,7 +23,9 @@ class PersistResult:
         return {"questions_written": self.questions_written}
 
 
-def persist_producer_result(cursor, *, result: ProducerResult) -> PersistResult:
+def persist_producer_result(
+    cursor, *, result: ProducerResult, told_by_user_id: str | None = None
+) -> PersistResult:
     """Insert all questions and P2 target edges for one producer run."""
     out = PersistResult()
     for q in result.questions:
@@ -35,6 +37,7 @@ def persist_producer_result(cursor, *, result: ProducerResult) -> PersistResult:
             text=q.text,
             source=result.source_tag,
             attributes=attributes,
+            told_by_user_id=told_by_user_id,
         )
         out.question_ids.append(question_id)
 
@@ -101,14 +104,15 @@ def _insert_question(
     text: str,
     source: str,
     attributes: dict,
+    told_by_user_id: str | None = None,
 ) -> str:
     cursor.execute(
         """
-        INSERT INTO questions (person_id, text, source, attributes)
-        VALUES                (%s,        %s,   %s,     %s)
+        INSERT INTO questions (person_id, text, source, attributes, told_by_user_id)
+        VALUES                (%s,        %s,   %s,     %s,         %s)
         RETURNING id::text
         """,
-        (person_id, text, source, Json(attributes)),
+        (person_id, text, source, Json(attributes), told_by_user_id),
     )
     return cursor.fetchone()[0]
 

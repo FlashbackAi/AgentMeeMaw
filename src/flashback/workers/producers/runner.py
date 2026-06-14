@@ -75,6 +75,7 @@ async def run_once(
     idempotency_key: str,
     embedding_model: str,
     embedding_model_version: str,
+    told_by_user_id: UUID | None = None,
 ) -> RunResult:
     """Run one producer for one person and persist its output."""
     with db_pool.connection() as conn:
@@ -133,7 +134,11 @@ async def run_once(
     with db_pool.connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
-                persist = persist_producer_result(cur, result=produced)
+                persist = persist_producer_result(
+                    cur,
+                    result=produced,
+                    told_by_user_id=str(told_by_user_id) if told_by_user_id else None,
+                )
                 mark_processed(
                     cur,
                     idempotency_key=idempotency_key,
