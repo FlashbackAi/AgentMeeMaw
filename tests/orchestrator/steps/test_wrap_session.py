@@ -341,6 +341,40 @@ async def test_contributor_display_name_propagates_to_all_queues(monkeypatch):
     assert profile.calls[0]["contributor_display_name"] == "Sarah"
 
 
+async def test_user_id_propagates_to_producers_queue(monkeypatch):
+    """wrap_session forwards the session user_id to the producers queue as
+    told_by_user_id; proves the _read_user_id path wired in _push_producers_per_session."""
+    _patch_person(monkeypatch)
+    state = _state()
+    producers = FakeQueue("p2")
+    wm = FakeWorkingMemory(segment_turns=[])
+    wm.state.user_id = "aaaaaaaa-1111-2222-3333-444444444444"
+
+    await wrap_module.wrap_session(
+        state,
+        _deps(wm=wm, producers=producers),
+    )
+
+    assert producers.calls[0]["told_by_user_id"] == "aaaaaaaa-1111-2222-3333-444444444444"
+
+
+async def test_empty_user_id_propagates_as_none_to_producers_queue(monkeypatch):
+    """When user_id is "" (default / creator-era sessions), the producers queue
+    receives told_by_user_id=None — proving the ``or None`` coercion."""
+    _patch_person(monkeypatch)
+    state = _state()
+    producers = FakeQueue("p2")
+    # FakeWorkingMemory defaults user_id to ""
+    wm = FakeWorkingMemory(segment_turns=[])
+
+    await wrap_module.wrap_session(
+        state,
+        _deps(wm=wm, producers=producers),
+    )
+
+    assert producers.calls[0]["told_by_user_id"] is None
+
+
 async def test_clear_failure_degrades(monkeypatch):
     _patch_person(monkeypatch)
     state = _state()
