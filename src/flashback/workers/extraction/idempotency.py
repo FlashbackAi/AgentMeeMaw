@@ -43,6 +43,7 @@ def mark_processed(
     traits_written: int = 0,
     is_final: bool = False,
     status: str = "done",
+    told_by_user_id: str | None = None,
 ) -> bool:
     """Record the segment as processed AND announce completion.
 
@@ -61,15 +62,18 @@ def mark_processed(
         """
         INSERT INTO processed_extractions
               (sqs_message_id, person_id, session_id, moments_written,
-               entities_written, traits_written, is_final, status)
+               entities_written, traits_written, is_final, status,
+               told_by_user_id)
         VALUES (%s,            %s,        %s,         %s,
-               %s,              %s,             %s,       %s)
+               %s,              %s,             %s,       %s,
+               %s)
         ON CONFLICT (sqs_message_id) DO NOTHING
         RETURNING sqs_message_id
         """,
         (
             message_id, person_id, session_id, moments_written,
             entities_written, traits_written, is_final, status,
+            told_by_user_id,
         ),
     )
     inserted = cursor.fetchone() is not None

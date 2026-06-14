@@ -377,6 +377,11 @@ class ExtractionWorker:
                         traits_written=len(persistence_result.trait_ids),
                         is_final=payload.is_final,
                         status="done",
+                        told_by_user_id=(
+                            str(payload.told_by_user_id)
+                            if payload.told_by_user_id
+                            else None
+                        ),
                     )
                     outbox_jobs = enqueue_extraction_fanout(
                         cur,
