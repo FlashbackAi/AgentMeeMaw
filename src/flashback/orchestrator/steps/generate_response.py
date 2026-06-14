@@ -38,6 +38,19 @@ async def build_turn_context(
             str(state.session_id)
         )
 
+    # Soft tribute steering: only on story turns (deepen stays
+    # acknowledgment-only), and only the first unfilled slot's hint.
+    tribute_gap_hint: str | None = None
+    if (
+        state.effective_intent == "story"
+        and state.tribute_progress is not None
+        and not state.tribute_progress.ready
+    ):
+        for slot in state.tribute_progress.slots:
+            if not slot.filled:
+                tribute_gap_hint = slot.hint
+                break
+
     return TurnContext(
         person_name=person.name,
         person_relationship=person.relationship,
@@ -85,6 +98,7 @@ async def build_turn_context(
             if wm_state.current_theme_display_name
             else None
         ),
+        tribute_gap_hint=tribute_gap_hint,
         mode=state.mode,
     )
 
