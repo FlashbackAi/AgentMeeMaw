@@ -322,7 +322,7 @@ async def write_tribute_generation_context_async(
         UPDATE tributes
            SET latest_generation_context =
                COALESCE(latest_generation_context, '{}'::jsonb)
-               || jsonb_build_object(%(kind)s, %(ctx)s::jsonb)
+               || jsonb_build_object(%(kind)s::text, %(ctx)s::jsonb)
          WHERE id = %(id)s
         """,
         {
