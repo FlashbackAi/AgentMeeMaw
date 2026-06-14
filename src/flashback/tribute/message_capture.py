@@ -9,13 +9,16 @@ mines the contributor's message (design 2026-06-14 section 5).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
 
-from flashback.http.models import MessageAnswerInput
 from flashback.tribute.message_llm import polish_message
 from flashback.tribute.repository import set_message_async
+
+if TYPE_CHECKING:  # avoid a circular import via flashback.http package init
+    from flashback.http.models import MessageAnswerInput
 
 log = structlog.get_logger("flashback.tribute.message_capture")
 
