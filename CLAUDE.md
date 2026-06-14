@@ -888,9 +888,10 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /admin/reset_phase` — admin-only escape hatch for Handover
   Check stickiness. Body: `{ person_id }`.
 - `POST /profile_facts/upsert` — Node-driven fact edit. Body:
-  `{ person_id, fact_key, answer_text, question_text? }`. Supersedes
-  the prior active row, inserts new with `source='user_edit'`, pushes
-  embedding. 409 at the per-person cap; 503 if
+  `{ person_id, fact_key, answer_text, question_text?, user_id? }`.
+  Supersedes the prior active row, inserts new with
+  `source='user_edit'` (stamping `told_by_user_id` from `user_id`
+  when supplied), pushes embedding. 409 at the per-person cap; 503 if
   `EMBEDDING_QUEUE_URL` is unset.
 - `GET /identity_merges/suggestions?person_id=...` — list pending
   review items for entity identity corrections.
