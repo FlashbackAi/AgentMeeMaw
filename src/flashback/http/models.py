@@ -94,6 +94,24 @@ class TributeGenerateResponse(BaseModel):
     scene_count: int
 
 
+class TributeCampaignOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    display_name: str
+    featured: bool
+    is_active: bool
+    active_start: str | None = None
+    active_end: str | None = None
+
+
+class TributeCampaignsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaigns: list[TributeCampaignOut]
+    active_featured_slug: str | None = None
+
+
 # --- /session/start --------------------------------------------------------
 
 

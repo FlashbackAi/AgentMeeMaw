@@ -8,6 +8,7 @@ artifact_generation job. Node's compiled renderer reads the context.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -25,7 +26,12 @@ from flashback.http.deps import (
     get_db_pool,
     get_http_config,
 )
-from flashback.http.models import TributeGenerateRequest, TributeGenerateResponse
+from flashback.http.models import (
+    TributeCampaignOut,
+    TributeCampaignsResponse,
+    TributeGenerateRequest,
+    TributeGenerateResponse,
+)
 from flashback.tribute.artifact_context import (
     build_storybook_context,
     build_tribute_video_context,
@@ -199,4 +205,33 @@ async def generate_tribute(
         percent=progress.percent,
         ready=progress.ready,
         scene_count=len(script.scenes),
+    )
+
+
+@router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)
+async def get_tribute_campaigns() -> TributeCampaignsResponse:
+    """Public campaign list + which campaign is featured today (for Node)."""
+    today = datetime.now(timezone.utc).date()
+    active = active_featured_campaign(today)
+    out = []
+    for c in list_campaigns():
+        is_active = bool(
+            c.featured
+            and c.active_start
+            and c.active_end
+            and c.active_start <= today <= c.active_end
+        )
+        out.append(
+            TributeCampaignOut(
+                slug=c.slug,
+                display_name=c.display_name,
+                featured=c.featured,
+                is_active=is_active,
+                active_start=c.active_start.isoformat() if c.active_start else None,
+                active_end=c.active_end.isoformat() if c.active_end else None,
+            )
+        )
+    return TributeCampaignsResponse(
+        campaigns=out,
+        active_featured_slug=active.slug if active else None,
     )
