@@ -104,3 +104,6 @@ async def apply_theme_unlock(
             state.session_metadata["theme_archetype_answers"] = archetype_answers
         if theme.kind == "tribute" and tribute_id is not None:
             state.session_metadata["current_tribute_id"] = tribute_id
+            campaign = state.session_metadata.get("campaign")
+            if campaign:
+                state.session_metadata["current_tribute_campaign"] = str(campaign)

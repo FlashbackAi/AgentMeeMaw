@@ -137,6 +137,10 @@ class WorkingMemoryState(BaseModel):
     signal_pending_message: str = ""
     # The message invitation is a one-time ask per session.
     message_invitation_asked: bool = False
+    # Active campaign skin slug for this tribute session (e.g.
+    # 'fathers_day_2026'). Empty = neutral default. Read by
+    # select_message_invitation for copy.
+    current_tribute_campaign: str = ""
 
     @field_validator("started_at")
     @classmethod
@@ -221,5 +225,6 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "current_tribute_id": state.current_tribute_id,
         "signal_pending_message": state.signal_pending_message,
         "message_invitation_asked": str(state.message_invitation_asked),
+        "current_tribute_campaign": state.current_tribute_campaign,
         "mode": state.mode,
     }

@@ -96,6 +96,7 @@ class WorkingMemory:
         current_theme_slug: str = "",
         current_theme_display_name: str = "",
         current_tribute_id: str = "",
+        current_tribute_campaign: str = "",
         mode: str = "text",
     ) -> None:
         """
@@ -142,6 +143,7 @@ class WorkingMemory:
             current_theme_slug=current_theme_slug,
             current_theme_display_name=current_theme_display_name,
             current_tribute_id=current_tribute_id,
+            current_tribute_campaign=current_tribute_campaign,
             mode=validated_mode,
         )
         mapping = serialise_state_for_init(state)
