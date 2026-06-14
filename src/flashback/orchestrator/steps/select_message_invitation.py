@@ -20,6 +20,7 @@ from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.protocol import Tap
 from flashback.orchestrator.state import TurnState
+from flashback.tribute.campaigns import resolve_campaign
 from flashback.tribute.progress import fetch_tribute_progress_async
 from flashback.tribute.theme import MESSAGE_INVITATION_COPY
 
@@ -86,9 +87,13 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
             log.info("message_tap.skipped", reason="too_sparse")
             return
 
+        # Skin copy (e.g. Father's Day) overrides the neutral default.
+        campaign = resolve_campaign(wm_state.current_tribute_campaign or None)
+        invitation_copy = campaign.message_card_copy or MESSAGE_INVITATION_COPY
+
         tap = Tap(
             question_id=None,
-            text=MESSAGE_INVITATION_COPY,
+            text=invitation_copy,
             dimension="",
             options=[],
             kind="message",
@@ -97,8 +102,6 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         state.taps = [tap]
         await deps.working_memory.record_message_invitation_emitted(
             session_id=str(state.session_id),
-            payload_json=json.dumps(
-                {"kind": "message", "text": MESSAGE_INVITATION_COPY}
-            ),
+            payload_json=json.dumps({"kind": "message", "text": invitation_copy}),
         )
         log.info("message_tap.selected", tribute_id=tribute_id)
