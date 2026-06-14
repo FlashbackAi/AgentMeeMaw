@@ -112,6 +112,11 @@ class ProfileSummaryWorker:
                 contributor_display_name=(
                     msg.payload.contributor_display_name or ""
                 ),
+                told_by_user_id=(
+                    str(msg.payload.told_by_user_id)
+                    if msg.payload.told_by_user_id
+                    else None
+                ),
             )
         except LLMTimeout as exc:
             log.warning(

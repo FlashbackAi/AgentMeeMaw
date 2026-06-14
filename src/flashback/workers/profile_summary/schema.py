@@ -38,6 +38,7 @@ class ProfileSummaryMessage(BaseModel):
     session_id: UUID | None = None
     idempotency_key: str | None = None
     contributor_display_name: str = ""
+    told_by_user_id: UUID | None = None
 
 
 # ---------------------------------------------------------------------------

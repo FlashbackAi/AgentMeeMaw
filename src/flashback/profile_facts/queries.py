@@ -27,11 +27,11 @@ UPDATE profile_facts
 INSERT_FACT = """
 INSERT INTO profile_facts (
     id, person_id, fact_key, question_text, answer_text, source, status,
-    llm_provider, llm_model, prompt_version
+    llm_provider, llm_model, prompt_version, told_by_user_id
 ) VALUES (
     %(id)s, %(person_id)s, %(fact_key)s,
     %(question_text)s, %(answer_text)s, %(source)s, 'active',
-    %(llm_provider)s, %(llm_model)s, %(prompt_version)s
+    %(llm_provider)s, %(llm_model)s, %(prompt_version)s, %(told_by_user_id)s
 )
 RETURNING id
 """

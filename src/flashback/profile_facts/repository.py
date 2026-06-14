@@ -88,6 +88,7 @@ def upsert_fact(
     llm_provider: str | None = None,
     llm_model: str | None = None,
     prompt_version: str | None = None,
+    told_by_user_id: str | None = None,
 ) -> UpsertResult:
     """Write or supersede a single fact for one person.
 
@@ -164,6 +165,7 @@ def upsert_fact(
             "llm_provider": llm_provider,
             "llm_model": llm_model,
             "prompt_version": prompt_version,
+            "told_by_user_id": told_by_user_id,
         },
     )
 
@@ -219,6 +221,7 @@ async def upsert_fact_async(
     llm_provider: str | None = None,
     llm_model: str | None = None,
     prompt_version: str | None = None,
+    told_by_user_id: str | None = None,
 ) -> UpsertResult:
     """Async mirror of :func:`upsert_fact` for the FastAPI edit endpoint.
 
@@ -286,6 +289,7 @@ async def upsert_fact_async(
             "llm_provider": llm_provider,
             "llm_model": llm_model,
             "prompt_version": prompt_version,
+            "told_by_user_id": told_by_user_id,
         },
     )
 

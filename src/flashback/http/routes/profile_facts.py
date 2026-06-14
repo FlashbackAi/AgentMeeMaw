@@ -88,6 +88,7 @@ async def upsert(
                     max_active_facts_per_person=getattr(
                         cfg, "profile_facts_max_active_per_person", 25
                     ),
+                    told_by_user_id=str(body.user_id) if body.user_id else None,
                 )
 
     if result.cap_reached:

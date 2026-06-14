@@ -112,6 +112,7 @@ def run_once(
     embedding_model: str | None = None,
     embedding_model_version: str | None = None,
     contributor_display_name: str = "",
+    told_by_user_id: str | None = None,
 ) -> RunResult:
     """Generate the profile summary + extract profile facts for one person.
 
@@ -270,6 +271,7 @@ def run_once(
                                 llm_provider=fact_extraction_cfg.provider,
                                 llm_model=fact_extraction_cfg.model,
                                 prompt_version=PROFILE_FACTS_PROMPT_VERSION,
+                                told_by_user_id=told_by_user_id,
                             )
             except Exception as exc:  # noqa: BLE001
                 log.warning(

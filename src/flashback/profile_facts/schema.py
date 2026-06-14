@@ -51,6 +51,10 @@ class FactUpsertRequest(BaseModel):
     ``question_text`` is optional: if omitted and ``fact_key`` is one of
     the seed slugs, the canonical phrasing from
     :data:`flashback.profile_facts.SEED_FACT_QUESTIONS` is used.
+
+    ``user_id`` is optional: when Node supplies it, the new active row is
+    stamped with ``told_by_user_id`` so the edit is attributed to the
+    editing contributor. Omitted for creator-era or anonymous edits.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -59,6 +63,7 @@ class FactUpsertRequest(BaseModel):
     fact_key: str = Field(min_length=1, max_length=64)
     answer_text: str = Field(min_length=1, max_length=300)
     question_text: str | None = Field(default=None, max_length=300)
+    user_id: UUID | None = None
 
 
 class FactUpsertResponse(BaseModel):

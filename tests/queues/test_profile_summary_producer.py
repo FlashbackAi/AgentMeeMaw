@@ -37,6 +37,7 @@ async def test_push_payload_shape_and_message_id():
         "idempotency_key": str(session_id),
         "triggered_by": "session_wrap",
         "contributor_display_name": "",
+        "told_by_user_id": None,
     }
 
 
@@ -59,3 +60,28 @@ async def test_push_propagates_sqs_errors():
         await producer.push(person_id=uuid4(), session_id=uuid4())
 
     assert raised.value is exc
+
+
+async def test_push_payload_carries_user_id():
+    """told_by_user_id in push() appears in the SQS body."""
+    sqs = CapturingSQS()
+    producer = ProfileSummaryQueueProducer(sqs, "profile-url")
+    user_id = str(uuid4())
+
+    await producer.push(
+        person_id=uuid4(),
+        session_id=uuid4(),
+        told_by_user_id=user_id,
+    )
+
+    assert sqs.body["told_by_user_id"] == user_id
+
+
+async def test_push_payload_user_id_none_when_omitted():
+    """Omitting told_by_user_id → payload key is None."""
+    sqs = CapturingSQS()
+    producer = ProfileSummaryQueueProducer(sqs, "profile-url")
+
+    await producer.push(person_id=uuid4(), session_id=uuid4())
+
+    assert sqs.body.get("told_by_user_id") is None

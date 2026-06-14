@@ -20,6 +20,7 @@ class ProfileSummaryQueueProducer:
         person_id: UUID,
         session_id: UUID,
         contributor_display_name: str = "",
+        told_by_user_id: str | None = None,
     ) -> str:
         payload = {
             "person_id": str(person_id),
@@ -27,5 +28,6 @@ class ProfileSummaryQueueProducer:
             "idempotency_key": str(session_id),
             "triggered_by": "session_wrap",
             "contributor_display_name": contributor_display_name or "",
+            "told_by_user_id": told_by_user_id or None,
         }
         return await self._sqs.send_message(self._url, payload)

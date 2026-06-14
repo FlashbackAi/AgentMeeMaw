@@ -200,11 +200,13 @@ async def _push_profile_summary(
         log.info("profile_summary_push_skipped", reason="not_configured")
         return
     contributor_name = await _read_contributor_display_name(state, deps)
+    user_id = await _read_user_id(state, deps)
     try:
         msg_id = await deps.profile_summary_queue.push(
             person_id=state.person_id,
             session_id=state.session_id,
             contributor_display_name=contributor_name,
+            told_by_user_id=user_id,
         )
     except Exception as exc:
         raise QueueSendError(str(exc)) from exc
