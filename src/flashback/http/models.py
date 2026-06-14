@@ -79,6 +79,7 @@ class TributeGenerateRequest(BaseModel):
     person_id: UUID
     artifact_kind: Literal["tribute_video", "storybook"] = "tribute_video"
     preset: str | None = None
+    campaign: str | None = None
 
 
 class TributeGenerateResponse(BaseModel):

@@ -31,6 +31,11 @@ from flashback.tribute.artifact_context import (
     build_tribute_video_context,
 )
 from flashback.tribute.assembly import assemble_tribute_script
+from flashback.tribute.campaigns import (
+    active_featured_campaign,
+    list_campaigns,
+    resolve_campaign,
+)
 from flashback.tribute.progress import fetch_tribute_progress_async
 from flashback.tribute.repository import (
     fetch_scene_moments_async,
@@ -42,7 +47,6 @@ from flashback.tribute.repository import (
 from flashback.tribute.theme import (
     STORYBOOK_MAX_PAGES,
     STORYBOOK_MIN_PAGES,
-    VIDEO_TARGET_SECONDS,
 )
 
 if TYPE_CHECKING:
@@ -119,11 +123,12 @@ async def generate_tribute(
 
     # 3) Build the artifact-kind context.
     if body.artifact_kind == "tribute_video":
+        campaign = resolve_campaign(body.campaign)
         context = build_tribute_video_context(
             script=script,
             moments_by_id=moments_by_id,
             preset=preset_slug,
-            target_duration_seconds=VIDEO_TARGET_SECONDS,
+            target_duration_seconds=campaign.video_target_seconds,
             ground_truth_context=gt_scene,
         )
     else:
