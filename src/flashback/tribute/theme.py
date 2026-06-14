@@ -25,3 +25,10 @@ MESSAGE_INVITATION_COPY = (
 # stay at the 3-4 default).
 TRIBUTE_ARCHETYPE_MIN = 6
 TRIBUTE_ARCHETYPE_MAX = 8
+
+# Compiled-output shape (Plan 3). Video length is skin-configurable in
+# Plan 4; this is the neutral default. Storybook is hard-capped at 9 pages
+# (spec section 4 refinement) with a floor below which it won't generate.
+VIDEO_TARGET_SECONDS = 45
+STORYBOOK_MIN_PAGES = 3
+STORYBOOK_MAX_PAGES = 9
