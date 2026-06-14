@@ -32,6 +32,7 @@ class _WMState:
         self.current_tribute_id = kw.get("current_tribute_id", "")
         self.message_invitation_asked = kw.get("message_invitation_asked", False)
         self.user_turns_since_last_tap = kw.get("user_turns_since_last_tap", 9)
+        self.current_tribute_campaign = kw.get("current_tribute_campaign", "")
 
 
 class _TurnState:
