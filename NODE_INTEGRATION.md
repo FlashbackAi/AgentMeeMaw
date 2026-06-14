@@ -12,9 +12,8 @@ async-timing gotchas, the Postgres read contract, and the
 >    HTTP endpoint we expose.
 > 3. [`SCHEMA.md`](./SCHEMA.md) — column-by-column reference for the
 >    Postgres tables Node reads from.
-> 4. [`CLAUDE.md`](./CLAUDE.md) §3 (boundaries) and §4 (the 17
->    invariants) — *only* if you need the full rationale. Most of it
->    is summarised here.
+> 4. [`CLAUDE.md`](./CLAUDE.md) §3 (boundaries) and §4 (the invariants) —
+>    *only* if you need the full rationale. Most of it is summarised here.
 
 ---
 
@@ -134,7 +133,7 @@ production.
 
 ### Why no JWT / per-user
 
-The agent has no user model. It accepts `person_id` and `role_id` on
+The agent has no user model. It accepts `person_id` and `user_id` on
 every conversational request and trusts that Node has authorised the
 caller to see that legacy. If the user is wrong, Node is wrong.
 
@@ -355,7 +354,7 @@ Frontend                Node                              Agent
    ├────────────────────▶│                                  │
    │                     │  POST /session/start             │
    │                     │  { session_id, person_id,        │
-   │                     │    role_id, session_metadata }   │
+   │                     │    user_id, session_metadata }   │
    │                     ├─────────────────────────────────▶│
    │                     │  200 { opener, metadata }        │
    │                     │◀─────────────────────────────────┤
@@ -419,6 +418,40 @@ already stores `persons.archetype_answers` during
 array in metadata, the first-time opener uses it directly. Either way, the
 first opener anchors on the most concrete captured detail and avoids
 re-asking anything the contributor already tapped or typed.
+
+### `user_id` — contributor provenance
+
+Node must send `user_id` (the authenticated Node user's UUID) on
+every `/session/start`, `/turn`, `/turn/stream`, and
+`/session/start/stream` request. The field is optional in the contract
+(`UUID | None`) so nothing breaks before Node ships its side, but it
+should be populated for any multi-contributor legacy to enable
+attribution in sub-projects 2–6.
+
+`role_id` is **retired**: the agent no longer reads or stores it.
+During the transition window an incoming `role_id` field is tolerated
+and ignored (no `422`); it should be removed from the Node client once
+`user_id` is wired in.
+
+`POST /profile_facts/upsert` also accepts an optional `user_id`; it is
+stamped as `told_by_user_id` on the inserted row.
+
+**Provenance columns Node may read** (write-path only in sub-project 1 —
+the agent does not yet use them in retrieval or attribution rendering):
+
+| Column | Table | Meaning |
+|---|---|---|
+| `told_by_user_id` | `moments` | Which Node user's session told this story (load-bearing for future hiding/removal) |
+| `told_by_display_name` | `moments` | Denormalized contributor name at extraction time |
+| `told_by_user_id` | `entities` | First introduced by (informational) |
+| `told_by_user_id` | `traits` | First asserted by (informational) |
+| `told_by_user_id` | `questions` | Whose session motivated it (NULL = system/seeded) |
+| `told_by_user_id` | `profile_facts` | Whose session produced the answer |
+
+NULL in any of these columns means "creator era" — a pre-collaborator
+row authored before `user_id` was wired in. `threads` and `themes` are
+cross-contributor aggregates and carry no provenance column. See
+CLAUDE.md invariant #26 for the full rules.
 
 ### Turn `metadata.taps`
 
@@ -863,6 +896,6 @@ agent's, default to:
   tables → Node, never the agent.
 - **The conversation itself** → agent.
 
-The 17 invariants in `CLAUDE.md` §4 are the formal version of all of
+The invariants in `CLAUDE.md` §4 are the formal version of all of
 the above. If a proposed integration step would violate one, that's a
 flag — surface it before shipping.

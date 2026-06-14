@@ -76,6 +76,8 @@ Discrete recalled episodes. The most numerous and most edited table.
 | `narrative_embedding` | vector(1024) | Filled by embedding worker |
 | `embedding_model` | TEXT | Filled in lockstep with the vector |
 | `embedding_model_version` | TEXT | Filled in lockstep with the vector |
+| `told_by_user_id` | UUID NULL | Node `user_id` of the contributor whose session told this story. NULL = creator era. Load-bearing: only this column ever drives hiding/removal. |
+| `told_by_display_name` | TEXT NULL | Contributor display name at extraction time, denormalized for attribution rendering without a join. |
 | `video_url` | TEXT | Stylized video, written by Node |
 | `thumbnail_url` | TEXT | |
 | `generation_prompt` | TEXT | Written by agent |
@@ -85,6 +87,7 @@ Discrete recalled episodes. The most numerous and most edited table.
 - `(person_id, status)`
 - `(person_id, created_at DESC)` partial WHERE active
 - HNSW on `narrative_embedding` partial WHERE active
+- `moments_person_told_by_active_idx ON moments (person_id, told_by_user_id) WHERE status = 'active'` — speaker-first retrieval and per-contributor removal (sub-projects 2/6)
 
 ### 2.3 `entities`
 
@@ -103,6 +106,7 @@ People, places, objects, organizations mentioned in moments.
 | `merged_into` | UUID FK→entities | Set when user merges |
 | `description_embedding` | vector(1024) | |
 | `embedding_model`, `embedding_model_version` | TEXT | |
+| `told_by_user_id` | UUID NULL | Node `user_id` of the contributor who first introduced this entity. Informational — stamped on fresh inserts only; deterministic reuse-folds do not restamp. NULL = creator era. |
 | `image_url`, `thumbnail_url`, `generation_prompt` | TEXT | |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
 
@@ -152,6 +156,7 @@ Character properties of the subject. Strength climbs the ladder.
 | `description` | TEXT | |
 | `strength` | TEXT NOT NULL DEFAULT `'mentioned_once'` | CHECK in (`'mentioned_once'`, `'moderate'`, `'strong'`, `'defining'`) |
 | `status` | TEXT NOT NULL DEFAULT `'active'` | CHECK in (`'active'`, `'archived'`) |
+| `told_by_user_id` | UUID NULL | Node `user_id` of the contributor who first asserted this trait. Informational — cross-session merge-updates keep the original author. NULL = creator era. |
 | `description_embedding` | vector(1024) | |
 | `embedding_model`, `embedding_model_version` | TEXT | |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
@@ -179,6 +184,7 @@ mutual exclusion.
 | `source` | TEXT NOT NULL | CHECK in 6 values (see below) |
 | `attributes` | JSONB NOT NULL DEFAULT `'{}'` | shape varies by source |
 | `status` | TEXT NOT NULL DEFAULT `'active'` | CHECK in (`'active'`, `'asked'`, `'archived'`) |
+| `told_by_user_id` | UUID NULL | Node `user_id` of the contributor whose session motivated this question. NULL = system/seeded (coverage taps, cadence producer runs without session context). |
 | `embedding` | vector(1024) | |
 | `embedding_model`, `embedding_model_version` | TEXT | |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
@@ -229,6 +235,7 @@ page. The seven seed slugs are display defaults, not a hard registry.
 | `source` | TEXT NOT NULL | `starter_extraction` (profile_summary worker) or `user_edit` (`POST /profile_facts/upsert`) |
 | `status` | TEXT NOT NULL DEFAULT `'active'` | `'active'` or `'superseded'` |
 | `superseded_by` | UUID NULL FK→profile_facts(id) | |
+| `told_by_user_id` | UUID NULL | Node `user_id` of the contributor whose session produced this answer (profile summary worker) or who made the edit (`/profile_facts/upsert`). NULL = creator era. |
 | `answer_embedding` | vector(1024) | Filled by embedding worker |
 | `embedding_model`, `embedding_model_version` | TEXT | Lockstep with vector |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
@@ -247,6 +254,32 @@ Updates to existing keys are always allowed; new keys are rejected at
 the cap.
 
 **View:** `active_profile_facts` filters to `status='active'`.
+
+### 2.8 Provenance (collaborator Phase 1)
+
+Migration `0026_contributor_provenance` added `told_by_user_id UUID NULL`
+to `moments`, `entities`, `traits`, `questions`, `profile_facts`, and
+`processed_extractions`. `moments` also gains `told_by_display_name TEXT NULL`.
+
+**D3 semantics in brief:**
+
+| Table | Semantic | Stamped by |
+|---|---|---|
+| `moments` | told by — **load-bearing** | Extraction Worker, every insert incl. supersession rewrites |
+| `entities` | first introduced by — informational | Extraction Worker, fresh inserts only (reuse-folds do not restamp) |
+| `traits` | first asserted by — informational | Extraction Worker, fresh inserts only (merge-updates do not restamp) |
+| `questions` | whose session motivated it | Extraction Worker (inline P1), per-session producer runs; NULL = system/seeded |
+| `profile_facts` | whose session produced the answer | Profile Summary worker; `POST /profile_facts/upsert` when `user_id` supplied |
+| `processed_extractions` | which contributor the segment belonged to | Extraction Worker (`mark_processed`) |
+
+**Hard rules (D4):** NULL = creator era (pre-collaborator rows, seeded questions,
+cadence producer runs without session context). Only
+`moments.told_by_user_id` ever drives hiding/removal; the same column
+on entities/traits/questions/profile_facts is informational. Entity
+reuse-folds and trait merge-updates never restamp. `threads` and `themes`
+are cross-contributor aggregates and carry no provenance column.
+The LLM never sees or emits provenance — stamping is code-side at
+insert. See CLAUDE.md invariant #26.
 
 ---
 
@@ -617,6 +650,7 @@ for v1 scale.
 ```
 moments_person_id_status_idx
 moments_person_recent_idx                (partial, active only)
+moments_person_told_by_active_idx        (person_id, told_by_user_id), partial active only
 moments_narrative_embedding_idx          (HNSW, partial)
 
 entities_person_id_status_idx

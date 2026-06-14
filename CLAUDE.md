@@ -465,6 +465,19 @@ Every piece of code touching the graph or queues must respect these.
     boundary already grants Node read access to. The DLQ path emits
     nothing; Node falls back to a wrap timeout.
 
+26. **Contributor provenance is stamped, never inferred.** Every
+    contributor-authored row carries `told_by_user_id` (the Node
+    `user_id` that authored it); NULL = creator era (pre-collaborator
+    rows, seeded questions, cadence producer runs). It is stamped
+    code-side at insert — the LLM never sees or emits it. Only
+    `moments.told_by_user_id` (with denormalized `told_by_display_name`)
+    ever drives hiding/removal; the same column on entities/traits/
+    questions/profile_facts is informational/first-authored-by.
+    Entity-reuse folds and trait-merge updates never restamp.
+    `threads`/`themes` are cross-contributor aggregates and carry no
+    provenance. `user_id` is the sole identity; `role_id` is retired
+    (tolerated-and-ignored on requests until Node drops it).
+
 ---
 
 ## 5. Schema invariants
@@ -838,9 +851,11 @@ write them together as we go.
 
 We expose an HTTP service. Node calls us; we never call Node.
 
-- `POST /session/start` — body: `{ session_id, person_id, role_id,
-  session_metadata }`. Returns the opener message. We hydrate Working
-  Memory and run the Response Generator; `metadata.taps` is always empty.
+- `POST /session/start` — body: `{ session_id, person_id, user_id,
+  session_metadata }`. (`role_id` is retired — tolerated and ignored
+  during the transition window.) Returns the opener message. We hydrate
+  Working Memory and run the Response Generator; `metadata.taps` is
+  always empty.
   `session_metadata` accepts optional `theme_id` (UUID) and
   `archetype_answers` (list of `{question_id, question_text,
   option_id?, option_label?, free_text?}`). When `theme_id` is
@@ -851,8 +866,9 @@ We expose an HTTP service. Node calls us; we never call Node.
   theme. Answers are ephemeral priors — kept on the theme row's
   `archetype_answers` JSONB, fed into the first-turn opener
   context, but never written as moments/traits/profile_facts.
-- `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
-  Returns the assistant reply + metadata (intent,
+- `POST /turn` — body: `{ session_id, person_id, user_id, message }`.
+  (`role_id` is retired — tolerated and ignored during the transition
+  window.) Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
 - `POST /turn/stream` and `POST /session/start/stream` — SSE twins of
   the JSON endpoints above. Same request bodies, same pre-stream

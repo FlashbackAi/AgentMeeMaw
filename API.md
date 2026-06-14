@@ -260,7 +260,7 @@ gate + question selection, return the agent's opener.
 {
   "session_id": "uuid",
   "person_id": "uuid",
-  "role_id": "uuid",
+  "user_id": "uuid (optional — the authoring Node user; omit/null for single-contributor or creator-era rows)",
   "contributor_display_name": "string (optional, recommended)",
   "session_metadata": {
     "prior_session_summary": "string (optional)",
@@ -268,6 +268,8 @@ gate + question selection, return the agent's opener.
   }
 }
 ```
+
+> **Transition note:** a legacy `role_id` field is tolerated but ignored during the transition window. Send `user_id` instead.
 
 `contributor_display_name` is the contributor's display name (e.g.
 `"Sarah"`). Recommended on every new session. When provided, it's
@@ -344,7 +346,7 @@ One user message in, one assistant reply out. Idempotent on
 {
   "session_id": "uuid",
   "person_id": "uuid",
-  "role_id": "uuid",
+  "user_id": "uuid (optional — the authoring Node user; omit/null for single-contributor or creator-era rows)",
   "message": "string (1..8000 chars)",
   "question_decision": {
     "question_id": "uuid",
@@ -352,6 +354,8 @@ One user message in, one assistant reply out. Idempotent on
   }
 }
 ```
+
+> **Transition note:** a legacy `role_id` field is tolerated but ignored during the transition window. Send `user_id` instead.
 
 `question_decision` is **optional**. When present, the agent records the
 decision in the `question_decisions` table before the turn pipeline
@@ -419,20 +423,7 @@ status `200`, with named events in this order:
 
 `Idempotency-Key` is **not** supported (see §1 idempotency note).
 
-**Request** — identical to `POST /turn`:
-
-```json
-{
-  "session_id": "uuid",
-  "person_id": "uuid",
-  "role_id": "uuid",
-  "message": "string (1..8000 chars)",
-  "question_decision": {
-    "question_id": "uuid",
-    "action": "skip | suppress | defer"
-  }
-}
-```
+**Request** — identical to `POST /turn` (see the `user_id` / transition note there).
 
 **Headers**
 - `X-Service-Token` *(required)*
@@ -671,7 +662,8 @@ If no row exists for `(person_id, fact_key)` and the person already has
   "person_id": "uuid",
   "fact_key": "snake_case_slug",
   "answer_text": "string (1..300 chars)",
-  "question_text": "string (1..300 chars, optional)"
+  "question_text": "string (1..300 chars, optional)",
+  "user_id": "uuid (optional — the Node user making the edit; stamped as told_by_user_id on the new row)"
 }
 ```
 
