@@ -33,6 +33,7 @@ TURN_POLICIES: dict[str, Policy] = {
     "retrieve": Policy.DEGRADE,
     "select_ground_truth_tap": Policy.DEGRADE,
     "select_message_invitation": Policy.DEGRADE,
+    "load_tribute_progress": Policy.DEGRADE,
     "select_question": Policy.DEGRADE,
     "generate_response": Policy.PROPAGATE,
     "append_assistant": Policy.PROPAGATE,

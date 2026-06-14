@@ -180,6 +180,7 @@ async def _run_turn(
             taps=result.taps,
             question_chips=chips_out,
             voice_style=result.voice_style,
+            tribute_progress=result.tribute_progress,
         ),
     )
 

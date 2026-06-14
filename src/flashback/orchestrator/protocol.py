@@ -78,6 +78,9 @@ class TurnResult:
     chips: QuestionChips | None = None
     # Voice-mode prosody label for the reply (None in text mode).
     voice_style: str | None = None
+    # Tribute live meter: {percent, ready, slots:[{key,label,filled}]} when
+    # the session is in a tribute flow, else None.
+    tribute_progress: dict | None = None
 
 
 @dataclass(frozen=True)

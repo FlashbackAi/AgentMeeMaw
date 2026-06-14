@@ -173,6 +173,9 @@ class TurnMetadata(BaseModel):
     # Voice mode only: prosody label for the reply; Node maps it to a
     # Gemini TTS style. None in text mode.
     voice_style: str | None = None
+    # Tribute live meter: {percent, ready, slots:[...]} when the session is
+    # in a tribute flow, else None.
+    tribute_progress: dict | None = None
 
 
 class TurnResponse(BaseModel):

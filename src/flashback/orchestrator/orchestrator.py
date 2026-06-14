@@ -50,6 +50,7 @@ from flashback.orchestrator.steps import (
     init_working_memory,
     load_continuity_context,
     load_person,
+    load_tribute_progress,
     promote_seeded_to_tap,
     retrieve,
     scan_entity_mentions,
@@ -375,6 +376,14 @@ class Orchestrator:
                     fn=lambda: promote_seeded_to_tap(state, self._deps),
                     state=state,
                 )
+            # Tribute live meter + gap hint: runs every turn in a tribute
+            # flow (self-gates on current_tribute_id), before the response.
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="load_tribute_progress",
+                fn=lambda: load_tribute_progress(state, self._deps),
+                state=state,
+            )
             await execute(
                 policies=TURN_POLICIES,
                 step_name="generate_response",
@@ -516,6 +525,15 @@ class Orchestrator:
                     state=state,
                 )
 
+            # Tribute live meter + gap hint, before the pre-LLM meta event
+            # and build_turn_context (self-gates on current_tribute_id).
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="load_tribute_progress",
+                fn=lambda: load_tribute_progress(state, self._deps),
+                state=state,
+            )
+
             yield StreamEvent(type="meta", data=_turn_meta_payload(state))
 
             acc = _StreamTextAccumulator()
@@ -607,6 +625,7 @@ class Orchestrator:
                     "reply": state.response.text,
                     "segment_boundary": state.segment_boundary_detected,
                     "voice_style": state.voice_style,
+                    "tribute_progress": _tribute_progress_payload(state),
                 },
             )
         finally:
@@ -929,6 +948,20 @@ async def _stream_text_events(
             yield StreamEvent(type="text_delta", data={"text": out})
 
 
+def _tribute_progress_payload(state) -> dict | None:
+    """Serialize the tribute live meter, or None when not in a tribute flow."""
+    p = getattr(state, "tribute_progress", None)
+    if p is None:
+        return None
+    return {
+        "percent": p.percent,
+        "ready": p.ready,
+        "slots": [
+            {"key": s.key, "label": s.label, "filled": s.filled} for s in p.slots
+        ],
+    }
+
+
 def _build_turn_result(state: TurnState) -> TurnResult:
     if state.response is None:
         raise RuntimeError("turn completed without a response")
@@ -942,6 +975,7 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         taps=state.taps,
         chips=_chips_for_selection(state.selection),
         voice_style=state.response.voice_style,
+        tribute_progress=_tribute_progress_payload(state),
     )
 
 
@@ -966,6 +1000,7 @@ def _turn_meta_payload(state) -> dict:
             if chips
             else None
         ),
+        "tribute_progress": _tribute_progress_payload(state),
     }
 
 
