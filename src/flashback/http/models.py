@@ -73,6 +73,26 @@ class MessageAnswerInput(BaseModel):
     skipped: bool = False
 
 
+class TributeGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    artifact_kind: Literal["tribute_video", "storybook"] = "tribute_video"
+    preset: str | None = None
+
+
+class TributeGenerateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    tribute_id: UUID
+    artifact_kind: Literal["tribute_video", "storybook"]
+    enqueued: bool
+    percent: int
+    ready: bool
+    scene_count: int
+
+
 # --- /session/start --------------------------------------------------------
 
 
