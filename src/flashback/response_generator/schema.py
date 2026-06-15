@@ -103,6 +103,11 @@ class TurnContext(BaseModel):
     # tilt toward this theme but follow the user when conversation drifts.
     current_theme_display_name: str | None = None
 
+    # Soft tribute steering: the hint for the first unfilled checklist slot,
+    # or None. The agent should gently lean toward it when natural -- never
+    # as a survey, never a hard filter.
+    tribute_gap_hint: str | None = None
+
     # Rendered ground-truth block (audience='responder'); empty = unknown.
     ground_truth_block: str = ""
 

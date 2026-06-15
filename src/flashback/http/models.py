@@ -60,6 +60,58 @@ class GroundTruthAnswerInput(BaseModel):
     skipped: bool = False
 
 
+class MessageAnswerInput(BaseModel):
+    """Structured answer to a tribute message-invitation tap, carried on
+    the next /turn. Never enters the transcript — extraction never mines
+    it (design 2026-06-14 §5). The free text is polished into
+    ``tributes.message_text``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    option_label: str | None = Field(default=None, max_length=200)
+    free_text: str | None = Field(default=None, max_length=2000)
+    skipped: bool = False
+
+
+class TributeGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    artifact_kind: Literal["tribute_video", "storybook"] = "tribute_video"
+    preset: str | None = None
+    campaign: str | None = None
+
+
+class TributeGenerateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    tribute_id: UUID
+    artifact_kind: Literal["tribute_video", "storybook"]
+    enqueued: bool
+    percent: int
+    ready: bool
+    scene_count: int
+
+
+class TributeCampaignOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    display_name: str
+    featured: bool
+    is_active: bool
+    active_start: str | None = None
+    active_end: str | None = None
+
+
+class TributeCampaignsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaigns: list[TributeCampaignOut]
+    active_featured_slug: str | None = None
+
+
 # --- /session/start --------------------------------------------------------
 
 
@@ -106,6 +158,7 @@ class TurnRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     question_decision: QuestionDecisionInput | None = None
     ground_truth_answer: GroundTruthAnswerInput | None = None
+    message_answer: MessageAnswerInput | None = None
     mode: Mode = "text"
 
 
@@ -120,6 +173,9 @@ class TurnMetadata(BaseModel):
     # Voice mode only: prosody label for the reply; Node maps it to a
     # Gemini TTS style. None in text mode.
     voice_style: str | None = None
+    # Tribute live meter: {percent, ready, slots:[...]} when the session is
+    # in a tribute flow, else None.
+    tribute_progress: dict | None = None
 
 
 class TurnResponse(BaseModel):

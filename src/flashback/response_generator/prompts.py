@@ -146,6 +146,16 @@ Examples of the right shape when <tap_pending> is set:
 """
 
 
+_TRIBUTE_GAP_NOTE = """
+
+If a <tribute_gap_hint> block is present, the contributor is building a
+tribute and this is the one thing still missing from it. If the
+conversation allows, gently lean the next beat toward it — a natural,
+curious question, never a checklist item, never "we still need X". If the
+moment doesn't fit, ignore it and follow the contributor.
+"""
+
+
 CLARIFY_PROMPT = BASE_SYSTEM_PROMPT + """
 
 INTENT: clarify
@@ -215,7 +225,7 @@ what they just said, or a small invitation to keep going - is right.
 
 If you ask anything, it should be a narrow question that lets them
 continue the story they're already telling, not a redirect.
-"""
+""" + _TRIBUTE_GAP_NOTE
 
 PIVOT_PROMPT = BASE_SYSTEM_PROMPT + """
 

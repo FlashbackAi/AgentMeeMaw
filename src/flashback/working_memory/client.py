@@ -95,6 +95,8 @@ class WorkingMemory:
         current_theme_id: str = "",
         current_theme_slug: str = "",
         current_theme_display_name: str = "",
+        current_tribute_id: str = "",
+        current_tribute_campaign: str = "",
         mode: str = "text",
     ) -> None:
         """
@@ -140,6 +142,8 @@ class WorkingMemory:
             current_theme_id=current_theme_id,
             current_theme_slug=current_theme_slug,
             current_theme_display_name=current_theme_display_name,
+            current_tribute_id=current_tribute_id,
+            current_tribute_campaign=current_tribute_campaign,
             mode=validated_mode,
         )
         mapping = serialise_state_for_init(state)
@@ -418,6 +422,27 @@ class WorkingMemory:
             p.hset(s_key, "user_turns_since_last_tap", "0")
             p.expire(s_key, self._ttl)
             await p.execute()
+
+    async def record_message_invitation_emitted(
+        self, session_id: str, payload_json: str
+    ) -> None:
+        """Mark the one-time tribute message invitation as emitted.
+
+        Stashes the pending payload (read by persist_message_answer next
+        turn), flips ``message_invitation_asked``, and resets the shared
+        tap cooldown so the card doesn't stack on another tap.
+        """
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "signal_pending_message", payload_json)
+            p.hset(s_key, "message_invitation_asked", "True")
+            p.hset(s_key, "user_turns_since_last_tap", "0")
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def clear_pending_message(self, session_id: str) -> None:
+        """Clear the pending message payload after the sidecar is consumed."""
+        await self.update_signals(session_id, signal_pending_message="")
 
     async def clear_pending_gt_tap(self, session_id: str) -> None:
         s_key = state_key(session_id)

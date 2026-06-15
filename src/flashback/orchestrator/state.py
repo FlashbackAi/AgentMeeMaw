@@ -14,6 +14,7 @@ from flashback.phase_gate.schema import SelectionResult
 from flashback.orchestrator.protocol import Tap
 from flashback.response_generator.schema import ResponseResult
 from flashback.retrieval.schema import EntityResult, MomentResult, ThreadResult
+from flashback.tribute.progress import TributeProgress
 from flashback.working_memory.schema import Turn, WorkingMemoryState
 
 
@@ -56,6 +57,9 @@ class TurnState:
     # leading [[style: x]] tag; surfaced to Node for Gemini TTS.
     voice_style: str | None = None
     segment_boundary_detected: bool = False
+    # Tribute completion progress, loaded when the session is in a tribute
+    # flow (current_tribute_id set). Drives the live meter + gap-steering.
+    tribute_progress: TributeProgress | None = None
 
     failures: dict[str, str] = field(default_factory=dict)
 

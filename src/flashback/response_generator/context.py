@@ -92,6 +92,11 @@ def render_turn_context(ctx: TurnContext) -> str:
         body = xml_text(ctx.tap_question_text or "")
         sections.append(f"<tap_pending{dim_attr}>{body}</tap_pending>")
 
+    if ctx.tribute_gap_hint:
+        sections.append(
+            f"<tribute_gap_hint>{xml_text(ctx.tribute_gap_hint)}</tribute_gap_hint>"
+        )
+
     if ctx.current_theme_display_name:
         sections.append(
             _block(

@@ -42,6 +42,7 @@ from flashback.themes.repository import (
     upsert_archetype_draft_async,
 )
 from flashback.themes.universal import get_universal_theme
+from flashback.tribute.theme import TRIBUTE_ARCHETYPE_MAX, TRIBUTE_ARCHETYPE_MIN
 
 router = APIRouter(prefix="/themes", dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.themes")
@@ -188,6 +189,12 @@ async def unlock_prepare(
         if not description:
             description = theme.display_name
 
+        # The tribute theme collects more upfront than universals (spec §5).
+        if theme.kind == "tribute":
+            q_min, q_max = TRIBUTE_ARCHETYPE_MIN, TRIBUTE_ARCHETYPE_MAX
+        else:
+            q_min, q_max = 3, 4
+
         questions = await generate_archetype_questions(
             settings=cfg,
             theme_slug=theme.slug,
@@ -197,6 +204,8 @@ async def unlock_prepare(
             subject_name=subject_name,
             subject_relationship=None,
             context_moments=None,
+            min_questions=q_min,
+            max_questions=q_max,
         )
         if questions:
             payload = [q.to_payload() for q in questions]

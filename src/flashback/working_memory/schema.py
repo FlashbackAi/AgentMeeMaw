@@ -127,6 +127,21 @@ class WorkingMemoryState(BaseModel):
     current_theme_slug: str = ""
     current_theme_display_name: str = ""
 
+    # ---- Tribute capture (design 2026-06-14) ----------------------------
+    # Active tribute output id for this session (set when a session starts
+    # on a tribute-kind theme). Empty when not in a tribute flow.
+    current_tribute_id: str = ""
+    # JSON payload of the pending message-invitation tap, if any. Read by
+    # persist_message_answer on the next /turn so the sidecar answer is
+    # routed to the tribute row. Empty when no message tap is pending.
+    signal_pending_message: str = ""
+    # The message invitation is a one-time ask per session.
+    message_invitation_asked: bool = False
+    # Active campaign skin slug for this tribute session (e.g.
+    # 'fathers_day_2026'). Empty = neutral default. Read by
+    # select_message_invitation for copy.
+    current_tribute_campaign: str = ""
+
     @field_validator("started_at")
     @classmethod
     def _ensure_tz(cls, v: datetime) -> datetime:
@@ -207,5 +222,9 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "current_theme_id": state.current_theme_id,
         "current_theme_slug": state.current_theme_slug,
         "current_theme_display_name": state.current_theme_display_name,
+        "current_tribute_id": state.current_tribute_id,
+        "signal_pending_message": state.signal_pending_message,
+        "message_invitation_asked": str(state.message_invitation_asked),
+        "current_tribute_campaign": state.current_tribute_campaign,
         "mode": state.mode,
     }

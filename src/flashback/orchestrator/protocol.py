@@ -19,12 +19,14 @@ class Tap(BaseModel):
     small LLM call. Empty list when generation failed or was skipped —
     the UI falls back to free-text input only.
 
-    `kind` distinguishes the three tap surfaces: `coverage` (P0 bank,
-    has a question row), `ground_truth` (registry field capture — no
-    question row, `field` carries the registry key), and
-    `segment_anchor` (time anchor for the live story). Ground-truth and
-    anchor answers return as the structured `ground_truth_answer`
-    sidecar on the next /turn, never as mined text.
+    `kind` distinguishes the tap surfaces: `coverage` (P0 bank, has a
+    question row), `ground_truth` (registry field capture — no question
+    row, `field` carries the registry key), `segment_anchor` (time anchor
+    for the live story), and `message` (tribute message invitation — no
+    question row; the answer returns as the `message_answer` sidecar and
+    is polished into `tributes.message_text`). Ground-truth, anchor, and
+    message answers return as structured sidecars on the next /turn,
+    never as mined text.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -33,7 +35,7 @@ class Tap(BaseModel):
     text: str
     dimension: str
     options: list[str] = Field(default_factory=list)
-    kind: Literal["coverage", "ground_truth", "segment_anchor"] = "coverage"
+    kind: Literal["coverage", "ground_truth", "segment_anchor", "message"] = "coverage"
     field: str | None = None
 
 
@@ -76,6 +78,9 @@ class TurnResult:
     chips: QuestionChips | None = None
     # Voice-mode prosody label for the reply (None in text mode).
     voice_style: str | None = None
+    # Tribute live meter: {percent, ready, slots:[{key,label,filled}]} when
+    # the session is in a tribute flow, else None.
+    tribute_progress: dict | None = None
 
 
 @dataclass(frozen=True)

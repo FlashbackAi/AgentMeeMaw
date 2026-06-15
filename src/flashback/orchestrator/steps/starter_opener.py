@@ -268,6 +268,12 @@ async def init_working_memory(
             current_theme_display_name=str(
                 state.session_metadata.get("current_theme_display_name") or ""
             ),
+            current_tribute_id=str(
+                state.session_metadata.get("current_tribute_id") or ""
+            ),
+            current_tribute_campaign=str(
+                state.session_metadata.get("current_tribute_campaign") or ""
+            ),
             mode=state.mode,
         )
 
