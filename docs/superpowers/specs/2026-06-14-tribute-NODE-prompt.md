@@ -293,6 +293,9 @@ Gating (agent-enforced): **video** requires `ready=true` (409 otherwise);
 
 ## 5. Quick reference — what's already done on the agent side
 
+- **Entry**: tribute theme seeded for every legacy (in `insert_person` +
+  backfill migration 0028); discoverable via `active_themes_with_tier`
+  (`kind='tribute'`). The standard unlock sequence drives it; no new endpoint.
 - Migration 0027: `tributes` table, `tribute` theme kind, `tribute_status` view.
 - Capture: expanded archetype questions, the message-invitation tap + the
   `message_answer` sidecar (polished, never extracted), WM plumbing.
