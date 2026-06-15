@@ -50,8 +50,10 @@ on the legacy/profile grid. During the Father's Day window it's just
 
 ## 2. The multiple-choice questions (existing archetype unlock modal)
 
-Tapping the card opens the **same archetype-unlock MC modal you already
-have** (the one universals/emergent themes use). The ONLY differences:
+The tribute is a real theme now (seeded for every legacy), so it shows up
+in the theme grid like any other — tapping its card opens the **same
+archetype-unlock MC modal you already have** (the one universals/emergent
+themes use). The ONLY differences:
 
 1. **More questions** — 6–8 instead of the usual 3–4. Your modal already
    renders an arbitrary list; just don't assume exactly 3–4.
@@ -191,13 +193,11 @@ Every `/turn` response now carries, while in the tribute flow:
 
 ---
 
-## 7. One open dependency (so you're not blocked unknowingly)
+## 7. No special entry — it's just a theme
 
-The **entry point** (step 1 → 2, getting from the featured card into the MC
-modal) needs one small agent endpoint that doesn't exist yet (`POST
-/tributes/start`, tracked on the agent side). Until it ships, Node can't
-hand you the tribute's `theme_id` to open the modal. Everything *after* that
-(modal, chat, taps, meter, generate, result) is contract-complete and
-testable. Coordinate with the backend on timing; nothing in your UI work
-depends on the shape of that endpoint — only on the `theme_id` it returns,
-which then flows through the existing unlock modal you already build.
+The tribute is **seeded as a real theme on every legacy**, so getting from
+the featured card into the MC modal is the **exact theme-unlock path you
+already build**: the tribute appears in the theme grid (Node reads it from
+`active_themes_with_tier`, `kind='tribute'`), you open it via the same
+`unlock_prepare` modal, and start the session the same way. No new endpoint,
+no special case — if your theme-unlock flow works today, this works.

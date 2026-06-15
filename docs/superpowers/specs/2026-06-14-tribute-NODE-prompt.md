@@ -247,7 +247,9 @@ Gating (agent-enforced): **video** requires `ready=true` (409 otherwise);
 ## 3. End-to-end UX sequence Node orchestrates
 
 1. `GET /tribute-campaigns` → if a campaign `is_active`, feature it.
-2. **Enter the tribute** (see §4 gap) → obtain the tribute `theme_id`.
+2. **Enter the tribute** → read `active_themes_with_tier`, find the row
+   where `kind='tribute'`, use its `theme_id` (it's seeded for every
+   legacy now — no special call).
 3. `POST /themes/{theme_id}/unlock_prepare` → returns 6–8 archetype MC
    questions (more than the usual 3–4). Render them with chips + free-text;
    optionally persist partial answers via `archetype_progress`.
@@ -268,14 +270,16 @@ Gating (agent-enforced): **video** requires `ready=true` (409 otherwise);
 
 ## 4. OPEN ITEMS / gaps to resolve with the agent team
 
-1. **⚠️ Entry endpoint is missing (agent side).** The tribute theme is
-   seeded **on demand**, not at person creation, and there is currently **no
-   route that seeds it** — so there is no way yet to obtain the tribute
-   `theme_id` to start step 2–3. The agent team will add an entry endpoint
-   (proposed: `POST /tributes/start {person_id, campaign?}` → ensures the
-   tribute theme + an open tribute row, returns `{theme_id, tribute_id}` and
-   the unlock questions). **Node's flow depends on this; treat it as a
-   prerequisite.**
+1. **✅ Entry — RESOLVED, no new endpoint.** The tribute theme is now
+   **seeded like the universals** (at person creation + backfilled for
+   existing legacies via migration 0028), so it appears in
+   `active_themes_with_tier` with a `theme_id`. **Use the standard theme
+   unlock sequence** — exactly steps 1–4 of §3: read the view → `POST
+   /themes/{theme_id}/unlock_prepare` → `POST /session/start` with
+   `theme_id` + `archetype_answers` + `campaign`. `apply_theme_unlock`
+   creates the open tribute row on `session/start`. There is **no
+   `/tributes/start`**; identify the tribute theme by `kind='tribute'` in
+   the view.
 2. **Status `complete` flip.** Decide whether Node infers completeness from
    URL presence (preferred, zero new contract) or the agent exposes a
    callback to flip `tributes.status='complete'`. Default: URL presence.
@@ -300,4 +304,5 @@ Gating (agent-enforced): **video** requires `ready=true` (409 otherwise);
 - 38 tests passing against the test DB; zero regressions vs `main`.
 
 The single hard dependency for a working end-to-end demo is **§1 (your
-compiled renderer)** plus **§4.1 (the agent entry endpoint)**.
+compiled renderer)**. The entry path now reuses the standard theme unlock
+sequence (§4.1 resolved).
