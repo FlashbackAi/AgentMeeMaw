@@ -54,13 +54,15 @@ Produce:
   emotionally distinct moments; drop weak or redundant ones. Order them so
   the story builds -- not strictly chronological, but emotionally coherent,
   each page following naturally from the one before.
-- A caption for each chosen scene: 2-4 warm sentences (about 30-50 words)
-  that actually tell what happened on this page, so it reads as a real
-  storybook beat and is self-explanatory on its own. Make the sequence
-  cohere -- a caption may quietly pick up the thread of the previous page
-  ("Even then...", "That same care showed up...") so the reader feels a
-  continuous arc. Concrete and specific over abstract or poetic. Never
-  invent facts; draw only on the scene's own memory text.
+- A caption for each chosen scene: 2-3 warm sentences (about 25-40 words,
+  never more) that actually tell what happened on this page, so it reads as
+  a real storybook beat and is self-explanatory on its own. Keep it tight --
+  the text sits beside the picture, so an overlong caption shrinks to an
+  unreadable size. Make the sequence cohere -- a caption may quietly pick up
+  the thread of the previous page ("Even then...", "That same care showed
+  up...") so the reader feels a continuous arc. Concrete and specific over
+  abstract or poetic. Never invent facts; draw only on the scene's own
+  memory text.
 - An opening line that introduces who this person was and sets up the
   through-line (1-2 sentences). A closing line that lands the theme the
   pages built toward (1-2 sentences). Neither may invent facts.
@@ -95,7 +97,7 @@ _ASSEMBLY_TOOL = ToolSpec(
                         "caption": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 340,
+                            "maxLength": 240,
                         },
                     },
                     "required": ["moment_id", "caption"],

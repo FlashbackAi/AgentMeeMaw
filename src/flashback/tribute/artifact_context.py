@@ -113,9 +113,15 @@ def build_storybook_context(
                 "caption": s.caption,
             }
         )
+    cover_title = (script.cover_title or "").strip()
+    opening = (script.opening_caption or "").strip()
     cover: dict[str, Any] = {
-        "caption": (script.cover_title or script.opening_caption or "").strip(),
+        "caption": (cover_title or opening),
         "subtitle": (cover_subtitle or "").strip(),
+        # The opening line rides along as the cover's small caption plate, but
+        # only when there's a distinct title above it -- otherwise the title IS
+        # the opening line and the plate would just duplicate it.
+        "tagline": (opening if cover_title else ""),
         "style_preset": preset,
     }
     cover_prompt = (script.cover_prompt or "").strip()
