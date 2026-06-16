@@ -191,6 +191,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             trait_synthesizer_queue=trait_synthesizer_queue,
             profile_summary_queue=profile_summary_queue,
             producers_per_session_queue=producers_per_session_queue,
+            artifact_generation_queue=artifact_generation_queue,
             entity_name_cache=entity_name_cache,
             settings=cfg,
         )

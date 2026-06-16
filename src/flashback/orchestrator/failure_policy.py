@@ -55,6 +55,7 @@ SESSION_WRAP_POLICIES: dict[str, Policy] = {
     "push_trait_synthesizer": Policy.DEGRADE,
     "push_profile_summary": Policy.DEGRADE,
     "push_producers": Policy.DEGRADE,
+    "maybe_generate_storybook": Policy.DEGRADE,
     "clear_wm": Policy.DEGRADE,
 }
 
