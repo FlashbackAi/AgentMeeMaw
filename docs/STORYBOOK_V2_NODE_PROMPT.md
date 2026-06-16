@@ -18,7 +18,19 @@ gallery.
 
 The renderer already exists: `compiledTributeRenderer.render({kind:'storybook'})`
 → `storybookPdf.composeStorybook` (captions baked into full-bleed page images;
-cover + content pages + closing card). Do not change it.
+cover + content pages + closing card).
+
+**Cover context (composed by the agent).** `context.cover` carries
+`{ caption, subtitle, style_preset }` and, when the agent emitted a cover
+concept, `{ prompt, negative }`. When `cover.prompt` is present the renderer
+generates a **dedicated** dramatic cover still from it (a separate
+`generateSceneStills` call); otherwise it falls back to the first content
+still. The cover is laid out by `captionRenderer.renderCover` (radial vignette
++ large cursive `caption` title + muted serif `subtitle`), distinct from the
+content pages' caption band. Captions/titles render via sharp's native text
+API with an explicit bundled-font `fontfile` (PT Serif + Dancing Script in
+`assets/fonts`), so glyphs resolve without depending on the host's fontconfig
+dir scan.
 
 ## Schema you read (agent-owned, migration 0029)
 

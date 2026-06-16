@@ -81,13 +81,16 @@ async def assemble_storybook(
         preset=preset,
         max_pages=STORYBOOK_MAX_PAGES,
         ground_truth_context=ground_truth_context,
+        cover_subtitle=person_name,
     )
 
-    title = (script.opening_caption or "").strip() or f"{person_name}'s Story"
+    title = (script.cover_title or "").strip() or f"{person_name}'s Story"
     script_json = {
         "scenes": [{"moment_id": s.moment_id, "caption": s.caption} for s in script.scenes],
         "opening_caption": script.opening_caption,
         "closing_caption": script.closing_caption,
+        "cover_title": script.cover_title,
+        "cover_prompt": script.cover_prompt,
     }
     return title, script_json, context
 

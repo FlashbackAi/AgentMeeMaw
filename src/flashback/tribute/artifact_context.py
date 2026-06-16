@@ -15,6 +15,16 @@ from typing import Any
 from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT, compose_scene_prompt
 from flashback.tribute.assembly import TributeScript
 
+# Storybook pages overlay a few sentences of cursive text in a right-hand
+# column, so the page images are composed to keep that side open: subject and
+# key elements weighted left/lower, calm uncluttered negative space on the
+# right for the text to sit on without fighting the picture.
+STORYBOOK_PAGE_COMPOSITION = (
+    "composition: subject and key elements weighted to the left and lower part "
+    "of the frame, with calm, simple, uncluttered negative space across the "
+    "right side of the frame to leave room for text"
+)
+
 
 def _scene_base_prompt(moment: dict[str, Any]) -> str:
     """Prefer the moment's LLM-emitted generation_prompt; fall back to text."""
@@ -72,11 +82,18 @@ def build_storybook_context(
     preset: str,
     max_pages: int,
     ground_truth_context: str | None = None,
+    cover_subtitle: str | None = None,
 ) -> dict[str, Any]:
     """Compile the storybook context (keyed under 'storybook').
 
     Cover + up to (max_pages - 1) content pages. The contributor message is
     the final page.
+
+    The cover carries a dramatic dedicated image when the assembler emitted a
+    ``cover_prompt`` (composed with the preset + negative like any scene); Node
+    falls back to the first content still when ``cover.prompt`` is absent. The
+    cover ``caption`` is the short ``cover_title`` (falling back to the opening
+    line), with the subject name as an optional ``subtitle``.
     """
     content_budget = max(1, max_pages - 1)
     pages: list[dict[str, Any]] = []
@@ -84,6 +101,7 @@ def build_storybook_context(
         moment = moments_by_id.get(s.moment_id, {})
         prompt = compose_scene_prompt(
             base_prompt=_scene_base_prompt(moment),
+            instructions=STORYBOOK_PAGE_COMPOSITION,
             preset=preset,
             ground_truth_context=ground_truth_context,
         )
@@ -95,11 +113,21 @@ def build_storybook_context(
                 "caption": s.caption,
             }
         )
+    cover: dict[str, Any] = {
+        "caption": (script.cover_title or script.opening_caption or "").strip(),
+        "subtitle": (cover_subtitle or "").strip(),
+        "style_preset": preset,
+    }
+    cover_prompt = (script.cover_prompt or "").strip()
+    if cover_prompt:
+        cover["prompt"] = compose_scene_prompt(
+            base_prompt=cover_prompt,
+            preset=preset,
+            ground_truth_context=ground_truth_context,
+        )
+        cover["negative"] = SCENE_NEGATIVE_PROMPT
     return {
-        "cover": {
-            "caption": script.opening_caption,
-            "style_preset": preset,
-        },
+        "cover": cover,
         "pages": pages,
         "message_page": {"text": script.message_text},
         "closing_caption": script.closing_caption,

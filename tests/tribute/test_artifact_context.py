@@ -48,3 +48,39 @@ def test_storybook_caps_pages_at_max_minus_cover() -> None:
     assert len(ctx["pages"]) == 8  # 9 max - 1 cover
     assert ctx["message_page"]["text"] == "Thank you."
     assert ctx["max_pages"] == 9
+
+
+def test_storybook_cover_uses_title_and_subtitle_without_prompt() -> None:
+    # No cover_prompt → no dedicated cover image; caption falls back to opening.
+    ctx = build_storybook_context(
+        script=_script(3),
+        moments_by_id=_moments(3),
+        preset="storybook",
+        max_pages=9,
+        cover_subtitle="Mokshith",
+    )
+    assert ctx["cover"]["caption"] == "open"  # cover_title empty → opening line
+    assert ctx["cover"]["subtitle"] == "Mokshith"
+    assert "prompt" not in ctx["cover"]
+
+
+def test_storybook_cover_composes_dedicated_prompt_when_present() -> None:
+    script = TributeScript(
+        scenes=[Scene(moment_id="m0", caption="c0")],
+        opening_caption="open",
+        closing_caption="close",
+        message_text="Thank you.",
+        cover_title="A Quiet Builder",
+        cover_prompt="a wide dramatic dawn over the old workshop",
+    )
+    ctx = build_storybook_context(
+        script=script,
+        moments_by_id=_moments(1),
+        preset="storybook",
+        max_pages=9,
+        cover_subtitle="Mokshith",
+    )
+    assert ctx["cover"]["caption"] == "A Quiet Builder"  # short title preferred
+    assert ctx["cover"]["subtitle"] == "Mokshith"
+    assert "a wide dramatic dawn over the old workshop" in ctx["cover"]["prompt"]
+    assert ctx["cover"]["negative"] == SCENE_NEGATIVE_PROMPT

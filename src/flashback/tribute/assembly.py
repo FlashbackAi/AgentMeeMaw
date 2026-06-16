@@ -1,10 +1,11 @@
 """Assemble an ordered tribute script from candidate scene moments.
 
-Big-LLM (Sonnet) selects + orders the strongest moments, writes a one-line
-caption per scene, and an opening + closing line; the polished message is
-placed as the climax (just before the closing). Best-effort: on any LLM
-failure, fall back to chronological order with title-derived captions so a
-tribute can always be assembled.
+Big-LLM (Sonnet) selects + orders the strongest moments and writes a
+connected story arc: a concrete, self-explanatory 1-2 sentence caption per
+scene that picks up the thread page to page, plus an opening + closing line.
+The polished message is placed as the climax (just before the closing).
+Best-effort: on any LLM failure, fall back to chronological order with
+title-derived captions so a tribute can always be assembled.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ class TributeScript:
     opening_caption: str
     closing_caption: str
     message_text: str  # placed as the climax, before the closing
+    cover_title: str = ""  # short evocative book title for the storybook cover
+    cover_prompt: str = ""  # dramatic establishing-scene concept for the cover image
 
 
 _ASSEMBLY_SYSTEM = """\
@@ -41,15 +44,34 @@ You arrange a short tribute video/storybook from a contributor's memories
 of a loved one. You receive candidate scenes (each an id + a short memory)
 and the contributor's own closing message.
 
+The pages must read as ONE connected story, like chapters -- not a pile of
+disconnected captions. Find the through-line across the chosen memories
+(what this person was like, what they cared about, how they made people
+feel) and let every caption serve it.
+
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
   emotionally distinct moments; drop weak or redundant ones. Order them so
-  the arc builds -- not strictly chronological, but emotionally coherent.
-- A one-line caption for each chosen scene (4-10 words, warm, concrete,
-  present-tense fragments -- not full sentences). Never invent facts; draw
-  only on the scene's own memory text.
-- A short opening line (sets the tone) and a short closing line (lands the
-  feeling). Neither may invent facts.
+  the story builds -- not strictly chronological, but emotionally coherent,
+  each page following naturally from the one before.
+- A caption for each chosen scene: 2-4 warm sentences (about 30-50 words)
+  that actually tell what happened on this page, so it reads as a real
+  storybook beat and is self-explanatory on its own. Make the sequence
+  cohere -- a caption may quietly pick up the thread of the previous page
+  ("Even then...", "That same care showed up...") so the reader feels a
+  continuous arc. Concrete and specific over abstract or poetic. Never
+  invent facts; draw only on the scene's own memory text.
+- An opening line that introduces who this person was and sets up the
+  through-line (1-2 sentences). A closing line that lands the theme the
+  pages built toward (1-2 sentences). Neither may invent facts.
+- A short, evocative `cover_title` for the book cover (2-6 words, e.g.
+  "A Quiet Builder", "The Long Way Home"). It names the through-line, not a
+  literal event. Title Case, no ending punctuation.
+- A `cover_prompt`: one vivid, atmospheric ESTABLISHING scene for the cover
+  image -- dramatic light, a wide evocative setting drawn from the person's
+  world (their era, places, the objects around them). It sets a mood; it is
+  NOT a portrait. Describe a place/scene, never a face or a recognizable
+  likeness of the person. Draw only on the memories provided.
 
 The contributor's message is the climax -- you do NOT rewrite it; it is
 inserted verbatim after the last scene and before your closing line.
@@ -73,15 +95,17 @@ _ASSEMBLY_TOOL = ToolSpec(
                         "caption": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 120,
+                            "maxLength": 340,
                         },
                     },
                     "required": ["moment_id", "caption"],
                     "additionalProperties": False,
                 },
             },
-            "opening_caption": {"type": "string", "maxLength": 160},
-            "closing_caption": {"type": "string", "maxLength": 160},
+            "opening_caption": {"type": "string", "maxLength": 240},
+            "closing_caption": {"type": "string", "maxLength": 240},
+            "cover_title": {"type": "string", "maxLength": 60},
+            "cover_prompt": {"type": "string", "maxLength": 400},
         },
         "required": ["scenes", "opening_caption", "closing_caption"],
         "additionalProperties": False,
@@ -191,4 +215,6 @@ async def assemble_tribute_script(
         opening_caption=(args.get("opening_caption") or "").strip(),
         closing_caption=(args.get("closing_caption") or "").strip(),
         message_text=message_text,
+        cover_title=(args.get("cover_title") or "").strip(),
+        cover_prompt=(args.get("cover_prompt") or "").strip(),
     )
