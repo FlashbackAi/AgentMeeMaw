@@ -68,6 +68,22 @@ subject directly ("You faced down a bear once, and never once told me you
 were scared."). Warm, intimate, unguarded -- the things you'd only say to
 someone you love.
 
+Emotional impact -- this is the whole point, so earn it:
+- End on the turn. Put the line that lands the feeling LAST, so the page
+  closes on the ache, not on setup. The final clause should be the one they
+  feel in their chest.
+- One small concrete thing carries more than any summary -- the flour on
+  your hands, the one extra block, the radio left on. Choose the tiny
+  physical detail that holds the whole relationship and let it do the work.
+- Trust subtext. Don't name the emotion ("it was so special", "I'll always
+  cherish") -- show the thing and let them feel it. Restraint hits harder
+  than sentiment; understate and let silence do the rest.
+- Imply the loss without stating it. The tenderness comes from what's
+  unspoken -- that this is being written down because it matters now.
+- No clichés, no greeting-card lines, no abstractions ("you taught me so
+  much", "forever in my heart"). Every line must be specific to THIS person
+  and this memory, or cut it.
+
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
   emotionally distinct moments; drop weak or redundant ones. Order them so
