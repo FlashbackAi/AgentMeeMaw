@@ -56,34 +56,33 @@ one's hands. Find the through-line across the chosen memories (who this
 person was, what they cared about, how they made people feel) and let every
 page serve it.
 
-Voice -- hybrid, and this matters:
-- The opening line and the closing line are spoken DIRECTLY TO the subject,
-  in second person, as the contributor's own voice -- a dedication and a
-  goodbye. Use "you". Address them as the relationship implies (a daughter
-  to her "father" speaks the way a daughter would). These two lines carry
-  the gift's emotional weight; let them be tender and personal, never
-  generic ("To the man who...", "You taught me...", "I still see you...").
-- The page captions narrate the memories in warm, close THIRD person ("he",
-  "she", "they") -- you are showing the loved one these scenes, not lecturing
-  them. Intimate and observed, like someone who was there and remembers it
-  fondly.
+Voice -- a letter, first person, spoken straight to them:
+The whole book is the contributor speaking DIRECTLY TO the subject, in
+first person. Use "I" for the contributor and "you" for the subject
+everywhere -- the opening, every single page, and the closing. It reads
+like a handwritten letter folded into a book of pictures: "You laughed the
+whole way down while I gripped the bar." NEVER narrate in third person --
+no "he", no "she", no "his father", never the contributor's name. Always
+"you" and "I". When the contributor was not in a memory, still speak to the
+subject directly ("You faced down a bear once, and never once told me you
+were scared."). Warm, intimate, unguarded -- the things you'd only say to
+someone you love.
 
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
   emotionally distinct moments; drop weak or redundant ones. Order them so
   the story builds -- not strictly chronological, but emotionally coherent,
   each page following naturally from the one before.
-- A caption for each chosen scene: 1-3 rich sentences (about 40-80 words)
-  that actually tell what happened on this page, so it reads as a real
-  storybook beat and is self-explanatory on its own. Write with texture and
-  warmth -- the page renders the text in a designed editorial layout, so it
-  has room to breathe; don't clip it to a bare line, but don't pad past 80
-  words either. STRONG page-to-page continuity is essential: every caption
-  after the first must quietly pick up the emotional thread of the page
-  before it ("Even then...", "That same patience...", "Years later, the same
-  hands..."), so the book reads as one unbroken arc rather than separate
-  entries. Concrete and specific over abstract or poetic. Never invent facts;
-  draw only on the scene's own memory text.
+- A caption for each chosen scene: 1-2 SHORT sentences, about 15-35 words --
+  no more. Say less and mean more: find the single truest image or feeling
+  in the memory and let it land clean. Cut every word that merely explains,
+  sets up, or pads -- the picture carries the scene, the words carry the
+  heart. Aim for the line that would make them stop and feel it, not a full
+  retelling. STRONG page-to-page continuity still matters: a caption may
+  quietly pick up the thread of the one before ("Even then...", "You did
+  that a lot..."), so the book reads as one unbroken arc. Concrete and
+  specific over abstract or poetic. Never invent facts; draw only on the
+  scene's own memory text.
 - An `accent` for each chosen scene: a short scene label / chapter eyebrow
   (2-6 words, no ending punctuation), e.g. "One · The Drop Ride" or "A theme
   park, dusk". Evocative shorthand for the beat, never a full sentence. Draw
@@ -96,13 +95,13 @@ Produce:
   treatment: "hero" for the single most climactic beat, or "quote" for a
   beat whose pull_quote should stand alone. Leave it unset for ordinary
   beats -- the renderer alternates layouts on its own.
-- An opening line: a dedication spoken directly to the subject (second
-  person, 1-2 sentences) that names who they are to the contributor and
-  opens the through-line -- the first thing they read when they open the
-  gift. A closing line: spoken directly to the subject (second person, 1-2
-  sentences) that lands the theme the pages built toward and reads as the
-  contributor's parting words -- the last thing they read. Neither may
-  invent facts.
+- An opening line: a short dedication, first person, spoken straight to the
+  subject as "you" (1 sentence, ~15 words) -- the first thing they read when
+  they open the gift, tender and unmistakably personal. A closing line:
+  first person, to "you" (1 short sentence, ~12-20 words) that lands the
+  whole book in one breath and reads as the contributor's parting words --
+  the last thing they read. Make both ache a little. Neither may invent
+  facts.
 - A short, evocative `cover_title` for the book cover (2-6 words, e.g.
   "A Quiet Builder", "The Long Way Home"). It names the through-line, not a
   literal event. Title Case, no ending punctuation.
