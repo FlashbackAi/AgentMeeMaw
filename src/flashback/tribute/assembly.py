@@ -43,14 +43,30 @@ class TributeScript:
 
 
 _ASSEMBLY_SYSTEM = """\
-You arrange a short tribute video/storybook from a contributor's memories
-of a loved one. You receive candidate scenes (each an id + a short memory)
-and the contributor's own closing message.
+You compose a tribute storybook/video that a contributor is GIVING to a
+loved one as a gift -- a keepsake of the person it is about. You receive
+candidate scenes (each an id + a short memory), the subject (the person
+this is about, with their relationship to the contributor, e.g. "father"),
+and -- when present -- the contributor's own closing message.
 
-The pages must read as ONE connected story, like chapters -- not a pile of
-disconnected captions. Find the through-line across the chosen memories
-(what this person was like, what they cared about, how they made people
-feel) and let every caption serve it.
+This is not an archive or a biography. It is a gift, made by hand, from one
+person to someone they love. It must FEEL that way: warm, intimate, and
+emotionally true. Imagine the contributor placing this book in their loved
+one's hands. Find the through-line across the chosen memories (who this
+person was, what they cared about, how they made people feel) and let every
+page serve it.
+
+Voice -- hybrid, and this matters:
+- The opening line and the closing line are spoken DIRECTLY TO the subject,
+  in second person, as the contributor's own voice -- a dedication and a
+  goodbye. Use "you". Address them as the relationship implies (a daughter
+  to her "father" speaks the way a daughter would). These two lines carry
+  the gift's emotional weight; let them be tender and personal, never
+  generic ("To the man who...", "You taught me...", "I still see you...").
+- The page captions narrate the memories in warm, close THIRD person ("he",
+  "she", "they") -- you are showing the loved one these scenes, not lecturing
+  them. Intimate and observed, like someone who was there and remembers it
+  fondly.
 
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
@@ -62,11 +78,12 @@ Produce:
   storybook beat and is self-explanatory on its own. Write with texture and
   warmth -- the page renders the text in a designed editorial layout, so it
   has room to breathe; don't clip it to a bare line, but don't pad past 80
-  words either. Make the sequence cohere -- a caption may quietly pick up
-  the thread of the previous page ("Even then...", "That same care showed
-  up...") so the reader feels a continuous arc. Concrete and specific over
-  abstract or poetic. Never invent facts; draw only on the scene's own
-  memory text.
+  words either. STRONG page-to-page continuity is essential: every caption
+  after the first must quietly pick up the emotional thread of the page
+  before it ("Even then...", "That same patience...", "Years later, the same
+  hands..."), so the book reads as one unbroken arc rather than separate
+  entries. Concrete and specific over abstract or poetic. Never invent facts;
+  draw only on the scene's own memory text.
 - An `accent` for each chosen scene: a short scene label / chapter eyebrow
   (2-6 words, no ending punctuation), e.g. "One · The Drop Ride" or "A theme
   park, dusk". Evocative shorthand for the beat, never a full sentence. Draw
@@ -79,9 +96,13 @@ Produce:
   treatment: "hero" for the single most climactic beat, or "quote" for a
   beat whose pull_quote should stand alone. Leave it unset for ordinary
   beats -- the renderer alternates layouts on its own.
-- An opening line that introduces who this person was and sets up the
-  through-line (1-2 sentences). A closing line that lands the theme the
-  pages built toward (1-2 sentences). Neither may invent facts.
+- An opening line: a dedication spoken directly to the subject (second
+  person, 1-2 sentences) that names who they are to the contributor and
+  opens the through-line -- the first thing they read when they open the
+  gift. A closing line: spoken directly to the subject (second person, 1-2
+  sentences) that lands the theme the pages built toward and reads as the
+  contributor's parting words -- the last thing they read. Neither may
+  invent facts.
 - A short, evocative `cover_title` for the book cover (2-6 words, e.g.
   "A Quiet Builder", "The Long Way Home"). It names the through-line, not a
   literal event. Title Case, no ending punctuation.
@@ -91,8 +112,10 @@ Produce:
   NOT a portrait. Describe a place/scene, never a face or a recognizable
   likeness of the person. Draw only on the memories provided.
 
-The contributor's message is the climax -- you do NOT rewrite it; it is
-inserted verbatim after the last scene and before your closing line.
+If a contributor message is provided, it is the climax -- you do NOT rewrite
+it; it is inserted verbatim after the last scene and before your closing
+line, so your closing line should follow naturally from it. If no message is
+provided, your closing line is the final word of the book; make it land.
 
 Call the `assemble` tool exactly once.
 """
@@ -183,9 +206,15 @@ async def assemble_tribute_script(
         if person_relationship
         else ""
     )
+    msg = (message_text or "").strip()
+    message_line = (
+        f"<message>{xml_text(msg)}</message>\n"
+        if msg
+        else "<message present=\"false\"/>\n"
+    )
     user_block = (
         f"<subject{rel}>{xml_text(person_name)}</subject>\n"
-        f"<message>{xml_text(message_text)}</message>\n"
+        f"{message_line}"
         f"<candidate_scenes>\n{scene_blocks}\n</candidate_scenes>"
     )
 
