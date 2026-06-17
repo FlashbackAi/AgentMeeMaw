@@ -15,15 +15,34 @@ from typing import Any
 from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT, compose_scene_prompt
 from flashback.tribute.assembly import TributeScript
 
-# Storybook pages overlay a few sentences of cursive text in a right-hand
-# column, so the page images are composed to keep that side open: subject and
-# key elements weighted left/lower, calm uncluttered negative space on the
-# right for the text to sit on without fighting the picture.
+# Node now renders storybook captions in a designed HTML/CSS editorial layout
+# rather than baking text into the image, so the page art no longer reserves a
+# blank text column. Compose each page as a complete, full-frame painterly
+# image that fills the frame edge to edge, with the subject and key elements
+# kept off the extreme edges so the image survives Node's crop to framed insets
+# and full-bleed slots.
 STORYBOOK_PAGE_COMPOSITION = (
-    "composition: subject and key elements weighted to the left and lower part "
-    "of the frame, with calm, simple, uncluttered negative space across the "
-    "right side of the frame to leave room for text"
+    "composition: a complete, full-frame painterly image that fills the whole "
+    "frame edge to edge with no reserved blank space for text; keep the subject "
+    "and key elements away from the extreme edges so the image survives cropping "
+    "to framed insets and full-bleed slots"
 )
+
+
+def _time_anchor_label(time_anchor: Any) -> str:
+    """Flat fallback accent label from a moment's ``time_anchor`` JSONB.
+
+    Used only when the assembler omitted an ``accent`` for a scene. The
+    JSONB shape is ``{year?, decade?, life_period?, era?}`` (migration 0001);
+    prefer the most human-readable field present.
+    """
+    if not isinstance(time_anchor, dict):
+        return ""
+    for key in ("era", "life_period", "decade", "year"):
+        val = time_anchor.get(key)
+        if val:
+            return str(val).strip()
+    return ""
 
 
 def _scene_base_prompt(moment: dict[str, Any]) -> str:
@@ -105,14 +124,23 @@ def build_storybook_context(
             preset=preset,
             ground_truth_context=ground_truth_context,
         )
-        pages.append(
-            {
-                "moment_id": s.moment_id,
-                "prompt": prompt,
-                "negative": SCENE_NEGATIVE_PROMPT,
-                "caption": s.caption,
-            }
-        )
+        page: dict[str, Any] = {
+            "moment_id": s.moment_id,
+            "prompt": prompt,
+            "negative": SCENE_NEGATIVE_PROMPT,
+            "caption": s.caption,
+        }
+        # Optional editorial fields -- present only when meaningful, so Node's
+        # renderer degrades cleanly (auto-alternates layout, no quote breather)
+        # when a beat omits them.
+        accent = (s.accent or _time_anchor_label(moment.get("time_anchor"))).strip()
+        if accent:
+            page["accent"] = accent
+        if s.pull_quote:
+            page["pull_quote"] = s.pull_quote
+        if s.layout:
+            page["layout"] = s.layout
+        pages.append(page)
     cover: dict[str, Any] = {
         "caption": (script.cover_title or script.opening_caption or "").strip(),
         "subtitle": (cover_subtitle or "").strip(),

@@ -27,6 +27,9 @@ log = structlog.get_logger("flashback.tribute.assembly")
 class Scene:
     moment_id: str
     caption: str
+    accent: str = ""  # short chapter eyebrow / scene label
+    pull_quote: str = ""  # optional <=12-word quotable line, often empty
+    layout: str = ""  # optional "spread" | "hero" | "quote" treatment
 
 
 @dataclass(frozen=True)
@@ -54,15 +57,28 @@ Produce:
   emotionally distinct moments; drop weak or redundant ones. Order them so
   the story builds -- not strictly chronological, but emotionally coherent,
   each page following naturally from the one before.
-- A caption for each chosen scene: 2-3 warm sentences (about 25-40 words,
-  never more) that actually tell what happened on this page, so it reads as
-  a real storybook beat and is self-explanatory on its own. Keep it tight --
-  the text sits beside the picture, so an overlong caption shrinks to an
-  unreadable size. Make the sequence cohere -- a caption may quietly pick up
+- A caption for each chosen scene: 1-3 rich sentences (about 40-80 words)
+  that actually tell what happened on this page, so it reads as a real
+  storybook beat and is self-explanatory on its own. Write with texture and
+  warmth -- the page renders the text in a designed editorial layout, so it
+  has room to breathe; don't clip it to a bare line, but don't pad past 80
+  words either. Make the sequence cohere -- a caption may quietly pick up
   the thread of the previous page ("Even then...", "That same care showed
   up...") so the reader feels a continuous arc. Concrete and specific over
   abstract or poetic. Never invent facts; draw only on the scene's own
   memory text.
+- An `accent` for each chosen scene: a short scene label / chapter eyebrow
+  (2-6 words, no ending punctuation), e.g. "One · The Drop Ride" or "A theme
+  park, dusk". Evocative shorthand for the beat, never a full sentence. Draw
+  only on the scene's own memory.
+- A `pull_quote` for a scene ONLY when the beat has a genuinely quotable,
+  punchy line (<= 12 words) worth setting alone on its own page. Omit it on
+  every scene that isn't truly quotable -- most scenes have none. Never
+  invent it; it must be grounded in the scene's memory.
+- A `layout` for a scene ONLY when a beat clearly wants a specific
+  treatment: "hero" for the single most climactic beat, or "quote" for a
+  beat whose pull_quote should stand alone. Leave it unset for ordinary
+  beats -- the renderer alternates layouts on its own.
 - An opening line that introduces who this person was and sets up the
   through-line (1-2 sentences). A closing line that lands the theme the
   pages built toward (1-2 sentences). Neither may invent facts.
@@ -97,7 +113,13 @@ _ASSEMBLY_TOOL = ToolSpec(
                         "caption": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 240,
+                            "maxLength": 600,
+                        },
+                        "accent": {"type": "string", "maxLength": 60},
+                        "pull_quote": {"type": "string", "maxLength": 90},
+                        "layout": {
+                            "type": "string",
+                            "enum": ["spread", "hero", "quote"],
                         },
                     },
                     "required": ["moment_id", "caption"],
@@ -206,7 +228,18 @@ async def assemble_tribute_script(
         mid = raw.get("moment_id")
         caption = (raw.get("caption") or "").strip()
         if mid in by_id and caption:
-            scenes.append(Scene(moment_id=mid, caption=caption))
+            layout = (raw.get("layout") or "").strip().lower()
+            if layout not in ("spread", "hero", "quote"):
+                layout = ""
+            scenes.append(
+                Scene(
+                    moment_id=mid,
+                    caption=caption,
+                    accent=(raw.get("accent") or "").strip(),
+                    pull_quote=(raw.get("pull_quote") or "").strip(),
+                    layout=layout,
+                )
+            )
     if not scenes:
         return _fallback_script(
             usable, message_text=message_text, max_scenes=max_scenes

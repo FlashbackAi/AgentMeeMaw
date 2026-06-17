@@ -214,7 +214,7 @@ async def fetch_scene_moments_async(
     await cur.execute(
         """
         SELECT m.id::text, m.title, m.narrative,
-               m.generation_prompt, m.sensory_details
+               m.generation_prompt, m.sensory_details, m.time_anchor
           FROM active_moments m
          WHERE m.person_id = %(person_id)s
            AND (
@@ -241,6 +241,7 @@ async def fetch_scene_moments_async(
             "narrative": r[2],
             "generation_prompt": r[3],
             "sensory_details": r[4],
+            "time_anchor": r[5],
         }
         for r in rows
     ]

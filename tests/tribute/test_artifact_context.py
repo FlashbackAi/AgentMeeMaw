@@ -64,6 +64,53 @@ def test_storybook_cover_uses_title_and_subtitle_without_prompt() -> None:
     assert "prompt" not in ctx["cover"]
 
 
+def test_storybook_pages_carry_editorial_fields_when_set() -> None:
+    script = TributeScript(
+        scenes=[
+            Scene(
+                moment_id="m0",
+                caption="c0",
+                accent="One · The Drop Ride",
+                pull_quote="Hold on, here we go.",
+                layout="hero",
+            )
+        ],
+        opening_caption="open",
+        closing_caption="close",
+        message_text="Thank you.",
+    )
+    ctx = build_storybook_context(
+        script=script,
+        moments_by_id=_moments(1),
+        preset="storybook",
+        max_pages=9,
+    )
+    page = ctx["pages"][0]
+    assert page["accent"] == "One · The Drop Ride"
+    assert page["pull_quote"] == "Hold on, here we go."
+    assert page["layout"] == "hero"
+
+
+def test_storybook_page_accent_falls_back_to_time_anchor() -> None:
+    script = _script(1)  # plain scenes, no accent emitted
+    moments = {"m0": {"generation_prompt": "scene 0", "time_anchor": {"era": "1980s"}}}
+    ctx = build_storybook_context(
+        script=script, moments_by_id=moments, preset="storybook", max_pages=9
+    )
+    page = ctx["pages"][0]
+    assert page["accent"] == "1980s"
+    # Optional fields with no value are omitted entirely (clean degrade).
+    assert "pull_quote" not in page
+    assert "layout" not in page
+
+
+def test_storybook_page_omits_accent_when_no_source() -> None:
+    ctx = build_storybook_context(
+        script=_script(1), moments_by_id=_moments(1), preset="storybook", max_pages=9
+    )
+    assert "accent" not in ctx["pages"][0]
+
+
 def test_storybook_cover_composes_dedicated_prompt_when_present() -> None:
     script = TributeScript(
         scenes=[Scene(moment_id="m0", caption="c0")],
