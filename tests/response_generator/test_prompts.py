@@ -96,3 +96,15 @@ def test_contributor_name_is_private_opener_context_only():
     assert "<contributor_name>" in prompt
     assert "private context" in flattened
     assert "Do NOT use the contributor's own name as a greeting or address" in prompt
+
+
+def test_recall_prompt_has_attribution_instruction():
+    p = prompts.RECALL_PROMPT.lower()
+    assert "told_by" in p
+    assert "credit" in p or "attribut" in p
+
+
+def test_starter_prompt_has_voice_anchor_instruction():
+    from flashback.response_generator.prompts import STARTER_OPENER_PROMPT
+    p = STARTER_OPENER_PROMPT.lower()
+    assert "voice_anchor" in p or "relationship to the subject" in p

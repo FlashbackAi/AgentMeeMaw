@@ -21,6 +21,9 @@ class MomentResult(BaseModel):
     contributor_perspective: str | None
     created_at: datetime
     similarity_score: float | None = None
+    told_by_user_id: UUID | None = None
+    told_by_display_name: str | None = None
+    told_by_relationship: str | None = None
 
 
 class EntityResult(BaseModel):

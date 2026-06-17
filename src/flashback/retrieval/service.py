@@ -29,6 +29,12 @@ from flashback.retrieval.schema import (
 )
 from flashback.retrieval.voyage import VoyageQueryEmbedder
 
+# Soft speaker-first bias (spec D1): subtracted from the cosine distance of
+# the current contributor's own moments so they rank slightly higher, while a
+# much closer cross-contributor match can still win. Cosine distance is 0..2;
+# 0.1 is a gentle nudge. Tunable.
+SPEAKER_BIAS = 0.1
+
 
 class RetrievalService:
     """Read-only access to the canonical graph for the agent.
@@ -63,8 +69,13 @@ class RetrievalService:
         query: str,
         person_id: UUID,
         limit: int | None = None,
+        current_user_id: UUID | None = None,
     ) -> list[MomentResult]:
-        """Vector similarity search over active moments for a person."""
+        """Vector similarity search over active moments for a person.
+
+        ``current_user_id`` (the current speaker) biases ranking toward that
+        contributor's own moments (soft, spec D1). None disables the bias.
+        """
         clamped_limit = self._clamp_limit(limit)
         vector = await self.embed_query(query)
         if vector is None:
@@ -78,6 +89,8 @@ class RetrievalService:
                 "embedding_model": self._embedding_model,
                 "embedding_model_version": self._embedding_model_version,
                 "limit": clamped_limit,
+                "current_user_id": current_user_id,
+                "speaker_bias": SPEAKER_BIAS,
             },
         )
         return [MomentResult.model_validate(row) for row in rows]

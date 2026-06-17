@@ -37,7 +37,7 @@ class FakeRetrieval:
         self.entity_calls = []
         self.thread_calls = []
 
-    async def search_moments(self, *, query, person_id):
+    async def search_moments(self, *, query, person_id, current_user_id=None):
         self.search_moment_calls.append({"query": query, "person_id": person_id})
         if self.raise_on_search:
             raise RuntimeError("db unavailable")

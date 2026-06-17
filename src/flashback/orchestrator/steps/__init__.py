@@ -2,6 +2,7 @@
 
 from flashback.orchestrator.steps.append_response import append_assistant
 from flashback.orchestrator.steps.append_turn import append_user_turn
+from flashback.orchestrator.steps.apply_collaborator_onboarding import apply_collaborator_onboarding
 from flashback.orchestrator.steps.apply_theme_unlock import apply_theme_unlock
 from flashback.orchestrator.steps.classify import classify
 from flashback.orchestrator.steps.detect_segment import detect_segment
@@ -25,6 +26,7 @@ __all__ = [
     "append_assistant",
     "append_opener",
     "append_user_turn",
+    "apply_collaborator_onboarding",
     "apply_theme_unlock",
     "classify",
     "detect_segment",

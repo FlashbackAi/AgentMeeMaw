@@ -41,6 +41,7 @@ async def build_turn_context(
         person_name=person.name,
         person_relationship=person.relationship,
         person_gender=state.person_gender,
+        current_user_id=state.user_id,
         intent=state.effective_intent,
         emotional_temperature=state.effective_temperature,
         rolling_summary=wm_state.rolling_summary,

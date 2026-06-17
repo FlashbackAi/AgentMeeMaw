@@ -37,8 +37,19 @@ def render_turn_context(ctx: TurnContext) -> str:
             similarity = ""
             if moment.similarity_score is not None:
                 similarity = f"  (similarity: {moment.similarity_score:.2f})"
+            attribution = ""
+            if (
+                ctx.current_user_id is not None
+                and moment.told_by_user_id is not None
+                and moment.told_by_user_id != ctx.current_user_id
+                and moment.told_by_display_name
+            ):
+                attribution = f' told_by="{xml_text(moment.told_by_display_name)}"'
+                if moment.told_by_relationship:
+                    attribution += f' relationship="{xml_text(moment.told_by_relationship)}"'
             lines.append(
-                f"- {xml_text(moment.title)}: {xml_text(moment.narrative)}{similarity}"
+                f"- {xml_text(moment.title)}: {xml_text(moment.narrative)}"
+                f"{attribution}{similarity}"
             )
         retrieval_sections.append(_block("moments", "\n".join(lines)))
 
@@ -102,6 +113,10 @@ def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
     if ctx.contributor_display_name:
         sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
+    if ctx.contributor_voice_anchor:
+        sections.append(
+            _block("contributor_voice_anchor", xml_text(ctx.contributor_voice_anchor))
+        )
     if ctx.current_theme_display_name:
         theme_block_lines: list[str] = [
             f'<current_theme kind="{xml_text(ctx.current_theme_kind or "")}">',

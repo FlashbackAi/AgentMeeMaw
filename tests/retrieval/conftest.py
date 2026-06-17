@@ -93,6 +93,7 @@ async def insert_moment(
     version: str | None = VERSION,
     status: str = "active",
     created_at: datetime | None = None,
+    told_by_user_id: UUID | None = None,
 ) -> UUID:
     created_at = created_at or datetime.now(timezone.utc)
     async with pool.connection() as conn:
@@ -112,8 +113,9 @@ async def insert_moment(
                     """
                     INSERT INTO moments
                         (person_id, title, narrative, status, narrative_embedding,
-                         embedding_model, embedding_model_version, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                         embedding_model, embedding_model_version, created_at,
+                         told_by_user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -125,6 +127,7 @@ async def insert_moment(
                         model,
                         version,
                         created_at,
+                        told_by_user_id,
                     ),
                 )
             (moment_id,) = await cur.fetchone()

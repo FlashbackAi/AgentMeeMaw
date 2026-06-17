@@ -44,12 +44,26 @@ if ($missing.Count -gt 0) {
     Write-Ok "All containers already running."
 }
 
+# --- 1b. SQS queues -----------------------------------------------------------
+# LocalStack community does NOT persist SQS state and its ready.d init hook
+# doesn't reliably fire, so the queues can vanish between runs -> step 3 and
+# the workers hit QueueDoesNotExist. Idempotently (re)create them every run.
+$queues = @(
+    "flashback-extraction", "flashback-embedding", "flashback-artifact",
+    "flashback-thread-detector", "flashback-trait-synthesizer", "flashback-profile-summary",
+    "flashback-producers-per-session", "flashback-producers-weekly"
+)
+foreach ($q in $queues) {
+    docker exec flashback-localstack awslocal sqs create-queue --queue-name $q 2>$null | Out-Null
+}
+Write-Ok "SQS queues ensured ($($queues.Count))."
+
 # --- 2. Migrations ------------------------------------------------------------
 Write-Step "2/5" "Migrations"
 
 if ($Reset) {
     Write-Run "Resetting public schema..."
-    docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" | Out-Null
+    docker exec -i flashback-postgres psql -U flashback -d flashback_test -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" | Out-Null
     $applied = @()
 }
 
@@ -57,7 +71,7 @@ if ($Reset) {
 # (scripts/migrate.py) is the canonical creator, but this PS script
 # does its own tracking and INSERTs into the table on each migration,
 # so we need it to exist before the loop runs (especially after -Reset).
-docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())" | Out-Null
+docker exec -i flashback-postgres psql -U flashback -d flashback_test -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())" | Out-Null
 
 if (-not $Reset) {
     # schema_migrations may not exist on a fresh DB. PowerShell 5.1 with
@@ -67,7 +81,7 @@ if (-not $Reset) {
     try {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
-        $appliedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT filename FROM schema_migrations ORDER BY filename" 2>$null
+        $appliedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback_test -t -c "SELECT filename FROM schema_migrations ORDER BY filename" 2>$null
         $ErrorActionPreference = $prev
         if ($appliedRaw) {
             $applied = $appliedRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
@@ -80,6 +94,27 @@ if (-not $Reset) {
 $migFiles  = Get-ChildItem "$repo\migrations" -Filter "*.up.sql" | Sort-Object Name
 $unapplied = $migFiles | Where-Object { $applied -notcontains $_.Name }
 
+# Self-heal: pytest's conftest drops + re-applies the whole schema WITHOUT
+# writing to schema_migrations, so after a DB-gated test run the tables exist
+# but tracking is empty -- which would make the loop below try to re-apply
+# 0001 and fail ("relation already exists"). Detect that exact case (tracking
+# empty BUT schema already populated) and backfill tracking instead.
+if (-not $Reset -and $applied.Count -eq 0) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $personsExists = docker exec -i flashback-postgres psql -U flashback -d flashback_test -t -c "SELECT to_regclass('public.persons') IS NOT NULL" 2>$null
+    $ErrorActionPreference = $prev
+    if ($personsExists -and (($personsExists -join '').Trim().StartsWith('t'))) {
+        Write-Run "Schema present but tracking empty (post-pytest) -- backfilling schema_migrations..."
+        foreach ($mig in $migFiles) {
+            $checksum = (Get-FileHash $mig.FullName -Algorithm MD5).Hash
+            docker exec -i flashback-postgres psql -U flashback -d flashback_test -c "INSERT INTO schema_migrations(filename,checksum) VALUES('$($mig.Name)','$checksum') ON CONFLICT DO NOTHING" | Out-Null
+        }
+        $unapplied = @()
+        Write-Ok "Backfilled tracking for $($migFiles.Count) migrations."
+    }
+}
+
 if ($unapplied.Count -eq 0) {
     Write-Ok "Up to date ($($migFiles.Count) migration files)."
 } else {
@@ -90,10 +125,10 @@ if ($unapplied.Count -eq 0) {
         # and other non-ASCII chars that get mangled into '???' if
         # Get-Content falls back to Windows-1252.
         $sql = Get-Content $mig.FullName -Raw -Encoding UTF8
-        $sql | docker exec -i flashback-postgres psql -U flashback -d flashback -v ON_ERROR_STOP=1
+        $sql | docker exec -i flashback-postgres psql -U flashback -d flashback_test -v ON_ERROR_STOP=1
         if ($LASTEXITCODE -ne 0) { Write-Fail "Failed on $($mig.Name)"; exit 1 }
         $checksum = (Get-FileHash $mig.FullName -Algorithm MD5).Hash
-        docker exec -i flashback-postgres psql -U flashback -d flashback -c "INSERT INTO schema_migrations(filename,checksum) VALUES('$($mig.Name)','$checksum') ON CONFLICT DO NOTHING" | Out-Null
+        docker exec -i flashback-postgres psql -U flashback -d flashback_test -c "INSERT INTO schema_migrations(filename,checksum) VALUES('$($mig.Name)','$checksum') ON CONFLICT DO NOTHING" | Out-Null
     }
     Write-Ok "All migrations applied."
 }
@@ -101,7 +136,7 @@ if ($unapplied.Count -eq 0) {
 # --- 3. Question embeddings ---------------------------------------------------
 Write-Step "3/5" "Question embeddings"
 
-$unembedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback -t -c "SELECT COUNT(*) FROM questions WHERE source='coverage_tap' AND person_id IS NULL AND embedding IS NULL" 2>&1
+$unembedRaw = docker exec -i flashback-postgres psql -U flashback -d flashback_test -t -c "SELECT COUNT(*) FROM questions WHERE source='coverage_tap' AND person_id IS NULL AND embedding IS NULL" 2>&1
 $unembed    = [int](($unembedRaw | Where-Object { $_ -match '\d' } | Select-Object -First 1).ToString().Trim())
 
 if ($unembed -gt 0) {

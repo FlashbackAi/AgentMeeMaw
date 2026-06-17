@@ -60,7 +60,7 @@ class FakeRetrieval:
             similarity_score=0.32,
         )
 
-    async def search_moments(self, *, query, person_id):
+    async def search_moments(self, *, query, person_id, current_user_id=None):
         self.moment.person_id = person_id
         return [self.moment]
 

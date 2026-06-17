@@ -41,6 +41,7 @@ from flashback.orchestrator.steps import (
     append_assistant,
     append_opener,
     append_user_turn,
+    apply_collaborator_onboarding,
     apply_theme_unlock,
     classify,
     detect_segment,
@@ -130,6 +131,12 @@ class Orchestrator:
                 policies=SESSION_START_POLICIES,
                 step_name="apply_theme_unlock",
                 fn=lambda: apply_theme_unlock(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="apply_collaborator_onboarding",
+                fn=lambda: apply_collaborator_onboarding(state, self._deps),
                 state=state,
             )
             if self._deps.response_generator is not None:
@@ -625,6 +632,12 @@ class Orchestrator:
                 policies=SESSION_START_POLICIES,
                 step_name="apply_theme_unlock",
                 fn=lambda: apply_theme_unlock(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=SESSION_START_POLICIES,
+                step_name="apply_collaborator_onboarding",
+                fn=lambda: apply_collaborator_onboarding(state, self._deps),
                 state=state,
             )
             if self._deps.response_generator is not None:

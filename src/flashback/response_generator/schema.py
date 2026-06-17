@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,6 +38,10 @@ class StarterContext(BaseModel):
     person_gender: str = "they"
     contributor_display_name: str | None = None
     contributor_role: str | None = None
+    # Collaborator's relationship to the subject (sub-project 3), e.g.
+    # "his daughter". When present, the opener grounds in it. None for the
+    # creator / contributors without a captured voice anchor.
+    contributor_voice_anchor: str | None = None
     anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
     prior_session_summary: str | None = None
@@ -79,6 +84,10 @@ class TurnContext(BaseModel):
     person_name: str
     person_relationship: str | None = None
     person_gender: str = "they"
+    # Current speaker (SP2). render_turn_context uses this to decide which
+    # retrieved moments belong to OTHER contributors and must be credited.
+    # None = unknown/single-contributor -> no attribution.
+    current_user_id: UUID | None = None
     intent: Intent
     emotional_temperature: Temperature
     rolling_summary: str = ""

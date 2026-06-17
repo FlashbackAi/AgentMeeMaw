@@ -5,7 +5,8 @@ WITH candidates AS MATERIALIZED (
     SELECT
         id, person_id, title, narrative, time_anchor,
         life_period_estimate, sensory_details, emotional_tone,
-        contributor_perspective, created_at, narrative_embedding
+        contributor_perspective, created_at, narrative_embedding,
+        told_by_user_id, told_by_display_name
     FROM   active_moments
     WHERE  person_id              = %(person_id)s
       AND  embedding_model         = %(embedding_model)s
@@ -13,12 +14,20 @@ WITH candidates AS MATERIALIZED (
       AND  narrative_embedding IS NOT NULL
 )
 SELECT
-    id, person_id, title, narrative, time_anchor,
-    life_period_estimate, sensory_details, emotional_tone,
-    contributor_perspective, created_at,
-    (narrative_embedding <=> %(query_vector)s) AS similarity_score
+    candidates.id, candidates.person_id, candidates.title, candidates.narrative,
+    candidates.time_anchor, candidates.life_period_estimate, candidates.sensory_details,
+    candidates.emotional_tone, candidates.contributor_perspective, candidates.created_at,
+    candidates.told_by_user_id, candidates.told_by_display_name,
+    co.voice_anchor_text AS told_by_relationship,
+    (candidates.narrative_embedding <=> %(query_vector)s) AS similarity_score
 FROM   candidates
-ORDER  BY narrative_embedding <=> %(query_vector)s
+LEFT JOIN collaborator_onboarding co
+       ON co.person_id = candidates.person_id
+      AND co.user_id   = candidates.told_by_user_id
+      AND co.status    = 'active'
+ORDER  BY (candidates.narrative_embedding <=> %(query_vector)s)
+          - CASE WHEN candidates.told_by_user_id = %(current_user_id)s
+                 THEN %(speaker_bias)s ELSE 0 END
 LIMIT  %(limit)s
 """
 

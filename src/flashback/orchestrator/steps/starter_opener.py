@@ -72,8 +72,17 @@ async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
         state.person_relationship = person.relationship
         state.person_phase = person.phase
         state.person_gender = person.gender or "they"
-        if person.profile_summary and not state.session_metadata.get(
-            "prior_session_summary"
+        # The profile summary is a person-level aggregate across ALL
+        # contributors, so seeding it into the opener for a specific
+        # contributor (a collaborator) would leak another contributor's
+        # content as "last time you talked about…". Only seed it for the
+        # creator-era / single-contributor case (no session user_id);
+        # contributors with a user_id get continuity scoped to their own
+        # moments via load_continuity_context instead.
+        if (
+            person.profile_summary
+            and not state.session_metadata.get("prior_session_summary")
+            and not state.user_id
         ):
             state.session_metadata["prior_session_summary"] = person.profile_summary
 
@@ -86,7 +95,9 @@ async def load_continuity_context(
         existing = _string_or_none(state.session_metadata.get("prior_session_summary"))
         if existing:
             return
-        summary = await _build_continuity_summary(deps, state.person_id)
+        summary = await _build_continuity_summary(
+            deps, state.person_id, _user_id_str(state.user_id)
+        )
         if summary:
             state.session_metadata["prior_session_summary"] = summary
 
@@ -159,6 +170,9 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         contributor_role=_string_or_none(
             state.session_metadata.get("contributor_role")
             or state.session_metadata.get("role")
+        ),
+        contributor_voice_anchor=_string_or_none(
+            state.session_metadata.get("contributor_voice_anchor")
         ),
         anchor_question_text=anchor_text,
         anchor_dimension=None,
@@ -337,57 +351,55 @@ async def _archetype_answers_for_state(
     return [item for item in row[0] if isinstance(item, dict)]
 
 
-async def _build_continuity_summary(deps: OrchestratorDeps, person_id) -> str:
+async def _build_continuity_summary(
+    deps: OrchestratorDeps, person_id, user_id: str = ""
+) -> str:
+    """Recent continuity for the opener, scoped to the CURRENT contributor.
+
+    Per-contributor continuity (collaborator sub-project): a contributor's
+    opener only reflects what THEY have shared — never another
+    contributor's "last time you talked about…". Scoped by
+    ``told_by_user_id``: a non-empty ``user_id`` matches that contributor's
+    own rows; an empty ``user_id`` (creator era) matches ``IS NULL`` rows
+    (the creator's own content). A contributor with no own rows yields an
+    empty summary, so the opener falls back to a fresh opening.
+
+    Scoped to MOMENTS only — and deliberately so. Per invariant #26,
+    ``moments.told_by_user_id`` is the only provenance column that reliably
+    means "this contributor shared this". ``entities`` / ``profile_facts``
+    carry "first-authored-by" / "whose-session-produced" provenance: the
+    profile-summary worker stamps facts with the session's user_id even
+    though those facts are derived from the whole (cross-contributor)
+    graph. Including them here would leak another contributor's content
+    (e.g. a collaborator's first session produces a fact about the
+    creator's moment, stamped with the collaborator's id) back into the
+    opener — exactly the "last time you talked about…" bug. Moments are
+    the substance of continuity anyway.
+    """
+    if user_id:
+        scope = "AND told_by_user_id = %(uid)s"
+        params: dict = {"pid": str(person_id), "uid": user_id}
+    else:
+        scope = "AND told_by_user_id IS NULL"
+        params = {"pid": str(person_id)}
     async with deps.db_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                """
+                f"""
                 SELECT title, narrative
                 FROM active_moments
-                WHERE person_id = %s
+                WHERE person_id = %(pid)s
+                  {scope}
                 ORDER BY created_at DESC
                 LIMIT 3
                 """,
-                (str(person_id),),
+                params,
             )
             moments = await cur.fetchall()
-
-            await cur.execute(
-                """
-                SELECT kind, name, description
-                FROM active_entities
-                WHERE person_id = %s
-                ORDER BY created_at DESC
-                LIMIT 5
-                """,
-                (str(person_id),),
-            )
-            entities = await cur.fetchall()
-
-            await cur.execute(
-                """
-                SELECT question_text, answer_text
-                FROM active_profile_facts
-                WHERE person_id = %s
-                ORDER BY created_at DESC
-                LIMIT 5
-                """,
-                (str(person_id),),
-            )
-            facts = await cur.fetchall()
 
     lines: list[str] = []
     if moments:
         lines.append("Earlier extracted moments:")
         for title, narrative in moments:
             lines.append(f"- {title}: {narrative}")
-    if entities:
-        lines.append("Known people, places, and things:")
-        for kind, name, description in entities:
-            detail = f": {description}" if description else ""
-            lines.append(f"- {kind} {name}{detail}")
-    if facts:
-        lines.append("Known profile facts:")
-        for question, answer in facts:
-            lines.append(f"- {question} {answer}")
     return "\n".join(lines)

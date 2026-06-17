@@ -40,6 +40,7 @@ async def retrieve(state: TurnState, deps: OrchestratorDeps) -> None:
                     deps.retrieval.search_moments(
                         query=state.user_message,
                         person_id=state.person_id,
+                        current_user_id=state.user_id,
                     ),
                     deps.retrieval.search_entities(
                         query=state.user_message,
