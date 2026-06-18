@@ -30,6 +30,7 @@ class Scene:
     accent: str = ""  # short chapter eyebrow / scene label
     pull_quote: str = ""  # optional <=12-word quotable line, often empty
     layout: str = ""  # optional "spread" | "hero" | "quote" treatment
+    art_direction: str = ""  # visual direction for THIS beat's image (drives the picture)
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,14 @@ Produce:
   (2-6 words, no ending punctuation), e.g. "One · The Drop Ride" or "A theme
   park, dusk". Evocative shorthand for the beat, never a full sentence. Draw
   only on the scene's own memory.
+- An `art_direction` for each chosen scene (ALWAYS): a vivid VISUAL brief for
+  the illustrator painting THIS beat -- what we actually SEE. Name the subject's
+  action, the ONE concrete object that anchors the memory, the place, the time
+  of day, and the emotional quality of the light (e.g. "a boy on his father's
+  shoulders at dusk, reaching for a kite, low gold backlight, warmth and ache").
+  ~20-40 words, concrete and grounded only in this scene's memory. It must PAINT
+  the moment, not restate the caption. Never a face or a recognizable likeness
+  of a specific person; render figures from behind, at distance, or implied.
 - A `pull_quote` for a scene ONLY when the beat has a genuinely quotable,
   punchy line (<= 12 words) worth setting alone on its own page. Omit it on
   every scene that isn't truly quotable -- most scenes have none. Never
@@ -183,6 +192,15 @@ Produce:
 - An `accent` for each scene: a short scene label / chapter eyebrow (2-6 words,
   no ending punctuation), e.g. "One · The Sold House". Evocative shorthand for
   the beat, never a full sentence. Draw only on the scene's own memory.
+- An `art_direction` for each scene (ALWAYS): a vivid VISUAL brief for the
+  illustrator painting THIS beat -- what we actually SEE. Name his action, the
+  ONE concrete object that holds the memory (the plain cloth, the 4 a.m. street,
+  the half-built house), the place, the time of day, and the quality of the
+  light (e.g. "a young man at a village tailor's choosing the cheapest bolt of
+  cloth, lamplit dusk, quiet resolve"). ~20-40 words, concrete and grounded only
+  in this scene's memory. It must PAINT the moment, not restate the caption.
+  Never a face or recognizable likeness; render him from behind, at distance, or
+  implied -- hands, silhouette, the thing he is doing.
 - A `pull_quote` for a scene ONLY when the beat has a genuinely quotable, punchy
   line (<= 12 words). Omit it on most scenes. Never invent it.
 - A `layout` for a scene ONLY when a beat clearly wants "hero" (the single most
@@ -243,6 +261,7 @@ _ASSEMBLY_TOOL = ToolSpec(
                             "type": "string",
                             "enum": ["spread", "hero", "quote"],
                         },
+                        "art_direction": {"type": "string", "maxLength": 320},
                     },
                     "required": ["moment_id", "caption"],
                     "additionalProperties": False,
@@ -334,8 +353,11 @@ async def assemble_tribute_script(
             system_prompt=system.replace("{max_scenes}", str(max_scenes)),
             user_message=user_block,
             tool=_ASSEMBLY_TOOL,
-            max_tokens=1500,
-            timeout=30.0,
+            # Room for up to ~12 scenes, each with caption + accent +
+            # art_direction (+ optional pull_quote) plus the cover/closing
+            # fields. 1500 truncated the richer per-scene output.
+            max_tokens=3200,
+            timeout=45.0,
             settings=settings,
         )
     except LLMError as exc:
@@ -376,6 +398,7 @@ async def assemble_tribute_script(
                     accent=(raw.get("accent") or "").strip(),
                     pull_quote=(raw.get("pull_quote") or "").strip(),
                     layout=layout,
+                    art_direction=(raw.get("art_direction") or "").strip(),
                 )
             )
     if not scenes:

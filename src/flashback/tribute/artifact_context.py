@@ -71,8 +71,18 @@ def _time_anchor_label(time_anchor: Any) -> str:
     return ""
 
 
-def _scene_base_prompt(moment: dict[str, Any]) -> str:
-    """Prefer the moment's LLM-emitted generation_prompt; fall back to text."""
+def _scene_base_prompt(scene: Any, moment: dict[str, Any]) -> str:
+    """Pick the base visual prompt for a tribute scene.
+
+    Precedence: the assembler's per-scene ``art_direction`` (authored by the
+    same LLM that wrote the caption, so it paints THIS confession beat) ->
+    the moment's LLM-emitted ``generation_prompt`` (generic scene art) ->
+    the moment's own text. The art_direction is what makes the image
+    emotionally connected to the page instead of a stock scene.
+    """
+    art = (getattr(scene, "art_direction", "") or "").strip()
+    if art:
+        return art
     base = (moment.get("generation_prompt") or "").strip()
     if base:
         return base
@@ -95,7 +105,7 @@ def build_tribute_video_context(
     for s in script.scenes:
         moment = moments_by_id.get(s.moment_id, {})
         prompt = compose_scene_prompt(
-            base_prompt=_scene_base_prompt(moment),
+            base_prompt=_scene_base_prompt(s, moment),
             preset=preset,
             ground_truth_context=ground_truth_context,
         )
@@ -149,7 +159,7 @@ def build_storybook_context(
     for s in script.scenes[:content_budget]:
         moment = moments_by_id.get(s.moment_id, {})
         prompt = compose_scene_prompt(
-            base_prompt=_scene_base_prompt(moment),
+            base_prompt=_scene_base_prompt(s, moment),
             instructions=STORYBOOK_PAGE_COMPOSITION,
             preset=preset,
             ground_truth_context=ground_truth_context,

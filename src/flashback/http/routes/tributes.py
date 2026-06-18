@@ -63,7 +63,9 @@ if TYPE_CHECKING:
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.tributes")
 
-_MAX_VIDEO_SCENES = 6
+# Video stays tighter than the storybook for pacing: 45s / 8 scenes is still
+# ~5.6s per beat. The storybook can run the fuller arc (STORYBOOK_MAX_PAGES).
+_MAX_VIDEO_SCENES = 8
 
 
 @router.post("/tributes/{tribute_id}/generate", response_model=TributeGenerateResponse)
@@ -127,7 +129,9 @@ async def generate_tribute(
         confession=campaign.confession_voice,
     )
     moments_by_id = {c["id"]: c for c in candidates}
-    gt_scene = render_ground_truth_block(ground_truth, "scene") or None
+    # scene_subject (not plain scene): tribute scenes recur the same person
+    # beat to beat, so we ground appearance for cross-scene consistency.
+    gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or None
 
     # 3) Build the artifact-kind context.
     if body.artifact_kind == "tribute_video":

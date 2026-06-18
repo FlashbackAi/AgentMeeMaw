@@ -29,11 +29,14 @@ TRIBUTE_ARCHETYPE_MIN = 6
 TRIBUTE_ARCHETYPE_MAX = 8
 
 # Compiled-output shape (Plan 3). Video length is skin-configurable in
-# Plan 4; this is the neutral default. Storybook is hard-capped at 9 pages
-# (spec section 4 refinement) with a floor below which it won't generate.
+# Plan 4; this is the neutral default. Storybook is hard-capped with a floor
+# below which it won't generate. Cap raised to 13 (cover + up to 12 scenes)
+# so a full chronological confession arc has room to breathe -- the prior 9
+# compressed a 15-beat story too hard. Scene count still scales down with the
+# graph: the assembler only emits scenes it has vivid material for.
 VIDEO_TARGET_SECONDS = 45
 STORYBOOK_MIN_PAGES = 3
-STORYBOOK_MAX_PAGES = 9
+STORYBOOK_MAX_PAGES = 13
 
 
 # The Father's Day theme's questions (docs/Fathers_Day_Storybook_Brief_v2.md

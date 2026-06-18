@@ -9,13 +9,19 @@ Renders only fields that exist — silent on unknowns, never
   region + era + cultural context (spec §1).
 * ``scene``     — one short "Setting context: ..." line appended on
   scene compose/regenerate.
+* ``scene_subject`` — the ``scene`` line plus a subject-appearance
+  descriptor (attire / build / distinctive features), so the SAME person
+  is recognizable beat to beat across a multi-scene tribute. Used by the
+  tribute storybook/video composer; ordinary scene art keeps ``scene``.
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-Audience = Literal["extraction", "portrait", "scene", "responder"]
+Audience = Literal[
+    "extraction", "portrait", "scene", "scene_subject", "responder"
+]
 
 _PORTRAIT_ORDER = (
     "region", "birth_era", "cultural_context", "attire",
@@ -42,6 +48,8 @@ def render_ground_truth_block(
         )
     if audience == "portrait":
         return ", ".join(_portrait_fragments(values))
+    if audience == "scene_subject":
+        return _scene_subject_line(values)
     return _scene_line(values)
 
 
@@ -94,3 +102,28 @@ def _scene_line(values: dict[str, Any]) -> str:
     if not parts:
         return ""
     return "Setting context: " + ", ".join(parts) + "."
+
+
+def _scene_subject_line(values: dict[str, Any]) -> str:
+    """The setting line plus a subject-appearance descriptor.
+
+    Keeps the same figure recognizable across a multi-scene tribute (same
+    build, attire, era), without naming a face — the scene likeness ban
+    (SCENE_NEGATIVE_PROMPT) still applies at compose time.
+    """
+    setting = _scene_line(values)
+    subject: list[str] = []
+    if "build" in values:
+        subject.append(f"{_as_text(values['build'])} build")
+    if "distinctive_features" in values:
+        subject.append(_as_text(values["distinctive_features"]))
+    if "attire" in values:
+        subject.append(f"typically in {_as_text(values['attire'])}")
+    if not subject:
+        return setting
+    descriptor = (
+        "Keep the same recurring figure consistent across scenes: "
+        + ", ".join(subject)
+        + "."
+    )
+    return f"{setting} {descriptor}".strip()
