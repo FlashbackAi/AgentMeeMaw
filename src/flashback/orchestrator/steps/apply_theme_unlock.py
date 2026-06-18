@@ -27,6 +27,7 @@ from flashback.themes.repository import (
     fetch_theme_by_id_async,
     unlock_theme_async,
 )
+from flashback.tribute.leads import build_leads, leads_to_json
 from flashback.tribute.repository import ensure_open_tribute_async
 
 log = structlog.get_logger("flashback.orchestrator.apply_theme_unlock")
@@ -107,3 +108,9 @@ async def apply_theme_unlock(
             campaign = state.session_metadata.get("campaign")
             if campaign:
                 state.session_metadata["current_tribute_campaign"] = str(campaign)
+            # Derive in-session steering leads from the archetype answers
+            # (design 2026-06-19). They steer the interview; they are never
+            # written to the graph (invariant #22).
+            leads = build_leads(archetype_answers)
+            if leads:
+                state.session_metadata["tribute_leads"] = leads_to_json(leads)

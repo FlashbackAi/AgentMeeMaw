@@ -149,7 +149,8 @@ Examples of the right shape when <tap_pending> is set:
 _TRIBUTE_GAP_NOTE = """
 
 If a <tribute_gap_hint> block is present, the contributor is building a
-tribute and this is the one thing still missing from it. If the
+tribute and this is something worth drawing out for it — sometimes a thread
+they hinted at earlier, sometimes the next thing still missing. If the
 conversation allows, gently lean the next beat toward it — a natural,
 curious question, never a checklist item, never "we still need X". If the
 moment doesn't fit, ignore it and follow the contributor.

@@ -141,6 +141,12 @@ class WorkingMemoryState(BaseModel):
     # 'fathers_day_2026'). Empty = neutral default. Read by
     # select_message_invitation for copy.
     current_tribute_campaign: str = ""
+    # JSON list of ranked conversation LEADS derived from the theme's
+    # archetype answers (design 2026-06-19). Each lead is pursued at most
+    # once per session; build_turn_context surfaces the next un-pursued
+    # one as a soft steer when the memories slot is the open gap. The
+    # answers are never written to the graph -- they only steer.
+    tribute_leads: str = ""
 
     @field_validator("started_at")
     @classmethod
@@ -226,5 +232,6 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "signal_pending_message": state.signal_pending_message,
         "message_invitation_asked": str(state.message_invitation_asked),
         "current_tribute_campaign": state.current_tribute_campaign,
+        "tribute_leads": state.tribute_leads,
         "mode": state.mode,
     }

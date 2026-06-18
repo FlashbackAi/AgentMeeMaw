@@ -38,18 +38,37 @@ async def build_turn_context(
             str(state.session_id)
         )
 
-    # Soft tribute steering: only on story turns (deepen stays
-    # acknowledgment-only), and only the first unfilled slot's hint.
+    # Soft tribute steering. Two channels share the <tribute_gap_hint> slot:
+    #  - archetype LEADS (design 2026-06-19): when the open gap is "memories",
+    #    pursue a specific thing the contributor hinted at at unlock (e.g. "he
+    #    sold a home"). Fires on story AND deepen turns, highest-value first,
+    #    each lead at most once per session. The answer never enters the graph;
+    #    the elicited moment does (invariant #22).
+    #  - checklist GAP hint: the generic next-slot nudge (story turns only,
+    #    unchanged shipped behavior), used when no lead applies.
     tribute_gap_hint: str | None = None
-    if (
-        state.effective_intent == "story"
-        and state.tribute_progress is not None
-        and not state.tribute_progress.ready
-    ):
-        for slot in state.tribute_progress.slots:
-            if not slot.filled:
-                tribute_gap_hint = slot.hint
-                break
+    prog = state.tribute_progress
+    if prog is not None and not prog.ready:
+        first_unfilled = next((s for s in prog.slots if not s.filled), None)
+        if (
+            first_unfilled is not None
+            and first_unfilled.key == "memories"
+            and state.effective_intent in ("story", "deepen")
+        ):
+            from flashback.tribute.leads import lead_hint, pick_next_lead
+
+            lead = pick_next_lead(wm_state.tribute_leads)
+            if lead is not None:
+                tribute_gap_hint = lead_hint(lead)
+                await deps.working_memory.mark_tribute_lead_pursued(
+                    str(state.session_id), lead.label
+                )
+        if (
+            tribute_gap_hint is None
+            and state.effective_intent == "story"
+            and first_unfilled is not None
+        ):
+            tribute_gap_hint = first_unfilled.hint
 
     return TurnContext(
         person_name=person.name,

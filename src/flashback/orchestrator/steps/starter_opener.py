@@ -274,6 +274,9 @@ async def init_working_memory(
             current_tribute_campaign=str(
                 state.session_metadata.get("current_tribute_campaign") or ""
             ),
+            tribute_leads=str(
+                state.session_metadata.get("tribute_leads") or ""
+            ),
             mode=state.mode,
         )
 

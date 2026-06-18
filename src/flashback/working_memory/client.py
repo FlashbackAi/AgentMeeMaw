@@ -97,6 +97,7 @@ class WorkingMemory:
         current_theme_display_name: str = "",
         current_tribute_id: str = "",
         current_tribute_campaign: str = "",
+        tribute_leads: str = "",
         mode: str = "text",
     ) -> None:
         """
@@ -144,6 +145,7 @@ class WorkingMemory:
             current_theme_display_name=current_theme_display_name,
             current_tribute_id=current_tribute_id,
             current_tribute_campaign=current_tribute_campaign,
+            tribute_leads=tribute_leads,
             mode=validated_mode,
         )
         mapping = serialise_state_for_init(state)
@@ -443,6 +445,23 @@ class WorkingMemory:
     async def clear_pending_message(self, session_id: str) -> None:
         """Clear the pending message payload after the sidecar is consumed."""
         await self.update_signals(session_id, signal_pending_message="")
+
+    async def mark_tribute_lead_pursued(
+        self, session_id: str, label: str
+    ) -> None:
+        """Flip a tribute lead to pursued so it isn't surfaced again this
+        session. Reads-modifies-writes the ``tribute_leads`` JSON list."""
+        from flashback.tribute.leads import mark_pursued
+
+        s_key = state_key(session_id)
+        raw = await self._redis.hget(s_key, "tribute_leads")
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        updated = mark_pursued(raw, label)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "tribute_leads", updated)
+            p.expire(s_key, self._ttl)
+            await p.execute()
 
     async def clear_pending_gt_tap(self, session_id: str) -> None:
         s_key = state_key(session_id)
