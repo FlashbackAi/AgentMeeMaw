@@ -573,6 +573,20 @@ edited.
 Use SQS DLQ for persistent failures. The agent does not poll the DLQ;
 surface DLQ depth in your own monitoring.
 
+### Father's Day storybook cover (reference image + de-age)
+
+For the Father's Day skin (`campaign = "fathers_day_2026"`), the
+storybook `latest_generation_context.storybook.cover` may now carry
+`reference_s3_key` (a contributor-uploaded photo of the subject),
+`hero_line` (optional secondary cover text), and a **relaxed**
+`negative` (`COVER_PORTRAIT_NEGATIVE_PROMPT` — the no-likeness ban is
+dropped **for the cover only**; page art keeps the full ban). When
+`reference_s3_key` is present, render the cover **image-to-image** from
+that photo; when absent, the existing establishing-scene cover behavior
+applies. Pass the photo to the agent via the new optional
+`prime_photo_s3_key` field on `POST /tributes/{id}/generate`. Full
+contract: **`docs/STORYBOOK_FD_COVER_NODE_PROMPT.md`**.
+
 ---
 
 ## 8. Async timing — gotchas Node needs to know

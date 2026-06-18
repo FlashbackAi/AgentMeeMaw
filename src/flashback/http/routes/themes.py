@@ -21,6 +21,8 @@ flow.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
@@ -42,7 +44,12 @@ from flashback.themes.repository import (
     upsert_archetype_draft_async,
 )
 from flashback.themes.universal import get_universal_theme
-from flashback.tribute.theme import TRIBUTE_ARCHETYPE_MAX, TRIBUTE_ARCHETYPE_MIN
+from flashback.tribute.campaigns import active_featured_campaign
+from flashback.tribute.theme import (
+    TRIBUTE_ARCHETYPE_MAX,
+    TRIBUTE_ARCHETYPE_MIN,
+    build_fathers_day_archetype_questions,
+)
 
 router = APIRouter(prefix="/themes", dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.themes")
@@ -180,33 +187,41 @@ async def unlock_prepare(
     if theme.archetype_questions:
         questions = _rehydrate_archetype_questions(theme.archetype_questions)
     else:
-        description = theme.description
-        if not description and theme.kind == "universal":
-            universal = get_universal_theme(theme.slug)
-            description = (
-                universal.description if universal is not None else theme.display_name
-            )
-        if not description:
-            description = theme.display_name
-
-        # The tribute theme collects more upfront than universals (spec §5).
-        if theme.kind == "tribute":
-            q_min, q_max = TRIBUTE_ARCHETYPE_MIN, TRIBUTE_ARCHETYPE_MAX
+        # Father's Day skin: serve the fixed authored bank (no LLM) during the
+        # campaign window. Ephemeral priors only (invariant #22).
+        fd_campaign = active_featured_campaign(datetime.now(timezone.utc).date())
+        if theme.kind == "tribute" and fd_campaign and fd_campaign.confession_voice:
+            questions = build_fathers_day_archetype_questions()
         else:
-            q_min, q_max = 3, 4
+            description = theme.description
+            if not description and theme.kind == "universal":
+                universal = get_universal_theme(theme.slug)
+                description = (
+                    universal.description
+                    if universal is not None
+                    else theme.display_name
+                )
+            if not description:
+                description = theme.display_name
 
-        questions = await generate_archetype_questions(
-            settings=cfg,
-            theme_slug=theme.slug,
-            theme_display_name=theme.display_name,
-            theme_description=description,
-            theme_kind=theme.kind,
-            subject_name=subject_name,
-            subject_relationship=None,
-            context_moments=None,
-            min_questions=q_min,
-            max_questions=q_max,
-        )
+            # The tribute theme collects more upfront than universals (spec §5).
+            if theme.kind == "tribute":
+                q_min, q_max = TRIBUTE_ARCHETYPE_MIN, TRIBUTE_ARCHETYPE_MAX
+            else:
+                q_min, q_max = 3, 4
+
+            questions = await generate_archetype_questions(
+                settings=cfg,
+                theme_slug=theme.slug,
+                theme_display_name=theme.display_name,
+                theme_description=description,
+                theme_kind=theme.kind,
+                subject_name=subject_name,
+                subject_relationship=None,
+                context_moments=None,
+                min_questions=q_min,
+                max_questions=q_max,
+            )
         if questions:
             payload = [q.to_payload() for q in questions]
             async with db_pool.connection() as conn:

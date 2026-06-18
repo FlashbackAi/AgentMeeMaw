@@ -80,6 +80,14 @@ class TributeGenerateRequest(BaseModel):
     artifact_kind: Literal["tribute_video", "storybook"] = "tribute_video"
     preset: str | None = None
     campaign: str | None = None
+    # S3 key of the contributor-uploaded prime/profile photo for the FD
+    # storybook cover (Node-owned upload). The agent only passes the key into
+    # latest_generation_context; Node renders the cover image-to-image.
+    prime_photo_s3_key: str | None = None
+    # True when prime_photo_s3_key is already a prime-years photo (skip de-age);
+    # False (default) when it's a current/older/profile photo that should be
+    # de-aged to his prime years. Node sets this based on which photo it sent.
+    cover_photo_is_prime_years: bool = False
 
 
 class TributeGenerateResponse(BaseModel):
