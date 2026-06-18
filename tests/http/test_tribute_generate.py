@@ -38,6 +38,18 @@ def test_request_prime_photo_defaults_none() -> None:
         person_id="00000000-0000-0000-0000-000000000001",
     )
     assert req.prime_photo_s3_key is None
+    # De-age by default (the common fallback is a current/profile photo).
+    assert req.cover_photo_is_prime_years is False
+
+
+def test_request_can_mark_photo_as_prime_years() -> None:
+    req = TributeGenerateRequest(
+        person_id="00000000-0000-0000-0000-000000000001",
+        artifact_kind="storybook",
+        prime_photo_s3_key="uploads/p/prime.jpg",
+        cover_photo_is_prime_years=True,
+    )
+    assert req.cover_photo_is_prime_years is True
 
 
 async def _seed(pool, *, ready: bool) -> tuple[str, str, str | None]:

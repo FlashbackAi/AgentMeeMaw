@@ -146,7 +146,9 @@ async def generate_tribute(
             max_pages=STORYBOOK_MAX_PAGES,
             ground_truth_context=gt_scene,
             cover_reference_s3_key=body.prime_photo_s3_key,
-            deage_cover=campaign.deage_cover,
+            # De-age only when the campaign allows it AND the supplied photo
+            # isn't already a prime-years shot (else we'd over-young a young face).
+            deage_cover=campaign.deage_cover and not body.cover_photo_is_prime_years,
             defining_phrase=script.defining_phrase or None,
             hero_line=script.hero_line or None,
         )

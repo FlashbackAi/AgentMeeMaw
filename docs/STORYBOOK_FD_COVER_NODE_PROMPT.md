@@ -61,10 +61,16 @@ fields** beyond the existing `caption` / `subtitle` / `style_preset` / `prompt` 
 - Render it as **secondary cover text** beneath the defining phrase (`caption`)
   when present; render nothing extra when absent.
 
-## Where `prime_photo_s3_key` comes from
+## Where `prime_photo_s3_key` comes from — and the fallback chain
 
-The Father's Day theme's photo-upload question (the prime-years photo) is a
-**Node-owned S3 upload**. Pass its key to the agent on the generate call:
+The cover is meant to be a **stylized portrait of the actual father** (brief
+§2.3), so Node should **always send a photo key** for the FD storybook. Resolve
+it as a fallback chain and send the first one that exists:
+
+1. The **prime-years photo** uploaded in the Father's Day theme's photo question
+   (a Node-owned S3 upload) — best case.
+2. Else the subject's **existing profile / legacy photo** (`persons.image_url`
+   source key) — the agent de-ages it to his prime years.
 
 ```
 POST /tributes/{tribute_id}/generate
@@ -73,15 +79,25 @@ POST /tributes/{tribute_id}/generate
   "artifact_kind": "storybook",
   "campaign": "fathers_day_2026",
   "preset": "<optional>",
-  "prime_photo_s3_key": "uploads/<person>/prime.jpg"  // NEW, optional
+  "prime_photo_s3_key": "uploads/<person>/prime.jpg", // NEW — prime OR profile key
+  "cover_photo_is_prime_years": true                  // NEW — see below
 }
 ```
 
-- If the contributor uploaded **only a current/older photo** (no prime-years
-  photo), send **that** key anyway — the agent's de-age instruction tells the
-  model to render his younger self.
-- If no photo at all is available, omit `prime_photo_s3_key`; the cover falls
-  back to the establishing-scene behavior.
+- Send the **prime-years key** when the contributor uploaded one, and set
+  `cover_photo_is_prime_years: true` so the agent does **not** de-age it.
+- Otherwise send the **profile/legacy photo key** and set (or leave the default)
+  `cover_photo_is_prime_years: false` — the agent then de-ages an older/current
+  photo to his prime years. Do **not** skip the field just because it isn't a
+  dedicated prime photo.
+- Only omit `prime_photo_s3_key` when the subject has **no photo at all** — then
+  the cover falls back to the establishing-scene behavior (no portrait). This
+  should be the rare case, not the default.
+
+> `cover_photo_is_prime_years` matters: the agent can't tell a prime photo from a
+> current one. If you send an actual prime-years photo but leave the flag
+> `false`, the de-age instruction will make an already-young face look too young.
+> Set it `true` for prime photos; `false` (default) for profile/current photos.
 
 ## Render checklist (per storybook job)
 
