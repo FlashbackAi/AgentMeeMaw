@@ -116,6 +116,7 @@ async def generate_tribute(
         if body.artifact_kind == "tribute_video"
         else STORYBOOK_MAX_PAGES - 1
     )
+    campaign = resolve_campaign(body.campaign)
     script = await assemble_tribute_script(
         settings=cfg,
         candidates=candidates,
@@ -123,13 +124,13 @@ async def generate_tribute(
         person_name=tribute["person_name"] or "",
         person_relationship=tribute["person_relationship"],
         max_scenes=max_scenes,
+        confession=campaign.confession_voice,
     )
     moments_by_id = {c["id"]: c for c in candidates}
     gt_scene = render_ground_truth_block(ground_truth, "scene") or None
 
     # 3) Build the artifact-kind context.
     if body.artifact_kind == "tribute_video":
-        campaign = resolve_campaign(body.campaign)
         context = build_tribute_video_context(
             script=script,
             moments_by_id=moments_by_id,
@@ -144,6 +145,10 @@ async def generate_tribute(
             preset=preset_slug,
             max_pages=STORYBOOK_MAX_PAGES,
             ground_truth_context=gt_scene,
+            cover_reference_s3_key=body.prime_photo_s3_key,
+            deage_cover=campaign.deage_cover,
+            defining_phrase=script.defining_phrase or None,
+            hero_line=script.hero_line or None,
         )
 
     # 4) Persist script + keyed context + flip status, all before pushing.

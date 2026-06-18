@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 import flashback.http.routes.tributes as route
+from flashback.http.models import TributeGenerateRequest
 from flashback.themes.repository import ensure_tribute_theme_async
 from flashback.tribute.assembly import Scene, TributeScript
 from flashback.tribute.repository import ensure_open_tribute_async, set_message_async
@@ -20,6 +21,23 @@ from flashback.tribute.theme import (
 )
 
 _HEADERS = {"X-Service-Token": "test-token"}
+
+
+def test_request_accepts_prime_photo_key() -> None:
+    req = TributeGenerateRequest(
+        person_id="00000000-0000-0000-0000-000000000001",
+        artifact_kind="storybook",
+        campaign="fathers_day_2026",
+        prime_photo_s3_key="uploads/p/prime.jpg",
+    )
+    assert req.prime_photo_s3_key == "uploads/p/prime.jpg"
+
+
+def test_request_prime_photo_defaults_none() -> None:
+    req = TributeGenerateRequest(
+        person_id="00000000-0000-0000-0000-000000000001",
+    )
+    assert req.prime_photo_s3_key is None
 
 
 async def _seed(pool, *, ready: bool) -> tuple[str, str, str | None]:

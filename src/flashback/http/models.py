@@ -80,6 +80,10 @@ class TributeGenerateRequest(BaseModel):
     artifact_kind: Literal["tribute_video", "storybook"] = "tribute_video"
     preset: str | None = None
     campaign: str | None = None
+    # S3 key of the contributor-uploaded prime/profile photo for the FD
+    # storybook cover (Node-owned upload). The agent only passes the key into
+    # latest_generation_context; Node renders the cover image-to-image.
+    prime_photo_s3_key: str | None = None
 
 
 class TributeGenerateResponse(BaseModel):
