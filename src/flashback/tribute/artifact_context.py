@@ -15,17 +15,24 @@ from typing import Any
 from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT, compose_scene_prompt
 from flashback.tribute.assembly import TributeScript
 
-# Node now renders storybook captions in a designed HTML/CSS editorial layout
-# rather than baking text into the image, so the page art no longer reserves a
-# blank text column. Compose each page as a complete, full-frame painterly
-# image that fills the frame edge to edge, with the subject and key elements
-# kept off the extreme edges so the image survives Node's crop to framed insets
-# and full-bleed slots.
+# Node renders the storybook by compositing each still through a PORTRAIT
+# template's photo cutout (green chroma-key) and baking the caption onto the
+# paper area — text is NOT overlaid on the image, so the page art reserves no
+# blank text column. Compose each page as a complete, full-frame PORTRAIT
+# painterly image that fills the tall frame edge to edge, subject centered and
+# off the extreme edges so it survives the cutout crop. The portrait-orientation
+# fragment is shared with the cover (the API aspect_ratio hint is best-effort —
+# the prompt is what reliably steers the model to a vertical frame).
+STORYBOOK_PORTRAIT_ORIENTATION = (
+    "vertical portrait orientation, noticeably taller than wide (about 2:3), "
+    "composed for a tall frame with the subject centered"
+)
 STORYBOOK_PAGE_COMPOSITION = (
-    "composition: a complete, full-frame painterly image that fills the whole "
-    "frame edge to edge with no reserved blank space for text; keep the subject "
-    "and key elements away from the extreme edges so the image survives cropping "
-    "to framed insets and full-bleed slots"
+    "composition: a complete, full-frame painterly image in "
+    "vertical portrait orientation (taller than wide, about 2:3) that fills the "
+    "whole frame edge to edge with no reserved blank space for text; keep the "
+    "subject and key elements centered and away from the extreme edges so the "
+    "image survives cropping into the page photo cutout"
 )
 
 
@@ -150,6 +157,7 @@ def build_storybook_context(
     if cover_prompt:
         cover["prompt"] = compose_scene_prompt(
             base_prompt=cover_prompt,
+            instructions=STORYBOOK_PORTRAIT_ORIENTATION,
             preset=preset,
             ground_truth_context=ground_truth_context,
         )
