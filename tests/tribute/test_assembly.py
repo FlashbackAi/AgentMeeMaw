@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from flashback.tribute.assembly import assemble_tribute_script
+from flashback.tribute.assembly import TributeScript, assemble_tribute_script
+
+
+def test_tribute_script_has_defining_phrase_and_hero_line_fields() -> None:
+    s = TributeScript(
+        scenes=[], opening_caption="", closing_caption="", message_text=""
+    )
+    assert s.defining_phrase == ""
+    assert s.hero_line == ""
 
 
 async def test_fallback_takes_first_n_with_title_captions() -> None:
@@ -36,3 +44,19 @@ async def test_empty_candidates_yield_empty_script() -> None:
     )
     assert script.scenes == []
     assert script.message_text == "hi"
+
+
+async def test_confession_voice_falls_back_without_settings() -> None:
+    # settings=None -> fallback script, never raises, regardless of confession.
+    script = await assemble_tribute_script(
+        settings=None,
+        candidates=[{"id": "m1", "title": "A morning", "narrative": "n1"}],
+        message_text="",
+        person_name="Dad",
+        person_relationship="father",
+        max_scenes=3,
+        confession=True,
+    )
+    assert script.scenes  # fell back to chronological
+    assert script.defining_phrase == ""  # fallback emits no cover lines
+    assert script.hero_line == ""

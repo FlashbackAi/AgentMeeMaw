@@ -40,6 +40,8 @@ class TributeScript:
     message_text: str  # placed as the climax, before the closing
     cover_title: str = ""  # short evocative book title for the storybook cover
     cover_prompt: str = ""  # dramatic establishing-scene concept for the cover image
+    defining_phrase: str = ""  # cover line: who he IS at core (confession, brief §2.3)
+    hero_line: str = ""  # story-gated "fork in the road" line (brief §2.4)
 
 
 _ASSEMBLY_SYSTEM = """\
@@ -135,6 +137,88 @@ provided, your closing line is the final word of the book; make it land.
 Call the `assemble` tool exactly once.
 """
 
+
+_CONFESSION_SYSTEM = """\
+You compose a Father's Day "confession" storybook/video that a contributor is
+sharing WITH THE WORLD about their father. You receive candidate scenes (each
+an id + a short memory), the subject (the father, with relationship to the
+contributor), and -- when present -- the contributor's own closing message.
+
+This is not an archive or a biography. It is a child finally saying out loud
+what they feel about their father -- the soft things most families never say.
+Find the through-line across the chosen memories (what he had, what he gave,
+the quiet cost) and let every page serve it.
+
+Voice -- first person, ABOUT him, spoken to the world, the father is "he":
+The narrator is the contributor speaking to a friend ABOUT their father. Use
+"I" for the contributor and "he"/"him" for the father everywhere -- the
+opening, every page, the closing. It reads like someone showing you a photo and
+telling you who their father really is: "He sold the house he built with his
+own hands." NEVER write it as a letter addressed TO the father ("you did...",
+"you gave...") and NEVER third-person-detached with names ("Vinay's father...").
+The ONE exception: you MAY turn and address him directly as "you" on the SINGLE
+climax line -- the contributor's message page (or, when no message is present,
+the very last scene). One direct-address spike, then the closing pulls back to
+"he". Everywhere else: "he".
+
+Emotional impact -- this is the whole point, so earn it:
+- Two sentences, maximum impact. One or two SHORT sentences per scene -- think
+  aphorism, not description. Set the thing he had against the thing he gave, and
+  stop. Cut every word that merely explains, sets up, or pads.
+- One small concrete thing carries more than any summary -- the plain cloth, the
+  4 a.m. street, the unbought tea. Choose the tiny physical detail that holds
+  the whole sacrifice and let it land.
+- Trust subtext. Never name the emotion and NEVER use the word "sacrifice" --
+  show the thing and let them feel it. Understatement hits hardest.
+- No clichés, no greeting-card lines. Every line specific to THIS father and
+  this memory, or cut it. Never invent facts beyond the scene's own memory.
+
+Produce:
+- An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
+  emotionally distinct moments; drop weak or redundant ones. Order them so the
+  story builds -- emotionally coherent, each page following from the one before.
+- A `caption` for each chosen scene: 1-2 SHORT sentences, maximum impact (aim
+  ~12-30 words, never more). Concrete and specific over abstract or poetic.
+  Strong page-to-page continuity still matters. Never invent facts.
+- An `accent` for each scene: a short scene label / chapter eyebrow (2-6 words,
+  no ending punctuation), e.g. "One · The Sold House". Evocative shorthand for
+  the beat, never a full sentence. Draw only on the scene's own memory.
+- A `pull_quote` for a scene ONLY when the beat has a genuinely quotable, punchy
+  line (<= 12 words). Omit it on most scenes. Never invent it.
+- A `layout` for a scene ONLY when a beat clearly wants "hero" (the single most
+  climactic beat) or "quote". Leave unset for ordinary beats.
+- An opening line: first person, ABOUT him ("he"), 1 sentence (~15 words) -- the
+  first thing the reader sees, tender and unmistakably personal. A closing line:
+  first person, ABOUT him, 1 short sentence (~12-20 words) that lands the whole
+  book in one breath. Make both ache a little. Neither may invent facts.
+- A `cover_title` for the cover (2-6 words, Title Case, no ending punctuation).
+  Names the through-line, not a literal event.
+- A `cover_prompt`: one vivid, atmospheric ESTABLISHING scene for a fallback
+  cover image -- a place/scene drawn from his world (era, places, objects),
+  dramatic light. NOT a portrait, never a face or recognizable likeness. Draw
+  only on the memories provided. (A prime-years portrait may be composited
+  separately from an uploaded photo; this is only the fallback.)
+- A `defining_phrase` (ALWAYS): one line for who he IS at his core, stripped of
+  all the sacrifice -- the man, not his cost. Goes on the cover. <= 14 words,
+  first person about him is fine ("A man who spent himself so we'd never have
+  to.").
+- A `hero_line` (STORY-GATED): a single "fork in the road" line -- what he could
+  have been versus what he chose. Emit it ONLY when the candidate scenes reveal
+  a CONCRETE given-up alternative (a sold home, abandoned land, a dropped degree,
+  a trade walked away from, money he had but didn't spend on himself). Write it
+  fresh, grounded in THIS father's specifics ("He could have owned half that
+  valley. He traded it for a report card."). If the scenes do NOT clearly show a
+  given-up path, leave hero_line EMPTY. Never force it; never use a generic
+  template.
+
+If a contributor message is provided, it is the climax -- you do NOT rewrite it;
+it is inserted verbatim after the last scene and before your closing line, so
+your closing line should follow naturally from it. If no message is provided,
+your closing line is the final word of the book; make it land.
+
+Call the `assemble` tool exactly once.
+"""
+
 _ASSEMBLY_TOOL = ToolSpec(
     name="assemble",
     description="Return the ordered scenes + captions + opening/closing. Once.",
@@ -168,6 +252,8 @@ _ASSEMBLY_TOOL = ToolSpec(
             "closing_caption": {"type": "string", "maxLength": 240},
             "cover_title": {"type": "string", "maxLength": 60},
             "cover_prompt": {"type": "string", "maxLength": 400},
+            "defining_phrase": {"type": "string", "maxLength": 120},
+            "hero_line": {"type": "string", "maxLength": 160},
         },
         "required": ["scenes", "opening_caption", "closing_caption"],
         "additionalProperties": False,
@@ -199,8 +285,15 @@ async def assemble_tribute_script(
     person_name: str,
     person_relationship: str | None,
     max_scenes: int,
+    confession: bool = False,
 ) -> TributeScript:
-    """Return an assembled script. Falls back to chronological on failure."""
+    """Return an assembled script. Falls back to chronological on failure.
+
+    ``confession=True`` selects the Father's Day "confession" voice (first
+    person ABOUT him, addressed to the world, ``he``) and asks for a
+    ``defining_phrase`` + story-gated ``hero_line``. Default ``False`` keeps the
+    shipped "letter to you" voice byte-for-byte.
+    """
     usable = [c for c in candidates if c.get("id")]
     if not usable:
         return TributeScript([], "", "", message_text)
@@ -233,11 +326,12 @@ async def assemble_tribute_script(
         f"<candidate_scenes>\n{scene_blocks}\n</candidate_scenes>"
     )
 
+    system = _CONFESSION_SYSTEM if confession else _ASSEMBLY_SYSTEM
     try:
         args = await call_with_tool(
             provider=settings.llm_big_provider,
             model=settings.llm_big_model,
-            system_prompt=_ASSEMBLY_SYSTEM.replace("{max_scenes}", str(max_scenes)),
+            system_prompt=system.replace("{max_scenes}", str(max_scenes)),
             user_message=user_block,
             tool=_ASSEMBLY_TOOL,
             max_tokens=1500,
@@ -296,4 +390,6 @@ async def assemble_tribute_script(
         message_text=message_text,
         cover_title=(args.get("cover_title") or "").strip(),
         cover_prompt=(args.get("cover_prompt") or "").strip(),
+        defining_phrase=(args.get("defining_phrase") or "").strip(),
+        hero_line=(args.get("hero_line") or "").strip(),
     )
