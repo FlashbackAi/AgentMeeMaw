@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT
+from flashback.artifacts.compose import (
+    COVER_PORTRAIT_NEGATIVE_PROMPT,
+    SCENE_NEGATIVE_PROMPT,
+)
 from flashback.tribute.artifact_context import (
     build_storybook_context,
     build_tribute_video_context,
@@ -131,3 +134,73 @@ def test_storybook_cover_composes_dedicated_prompt_when_present() -> None:
     assert ctx["cover"]["subtitle"] == "Mokshith"
     assert "a wide dramatic dawn over the old workshop" in ctx["cover"]["prompt"]
     assert ctx["cover"]["negative"] == SCENE_NEGATIVE_PROMPT
+
+
+def _confession_script() -> TributeScript:
+    return TributeScript(
+        scenes=[Scene(moment_id="m0", caption="He sold the house.")],
+        opening_caption="For him.",
+        closing_caption="The best I could ask for.",
+        message_text="I love you, Dad.",
+        cover_title="A Quiet Builder",
+        cover_prompt="a concrete house rising in a village at dawn",
+        defining_phrase="A man who spent himself so we'd never have to.",
+        hero_line="He could have owned the valley. He chose a report card.",
+    )
+
+
+def test_cover_uses_reference_photo_relaxed_negative_and_lines() -> None:
+    ctx = build_storybook_context(
+        script=_confession_script(),
+        moments_by_id={"m0": {"narrative": "He sold the house."}},
+        preset="storybook",
+        max_pages=9,
+        cover_reference_s3_key="uploads/p/prime.jpg",
+        deage_cover=True,
+        defining_phrase="A man who spent himself so we'd never have to.",
+        hero_line="He could have owned the valley. He chose a report card.",
+    )
+    cover = ctx["cover"]
+    assert cover["reference_s3_key"] == "uploads/p/prime.jpg"
+    assert cover["caption"] == "A man who spent himself so we'd never have to."
+    assert cover["hero_line"] == (
+        "He could have owned the valley. He chose a report card."
+    )
+    assert cover["negative"] == COVER_PORTRAIT_NEGATIVE_PROMPT
+    assert "deepfake likeness" not in COVER_PORTRAIT_NEGATIVE_PROMPT
+    assert "prime" in cover["prompt"].lower()
+    assert "younger" in cover["prompt"].lower() or "de-age" in cover["prompt"].lower()
+    # Page art is unaffected -- still the full scene negative incl. the ban.
+    assert ctx["pages"][0]["negative"] == SCENE_NEGATIVE_PROMPT
+    assert "deepfake likeness" in SCENE_NEGATIVE_PROMPT
+
+
+def test_cover_without_reference_keeps_establishing_scene() -> None:
+    ctx = build_storybook_context(
+        script=_confession_script(),
+        moments_by_id={"m0": {"narrative": "He sold the house."}},
+        preset="storybook",
+        max_pages=9,
+    )
+    cover = ctx["cover"]
+    assert "reference_s3_key" not in cover
+    # No defining_phrase arg, but the script carries one -> it wins over title.
+    assert cover["caption"] == "A man who spent himself so we'd never have to."
+    assert cover["negative"] == SCENE_NEGATIVE_PROMPT
+
+
+def test_cover_caption_falls_back_to_title_when_no_defining_phrase() -> None:
+    script = TributeScript(
+        scenes=[Scene(moment_id="m0", caption="He sold the house.")],
+        opening_caption="For him.",
+        closing_caption="",
+        message_text="",
+        cover_title="A Quiet Builder",
+    )
+    ctx = build_storybook_context(
+        script=script,
+        moments_by_id={"m0": {"narrative": "He sold the house."}},
+        preset="storybook",
+        max_pages=9,
+    )
+    assert ctx["cover"]["caption"] == "A Quiet Builder"

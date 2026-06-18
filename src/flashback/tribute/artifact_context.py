@@ -12,7 +12,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT, compose_scene_prompt
+from flashback.artifacts.compose import (
+    COVER_PORTRAIT_NEGATIVE_PROMPT,
+    SCENE_NEGATIVE_PROMPT,
+    compose_scene_prompt,
+)
 from flashback.tribute.assembly import TributeScript
 
 # Node renders the storybook by compositing each still through a PORTRAIT
@@ -33,6 +37,21 @@ STORYBOOK_PAGE_COMPOSITION = (
     "whole frame edge to edge with no reserved blank space for text; keep the "
     "subject and key elements centered and away from the extreme edges so the "
     "image survives cropping into the page photo cutout"
+)
+
+# Confession cover (brief §2.3): a stylized prime-years PORTRAIT of the subject,
+# composited from the contributor's uploaded photo (Node renders image-to-image
+# from cover.reference_s3_key). When the uploaded photo is an older/current one,
+# the de-age instruction restores his prime-years self.
+COVER_PRIME_PORTRAIT = (
+    "a dignified painterly PORTRAIT of the subject in his prime years (around "
+    "his early twenties), warm magazine-cover lighting, calm and hopeful, "
+    + STORYBOOK_PORTRAIT_ORIENTATION
+)
+COVER_DEAGE_INSTRUCTION = (
+    "render him noticeably YOUNGER than the reference photo -- restore his "
+    "prime-years appearance (smooth skin, dark full hair, upright vigor) while "
+    "keeping his recognizable features and bone structure"
 )
 
 
@@ -109,6 +128,10 @@ def build_storybook_context(
     max_pages: int,
     ground_truth_context: str | None = None,
     cover_subtitle: str | None = None,
+    cover_reference_s3_key: str | None = None,
+    deage_cover: bool = False,
+    defining_phrase: str | None = None,
+    hero_line: str | None = None,
 ) -> dict[str, Any]:
     """Compile the storybook context (keyed under 'storybook').
 
@@ -148,20 +171,45 @@ def build_storybook_context(
         if s.layout:
             page["layout"] = s.layout
         pages.append(page)
+    # Caption precedence: explicit defining_phrase arg -> script.defining_phrase
+    # -> cover_title -> opening line.
+    cover_caption = (
+        (defining_phrase or "").strip()
+        or (script.defining_phrase or "").strip()
+        or (script.cover_title or "").strip()
+        or (script.opening_caption or "").strip()
+    )
     cover: dict[str, Any] = {
-        "caption": (script.cover_title or script.opening_caption or "").strip(),
+        "caption": cover_caption,
         "subtitle": (cover_subtitle or "").strip(),
         "style_preset": preset,
     }
-    cover_prompt = (script.cover_prompt or "").strip()
-    if cover_prompt:
+    hl = (hero_line if hero_line is not None else (script.hero_line or "")).strip()
+    if hl:
+        cover["hero_line"] = hl
+
+    ref = (cover_reference_s3_key or "").strip()
+    if ref:
+        # Prime-years PORTRAIT composited from the contributor's uploaded photo.
+        # Cover-only likeness exception (CLAUDE.md §1/§3) -> relaxed negative.
+        cover["reference_s3_key"] = ref
         cover["prompt"] = compose_scene_prompt(
-            base_prompt=cover_prompt,
-            instructions=STORYBOOK_PORTRAIT_ORIENTATION,
+            base_prompt=COVER_PRIME_PORTRAIT,
+            instructions=(COVER_DEAGE_INSTRUCTION if deage_cover else None),
             preset=preset,
             ground_truth_context=ground_truth_context,
         )
-        cover["negative"] = SCENE_NEGATIVE_PROMPT
+        cover["negative"] = COVER_PORTRAIT_NEGATIVE_PROMPT
+    else:
+        cover_prompt = (script.cover_prompt or "").strip()
+        if cover_prompt:
+            cover["prompt"] = compose_scene_prompt(
+                base_prompt=cover_prompt,
+                instructions=STORYBOOK_PORTRAIT_ORIENTATION,
+                preset=preset,
+                ground_truth_context=ground_truth_context,
+            )
+            cover["negative"] = SCENE_NEGATIVE_PROMPT
     return {
         "cover": cover,
         "pages": pages,

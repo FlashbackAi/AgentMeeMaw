@@ -23,6 +23,18 @@ SCENE_NEGATIVE_PROMPT = (
     "signature, blurry, low quality, distorted, uncanny"
 )
 
+# Cover-only negative for the tribute prime-years portrait. The contributor
+# uploads a photo of the consented subject and asks us to stylize it, so the
+# no-likeness / no-visible-faces bans are intentionally DROPPED here -- a scoped
+# exception to CLAUDE.md §1/§3, cover only. Page/scene art keeps the full
+# SCENE_NEGATIVE_PROMPT (likeness ban intact).
+COVER_PORTRAIT_NEGATIVE_PROMPT = (
+    "flat cartoon shading, cel-shaded anime, Pixar 3D look, exaggerated "
+    "cartoon proportions, plastic surfaces, hyperrealistic photograph, harsh "
+    "digital sharpening, text, watermark, signature, blurry, low quality, "
+    "distorted, uncanny"
+)
+
 
 def compose_scene_prompt(
     *,
