@@ -15,6 +15,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Stories needed for the memories slot to read as FILLED and for the tribute
+# to be READY (the raw qualifying-count gate, unchanged by 0030). The view's
+# DISPLAYED percent now also credits an archetype answer-floor and weights
+# moments by depth (0030), but neither can flip "filled"/"ready" without 3 real
+# qualifying moments. Exposed so the live meter can render "2 of 3 stories".
+MEMORIES_TARGET = 3
+
+# Archetype layers in the Father's Day bank (tribute/theme.py). The view's
+# answer-floor divides answered_layers by this, so keep it in sync with the
+# bank size if the bank grows. Exposed for "4 of 14 prompts answered" copy.
+ARCHETYPE_LAYER_COUNT = 14
+
+
 @dataclass(frozen=True)
 class SlotMeta:
     key: str
