@@ -128,21 +128,36 @@ Every `/turn` response now carries, while in the tribute flow:
 "tribute_progress": {
   "percent": 60,
   "ready": false,
+  "title": "A Letter to Dad",
+  "next": "message",
   "slots": [
-    {"key": "memories",   "label": "Shared memories",       "filled": true},
-    {"key": "message",    "label": "Your message",          "filled": false},
-    {"key": "appearance", "label": "How they looked",        "filled": true},
-    {"key": "signature",  "label": "What made them them",    "filled": true}
+    {"key": "memories",   "label": "Shared memories",    "hint": "Tell three stories about a time with them.",        "filled": false, "count": 2, "target": 3},
+    {"key": "message",    "label": "Your message",       "hint": "If he could hear one thing from you — what is it?", "filled": false, "count": null, "target": null},
+    {"key": "appearance", "label": "How they looked",    "hint": "A few details so we can picture them.",             "filled": true,  "count": null, "target": null},
+    {"key": "signature",  "label": "What made them them","hint": "A saying, a habit, or a trait of theirs.",          "filled": true,  "count": null, "target": null}
   ]
 }
 ```
 
-- This is the **"how far to my video / what's left"** signal.
+- This is the **"how far to my video / what's left / what do I do next"** signal.
 - `percent` is monotonic within a session (never goes backward). It can lag
   a beat — memory/appearance/signature slots flip *after* extraction
   finishes, so update again when Node tells you (or just re-read on the next
   turn). `message` flips immediately.
-- **`label` is display-ready** — render it as-is for the "what's left" list.
+- **`title`** is the campaign-skinned meter header (e.g. "A Letter to Dad" in
+  the Father's Day window, "A Tribute" otherwise) — use it for the header
+  label instead of a hardcoded "YOUR TRIBUTE".
+- **`next`** is the key of the first unfilled slot (or `null` at 100%). Drive
+  the "next — …" steer from this slot's `hint`, so the prompt is always
+  actionable and never a guess. When `next` is `null`, show the ready/generate
+  state instead.
+- **`label`** is the short slot name (the "what's left" checklist); **`hint`**
+  is the actionable one-liner telling the user *how* to fill that slot — both
+  display-ready, render as-is. `hint` for the `message` slot carries the
+  campaign voice; the rest are skin-neutral.
+- **`count`/`target`** give granular progress for the memories slot only
+  (e.g. 2 of 3 stories → render "one more story"); they are `null` on every
+  other slot, which is purely filled/unfilled.
 - **Entirely your design:** bar vs. ring vs. checklist, where it lives,
   animation. The only contract is the JSON above.
 
@@ -174,7 +189,7 @@ Every `/turn` response now carries, while in the tribute flow:
 | Archetype MC modal | existing unlock modal; chips + free-text + skip; resumable draft; render supplied text | pacing if 6–8 feels long |
 | Chat | unchanged | — |
 | Message tap | existing tap-card component; render supplied `text`; no `question_decision` for null `question_id` | nothing |
-| Completion meter | bind to `tribute_progress` JSON; labels are display-ready | the entire visual |
+| Completion meter | bind to `tribute_progress` JSON; `title`/`label`/`hint` display-ready, `next` drives the steer, `count`/`target` for memories | the entire visual |
 | Generate + result | `ready` gates video; poll URL presence for "done" | CTA, waiting state, share/result screen |
 
 ---

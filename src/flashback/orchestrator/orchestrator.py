@@ -956,8 +956,18 @@ def _tribute_progress_payload(state) -> dict | None:
     return {
         "percent": p.percent,
         "ready": p.ready,
+        "title": p.title,
+        "next": p.next_key,
         "slots": [
-            {"key": s.key, "label": s.label, "filled": s.filled} for s in p.slots
+            {
+                "key": s.key,
+                "label": s.label,
+                "hint": s.hint,
+                "filled": s.filled,
+                "count": s.count,
+                "target": s.target,
+            }
+            for s in p.slots
         ],
     }
 

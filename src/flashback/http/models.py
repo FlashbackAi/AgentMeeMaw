@@ -181,8 +181,13 @@ class TurnMetadata(BaseModel):
     # Voice mode only: prosody label for the reply; Node maps it to a
     # Gemini TTS style. None in text mode.
     voice_style: str | None = None
-    # Tribute live meter: {percent, ready, slots:[...]} when the session is
-    # in a tribute flow, else None.
+    # Tribute live meter when the session is in a tribute flow, else None.
+    # Shape: {percent, ready, title, next, slots:[{key, label, hint,
+    # filled, count, target}]}. `title` is the campaign skin's display
+    # name; `next` is the key of the first unfilled slot (drives the
+    # "next -- ..." steer); per-slot `hint` is the actionable copy and
+    # `count`/`target` give granular progress (memories slot only, else
+    # null). The percent math lives in the tribute_status SQL view.
     tribute_progress: dict | None = None
 
 
