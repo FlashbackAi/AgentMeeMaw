@@ -29,6 +29,11 @@ class Campaign:
     featured: bool
     active_start: date | None
     active_end: date | None
+    # First-person-about-him "confession" voice for the assembler + a
+    # prime-years de-aged cover portrait. Scoped to the FD skin; the neutral
+    # tribute keeps the shipped "letter to you" voice + establishing-scene cover.
+    confession_voice: bool = False
+    deage_cover: bool = False
 
 
 NEUTRAL_CAMPAIGN = Campaign(
@@ -59,6 +64,8 @@ _CAMPAIGNS: dict[str, Campaign] = {
         featured=True,
         active_start=date(2026, 6, 1),
         active_end=date(2026, 6, 22),
+        confession_voice=True,
+        deage_cover=True,
     ),
 }
 

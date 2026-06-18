@@ -29,3 +29,14 @@ def test_active_featured_only_inside_window() -> None:
     assert active_featured_campaign(date(2026, 6, 15)) is not None
     assert active_featured_campaign(date(2026, 1, 1)) is None
     assert active_featured_campaign(date(2026, 12, 25)) is None
+
+
+def test_fathers_day_uses_confession_voice_and_deage() -> None:
+    c = resolve_campaign("fathers_day_2026")
+    assert c.confession_voice is True
+    assert c.deage_cover is True
+
+
+def test_neutral_campaign_keeps_letter_voice() -> None:
+    assert NEUTRAL_CAMPAIGN.confession_voice is False
+    assert NEUTRAL_CAMPAIGN.deage_cover is False
