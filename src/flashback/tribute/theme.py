@@ -43,6 +43,11 @@ STORYBOOK_MAX_PAGES = 9
 # ship as MC with starter chips so the card surface is uniform; free-text +
 # Skip are always available on the card (ArchetypeQuestion defaults).
 FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
+    # -- Layer 1: the world he came from --
+    (
+        "Where did your father grow up?",
+        ["A village", "A small town", "A big city", "Abroad"],
+    ),
     (
         "What was your father's main work or trade?",
         ["A trade / manual work", "A salaried job", "His own business", "Farming / land"],
@@ -55,6 +60,7 @@ FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
         "Was he raised by both parents, or did he lose someone early?",
         ["Both, all through", "Lost his father young", "Lost his mother young", "Raised by others"],
     ),
+    # -- Layer 2A: the mirror pairs (his childhood vs. yours) --
     (
         "What kind of clothes did you wear growing up?",
         ["Branded / new", "Hand-me-downs", "Simple but clean", "The best they could afford"],
@@ -64,13 +70,35 @@ FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
         ["Private / English-medium", "Government school", "Convent", "Far from home"],
     ),
     (
+        "How did you get to school each morning?",
+        ["He dropped me", "Bus / auto", "Bicycle", "Walked"],
+    ),
+    (
+        "What treats could you reach for freely as a kid?",
+        ["Sweets", "Eating out", "Cold drinks", "Whatever I wanted"],
+    ),
+    # -- Layer 2B: his choices & what he went without --
+    (
+        "What's something he made sure you had that he never did?",
+        ["An education", "A home", "Comfort", "Real choices"],
+    ),
+    (
         "Did he ever uproot his life or give up something he'd built, for your sake?",
         ["Sold a home", "Left his land", "Changed careers", "Moved everything"],
+    ),
+    (
+        "What did he go without, day to day, while providing?",
+        ["Skipped meals", "No small comforts", "No rest", "Spent nothing on himself"],
     ),
     (
         "Did he have money he could have spent on himself but didn't?",
         ["Yes -- always chose us", "Sometimes", "He was genuinely stretched", "Not sure"],
     ),
+    (
+        "If he'd chosen himself, what could his life have looked like?",
+        ["More wealth", "Kept his land", "A bigger career", "His own dreams"],
+    ),
+    # -- Layer 2D: the confession --
     (
         "What's the one thing you've never said to him out loud?",
         ["I love you", "I'm proud of you", "Thank you", "You're my hero"],
