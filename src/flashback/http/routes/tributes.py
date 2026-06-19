@@ -16,10 +16,12 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 
+from flashback.artifacts import people_scene_fragment
 from flashback.artifacts.presets import resolve_preset
 from flashback.config import HttpConfig
 from flashback.ground_truth.render import render_ground_truth_block
 from flashback.ground_truth.store import fetch_ground_truth
+from flashback.persons import get_person_by_id
 from flashback.http.auth import require_service_token
 from flashback.http.deps import (
     get_artifact_generation_queue,
@@ -132,6 +134,17 @@ async def generate_tribute(
     # scene_subject (not plain scene): tribute scenes recur the same person
     # beat to beat, so we ground appearance for cross-scene consistency.
     gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or None
+    # Subject + contributor are the two figures that recur across tribute
+    # scenes ("my father and I ..."); ground their gender so neither defaults.
+    person = await get_person_by_id(db_pool, person_id=body.person_id)
+    people_ctx = (
+        people_scene_fragment(
+            subject_gender=person.gender,
+            contributor_gender=person.contributor_gender,
+        )
+        if person is not None
+        else ""
+    ) or None
 
     # 3) Build the artifact-kind context.
     if body.artifact_kind == "tribute_video":
@@ -141,6 +154,7 @@ async def generate_tribute(
             preset=preset_slug,
             target_duration_seconds=campaign.video_target_seconds,
             ground_truth_context=gt_scene,
+            people_context=people_ctx,
         )
     else:
         context = build_storybook_context(
@@ -149,6 +163,7 @@ async def generate_tribute(
             preset=preset_slug,
             max_pages=STORYBOOK_MAX_PAGES,
             ground_truth_context=gt_scene,
+            people_context=people_ctx,
             cover_reference_s3_key=body.prime_photo_s3_key,
             # De-age only when the campaign allows it AND the supplied photo
             # isn't already a prime-years shot (else we'd over-young a young face).

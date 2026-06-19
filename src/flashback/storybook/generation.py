@@ -19,6 +19,7 @@ from uuid import uuid4
 import structlog
 from psycopg_pool import AsyncConnectionPool
 
+from flashback.artifacts import people_scene_fragment
 from flashback.artifacts.presets import resolve_preset
 from flashback.config import HttpConfig
 from flashback.ground_truth.render import render_ground_truth_block
@@ -55,6 +56,7 @@ async def assemble_storybook(
     person_relationship: str | None,
     preset: str,
     ground_truth_context: str | None,
+    people_context: str | None = None,
 ) -> tuple[str | None, dict, dict]:
     """Assemble script + storybook context. Returns (title, script_json, context).
 
@@ -81,6 +83,7 @@ async def assemble_storybook(
         preset=preset,
         max_pages=STORYBOOK_MAX_PAGES,
         ground_truth_context=ground_truth_context,
+        people_context=people_context,
         cover_subtitle=person_name,
     )
 
@@ -140,6 +143,13 @@ async def maybe_generate_storybook(
 
     ground_truth = await fetch_ground_truth(db_pool, person_id)
     gt_scene = render_ground_truth_block(ground_truth, "scene") or None
+    people_ctx = (
+        people_scene_fragment(
+            subject_gender=person.get("gender"),
+            contributor_gender=person.get("contributor_gender"),
+        )
+        or None
+    )
 
     # 2) Assemble (LLM) outside the write transaction.
     title, script_json, context = await assemble_storybook(
@@ -149,6 +159,7 @@ async def maybe_generate_storybook(
         person_relationship=person["person_relationship"],
         preset=preset_slug,
         ground_truth_context=gt_scene,
+        people_context=people_ctx,
     )
     scene_ids = [s["moment_id"] for s in script_json["scenes"]]
 

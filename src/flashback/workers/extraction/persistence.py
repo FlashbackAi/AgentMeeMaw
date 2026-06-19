@@ -69,6 +69,9 @@ class PersonRow:
     id: str
     name: str
     aliases: list[str]
+    gender: str | None = None
+    relationship: str | None = None
+    contributor_gender: str | None = None
 
 
 @dataclass
@@ -1156,7 +1159,8 @@ def fetch_person(cursor, person_id: str) -> PersonRow:
     """Look up the legacy subject for the subject guard."""
     cursor.execute(
         """
-        SELECT id::text, name, COALESCE(NULL::text[], ARRAY[]::text[])
+        SELECT id::text, name, COALESCE(NULL::text[], ARRAY[]::text[]),
+               gender, relationship, contributor_gender
           FROM persons
          WHERE id = %s
         """,
@@ -1165,11 +1169,18 @@ def fetch_person(cursor, person_id: str) -> PersonRow:
     row = cursor.fetchone()
     if row is None:
         raise ValueError(f"person {person_id!r} not found")
-    pid, name, _aliases = row
+    pid, name, _aliases, gender, relationship, contributor_gender = row
     # ``persons`` does not currently carry an aliases column; we expose
     # an empty list and let future schema additions plug into the same
     # entry point without churning the call sites.
-    return PersonRow(id=pid, name=name, aliases=[])
+    return PersonRow(
+        id=pid,
+        name=name,
+        aliases=[],
+        gender=gender,
+        relationship=relationship,
+        contributor_gender=contributor_gender,
+    )
 
 
 def fetch_active_entities_for_catalog(

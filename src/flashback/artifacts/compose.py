@@ -43,6 +43,7 @@ def compose_scene_prompt(
     instructions: str | list[str] | None = None,
     preset: str | None = None,
     ground_truth_context: str | None = None,
+    people_context: str | None = None,
 ) -> str:
     """Compose a scene prompt for moment / entity / thread artifact regen + edit.
 
@@ -67,6 +68,11 @@ def compose_scene_prompt(
         # Subject-world grounding (region/era/setting), read at compose
         # time — grounds even old generic base prompts on regenerate.
         parts.append(ground_truth_context.strip())
+    if people_context and people_context.strip():
+        # Gender-correct depiction of the subject / contributor figures, read
+        # at compose time so a regenerate after gender is captured fixes a
+        # mis-gendered scene without re-emitting the base prompt.
+        parts.append(people_context.strip())
     composed = ", ".join(parts)
     return apply_preset(composed, preset)
 

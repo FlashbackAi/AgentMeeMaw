@@ -19,6 +19,7 @@ from typing import Iterable
 
 import structlog
 
+from flashback.artifacts.people import figure_noun
 from flashback.llm.interface import call_with_tool
 from flashback.llm.prompt_safety import tagged, xml_text
 
@@ -68,6 +69,8 @@ def run_extraction(
     settings,
     subject_name: str,
     subject_relationship: str | None,
+    subject_gender: str | None = None,
+    contributor_gender: str | None = None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
@@ -86,6 +89,8 @@ def run_extraction(
     user_message = _build_user_message(
         subject_name=subject_name,
         subject_relationship=subject_relationship,
+        subject_gender=subject_gender,
+        contributor_gender=contributor_gender,
         prior_rolling_summary=prior_rolling_summary,
         segment_turns=segment_turns,
         contributor_display_name=contributor_display_name,
@@ -119,10 +124,54 @@ def run_extraction(
     return result
 
 
+def _render_people_in_scenes(
+    *,
+    subject_name: str,
+    subject_relationship: str | None,
+    subject_gender: str | None,
+    contributor_display_name: str,
+    contributor_gender: str | None,
+) -> str:
+    """Tell the LLM how to depict the people who recur in moment scenes.
+
+    The subject and (when they appear in a memory, e.g. "my father and I on
+    a bike") the contributor are rendered with gender-correct figures instead
+    of letting the image model default to one. Faces still stay turned/distant
+    per the no-faces rule in the system prompt; this only fixes presentation.
+    Emits nothing when no gender is known — silence beats a wrong guess.
+    """
+    rows: list[str] = []
+    subject_fig = figure_noun(subject_gender)
+    if subject_fig:
+        rel = f", the contributor's {subject_relationship}" if subject_relationship else ""
+        rows.append(f"- The subject ({subject_name}{rel}) is {subject_fig}.")
+    contributor_fig = figure_noun(contributor_gender)
+    if contributor_fig:
+        who = contributor_display_name or "the contributor"
+        rows.append(
+            f"- The contributor ({who}, the one telling these stories) is "
+            f"{contributor_fig}."
+        )
+    if not rows:
+        return ""
+    return (
+        "<people_in_scenes>\n"
+        "When a generation_prompt depicts human figures, render them with "
+        "the correct gender presentation below. Use a matching noun (\"a "
+        "man\", \"a woman\", \"a young boy\", \"an elderly woman\") rather "
+        "than a neutral \"figure\". Faces stay turned away or distant per "
+        "the no-faces rule.\n"
+        + "\n".join(rows)
+        + "\n</people_in_scenes>"
+    )
+
+
 def _build_user_message(
     *,
     subject_name: str,
     subject_relationship: str | None,
+    subject_gender: str | None = None,
+    contributor_gender: str | None = None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
@@ -148,6 +197,16 @@ def _build_user_message(
     ]
     contributor_name = (contributor_display_name or "").strip()
     lines.append(tagged("contributor_display_name", contributor_name))
+
+    people_block = _render_people_in_scenes(
+        subject_name=subject_name,
+        subject_relationship=subject_relationship,
+        subject_gender=subject_gender,
+        contributor_display_name=contributor_name,
+        contributor_gender=contributor_gender,
+    )
+    if people_block:
+        lines.extend(["", people_block])
     candidate_ids = [qid for qid in candidate_question_ids if qid]
     if candidate_ids:
         lines.append(tagged("candidate_answered_question_ids", "\n".join(candidate_ids)))

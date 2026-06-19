@@ -28,11 +28,13 @@ from flashback.artifacts import (
     build_generation_context,
     compose_scene_prompt,
     list_presets,
+    people_scene_fragment,
     write_latest_generation_context_async,
 )
 from flashback.artifacts.presets import resolve_preset
 from flashback.ground_truth.render import render_ground_truth_block
 from flashback.ground_truth.store import fetch_ground_truth
+from flashback.persons import get_person_by_id
 from flashback.http.auth import require_service_token
 from flashback.http.deps import (
     get_artifact_generation_queue,
@@ -181,6 +183,15 @@ async def _enqueue_artifact_job(
         )
 
     ground_truth = await fetch_ground_truth(db_pool, person_id)
+    person = await get_person_by_id(db_pool, person_id=person_id)
+    people_context = (
+        people_scene_fragment(
+            subject_gender=person.gender,
+            contributor_gender=person.contributor_gender,
+        )
+        if person is not None
+        else ""
+    )
     composed_prompt = compose_scene_prompt(
         base_prompt=base_prompt,
         prior_instructions=prior_instructions,
@@ -188,6 +199,7 @@ async def _enqueue_artifact_job(
         preset=preset_slug,
         ground_truth_context=render_ground_truth_block(ground_truth, "scene")
         or None,
+        people_context=people_context or None,
     )
 
     table_name, artifact_kind = _RECORD_CONFIG[record_type]

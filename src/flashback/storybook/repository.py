@@ -78,15 +78,21 @@ async def storybook_gate_async(
 async def fetch_person_for_storybook_async(
     cur, *, person_id: UUID | str
 ) -> dict[str, Any] | None:
-    """Return the subject's name/relationship for the assembler."""
+    """Return the subject's name/relationship + genders for the assembler."""
     await cur.execute(
-        "SELECT name, relationship FROM persons WHERE id = %(pid)s",
+        "SELECT name, relationship, gender, contributor_gender "
+        "FROM persons WHERE id = %(pid)s",
         {"pid": str(person_id)},
     )
     row = await cur.fetchone()
     if row is None:
         return None
-    return {"person_name": row[0], "person_relationship": row[1]}
+    return {
+        "person_name": row[0],
+        "person_relationship": row[1],
+        "gender": row[2],
+        "contributor_gender": row[3],
+    }
 
 
 async def insert_storybook_async(

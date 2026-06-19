@@ -97,6 +97,7 @@ def build_tribute_video_context(
     preset: str,
     target_duration_seconds: int,
     ground_truth_context: str | None = None,
+    people_context: str | None = None,
 ) -> dict[str, Any]:
     """Compile the tribute-video context (keyed under 'tribute_video')."""
     n = max(1, len(script.scenes))
@@ -108,6 +109,7 @@ def build_tribute_video_context(
             base_prompt=_scene_base_prompt(s, moment),
             preset=preset,
             ground_truth_context=ground_truth_context,
+            people_context=people_context,
         )
         scenes.append(
             {
@@ -137,6 +139,7 @@ def build_storybook_context(
     preset: str,
     max_pages: int,
     ground_truth_context: str | None = None,
+    people_context: str | None = None,
     cover_subtitle: str | None = None,
     cover_reference_s3_key: str | None = None,
     deage_cover: bool = False,
@@ -163,6 +166,7 @@ def build_storybook_context(
             instructions=STORYBOOK_PAGE_COMPOSITION,
             preset=preset,
             ground_truth_context=ground_truth_context,
+            people_context=people_context,
         )
         page: dict[str, Any] = {
             "moment_id": s.moment_id,

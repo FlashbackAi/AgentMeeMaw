@@ -74,6 +74,29 @@ class TestComposeScenePresets:
             compose_scene_prompt(base_prompt="x", preset="bogus")
 
 
+class TestComposeScenePeopleContext:
+    def test_people_context_appended_after_base(self):
+        out = compose_scene_prompt(
+            base_prompt="Two riders on a dirt road",
+            people_context="the subject as a man, the contributor as a woman",
+        )
+        assert "Two riders on a dirt road" in out
+        assert out.index("Two riders") < out.index("the subject as a man")
+
+    def test_empty_people_context_is_dropped(self):
+        base = "A quiet kitchen"
+        assert compose_scene_prompt(base_prompt=base, people_context="") == base
+        assert compose_scene_prompt(base_prompt=base, people_context="  ") == base
+
+    def test_people_context_lands_before_preset_modifier(self):
+        out = compose_scene_prompt(
+            base_prompt="A river",
+            people_context="the subject as a woman",
+            preset="golden_hour",
+        )
+        assert out.index("the subject as a woman") < out.lower().index("golden")
+
+
 class TestSceneNegative:
     def test_negative_prompt_blocks_cartoon_and_deepfake(self):
         assert "cartoon" in SCENE_NEGATIVE_PROMPT.lower()

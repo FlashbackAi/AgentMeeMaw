@@ -401,8 +401,11 @@ present tense. Cinematic painterly realism in the style of Red Dead \
 Redemption 2 environment art — naturalistic lighting, rich earthen color \
 palette, soft volumetric atmosphere, oil-painted brushwork that keeps \
 physical detail. Avoid flat cartoon shading and avoid Pixar/Ghibli look. \
-Avoid full photorealism. No people's faces. Focus on mood, color, light \
-direction, time of day, and composition. The worker code appends style \
+Avoid full photorealism. No people's faces — but when a memory includes \
+people, depict them as figures (turned away or at a distance) with the gender \
+presentation given in `<people_in_scenes>`, using a matching noun ("a man", "a \
+woman", "a young boy") rather than a neutral "figure". Focus on mood, color, \
+light direction, time of day, and composition. The worker code appends style \
 guidance after.
 
 Examples of good generation_prompts:
