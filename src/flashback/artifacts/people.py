@@ -1,0 +1,51 @@
+"""Gender-correct depiction of the people who recur in artifacts.
+
+Moment scenes (and, on regenerate, entity/thread art) can depict the
+SUBJECT and — when a memory involves them, "my father and I on a bike" —
+the CONTRIBUTOR. Without a gender cue the image model tends to default to
+one presentation. These helpers turn the stored pronoun form
+(``he``/``she``/``they``/``None``) into an explicit figure noun and a short
+compose-time fragment. ``they`` / unknown stays neutral so we never push a
+wrong guess (CLAUDE.md §1 — no demographic invention).
+
+Faces still stay turned/distant per the scene no-faces rule; this only
+fixes presentation, not likeness.
+"""
+
+from __future__ import annotations
+
+# Pronoun form -> figure noun. ``they`` is intentionally absent: a neutral
+# pronoun yields no directive, leaving the model unbiased.
+_FIGURE_NOUN = {"he": "a man", "she": "a woman"}
+
+
+def figure_noun(gender: str | None) -> str | None:
+    """Map a stored pronoun form to a scene figure noun, or None if neutral."""
+    return _FIGURE_NOUN.get((gender or "").strip().lower())
+
+
+def people_scene_fragment(
+    *,
+    subject_gender: str | None,
+    contributor_gender: str | None,
+) -> str:
+    """A short comma-joinable grounding fragment for scene/portrait compose.
+
+    Returns ``""`` when neither gender is known. Mirrors the role language of
+    the extraction ``<people_in_scenes>`` block so auto and regenerate paths
+    agree on who is who.
+    """
+    clauses: list[str] = []
+    subject_fig = figure_noun(subject_gender)
+    if subject_fig:
+        clauses.append(f"the subject as {subject_fig}")
+    contributor_fig = figure_noun(contributor_gender)
+    if contributor_fig:
+        clauses.append(f"the contributor as {contributor_fig}")
+    if not clauses:
+        return ""
+    return (
+        "Depict any human figures with correct gender presentation: "
+        + ", ".join(clauses)
+        + " (matching noun, not a neutral figure; faces turned away or distant)."
+    )
