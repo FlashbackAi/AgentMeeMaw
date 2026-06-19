@@ -93,11 +93,12 @@ def compose_image_prompt(
         parts.append(ground_truth_context.strip())
     parts += [
         "in the visual style of Red Dead Redemption 2 character art",
-        "naturalistic features with subtle painterly brushwork",
+        "naturalistic features with visible painterly brushwork",
         "soft cinematic studio lighting with warm key and gentle rim light",
         "rich earthen color grade, shallow depth of field",
         "dignified lifelike expression, weight and texture in the skin and fabric",
-        "oil-painting quality, not cartoon, not full photorealism",
+        "hand-painted oil-painting quality leaning a touch more illustrative "
+        "than photographic, clearly short of full photorealism, not cartoon",
         "no text no watermarks",
     ]
     for fragment in _normalize_instructions(user_instructions):
