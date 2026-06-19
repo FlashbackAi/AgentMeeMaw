@@ -256,6 +256,10 @@ class PersonCreateRequest(BaseModel):
     relationship: str = Field(min_length=1, max_length=80)
     contributor_display_name: str = Field(min_length=1, max_length=64)
     gender: Literal["he", "she", "they"] | None = None
+    # The contributor's own gender. The contributor is depicted alongside
+    # the subject in some moment scenes ("my father and I on a bike"), so we
+    # capture and persist it to keep generated figures gender-correct.
+    contributor_gender: Literal["he", "she", "they"] | None = None
     # Onboarding reference photo of the subject. Node uploads it to S3 and
     # passes the key here; onboarding carries no instruction text — the
     # reference alone anchors the likeness while the prompt applies our
@@ -285,6 +289,7 @@ class PersonCreateResponse(BaseModel):
     name: str
     relationship: str
     gender: Literal["he", "she", "they"] | None = None
+    contributor_gender: Literal["he", "she", "they"] | None = None
     phase: Literal["starter", "steady"]
     created_at: datetime
 

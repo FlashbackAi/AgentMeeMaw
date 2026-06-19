@@ -163,8 +163,40 @@ agent-owned `persons` row instead of a Node-owned `person_roles` row.
 ### `POST /persons`
 
 Create the `persons` row after the contributor supplies the subject's
-display name, relationship, subject gender, and contributor name. DOB
-/ DOD are not accepted; `persons` is intentionally status-agnostic.
+display name, relationship, subject gender, contributor name, and
+contributor gender. DOB / DOD are not accepted; `persons` is
+intentionally status-agnostic.
+
+**Request**
+```json
+{
+  "name": "string",
+  "relationship": "string",
+  "contributor_display_name": "string",
+  "gender": "he | she | they (optional)",
+  "contributor_gender": "he | she | they (optional)",
+  "reference_s3_key": "string (optional)"
+}
+```
+
+`gender` is the **subject's** pronoun form; `contributor_gender` is the
+**contributor's**. Both feed artifact generation so the figures in moment
+scenes (the subject, and the contributor when a memory includes them —
+"my father and I on a bike") render with the correct gender instead of
+defaulting. `they` / omitted leaves the figure gender-neutral.
+
+**Response 200**
+```json
+{
+  "person_id": "uuid",
+  "name": "string",
+  "relationship": "string",
+  "gender": "he | she | they | null",
+  "contributor_gender": "he | she | they | null",
+  "phase": "starter",
+  "created_at": "iso-8601"
+}
+```
 
 ### `GET /api/v1/onboarding/archetype-questions`
 

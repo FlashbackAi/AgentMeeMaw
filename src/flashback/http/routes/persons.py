@@ -64,6 +64,7 @@ async def create(
             relationship=body.relationship,
             contributor_display_name=body.contributor_display_name,
             gender=body.gender,
+            contributor_gender=body.contributor_gender,
             reference_s3_key=body.reference_s3_key,
             db_pool=db_pool,
             profile_picture_queue=profile_picture_queue,
@@ -77,6 +78,7 @@ async def _create_once(
     relationship: str,
     contributor_display_name: str,
     gender: str | None,
+    contributor_gender: str | None,
     reference_s3_key: str | None,
     db_pool: AsyncConnectionPool,
     profile_picture_queue: ProfilePictureQueueProducer | None,
@@ -86,6 +88,7 @@ async def _create_once(
         name=name,
         relationship=relationship,
         gender=gender,
+        contributor_gender=contributor_gender,
     )
     structlog.contextvars.bind_contextvars(person_id=str(created.person_id))
     log.info(
@@ -140,6 +143,7 @@ async def _create_once(
         name=created.name,
         relationship=created.relationship,
         gender=created.gender,  # type: ignore[arg-type]
+        contributor_gender=created.contributor_gender,  # type: ignore[arg-type]
         phase=created.phase,  # type: ignore[arg-type]
         created_at=created.created_at,
     )
