@@ -5,9 +5,16 @@ caller supplies a configured ``Artist``, the (optional) prime photo, and output
 paths. The opener is a portrait from the prime photo when present; the
 contributor message (if any) is its own calm page before the closing, reusing
 the opener illustration as a visual bookend.
+
+The character reference is generated first (the beats anchor to it), then the
+opener + every beat + closing are illustrated CONCURRENTLY -- each is an
+independent ~1-2 min Gemini call, so running them in a small thread pool turns
+~18 serial calls into a handful of parallel batches. Pure scheduling: the model,
+prompts, and reference are unchanged, so quality is identical to serial.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from PIL import Image
@@ -15,6 +22,55 @@ from PIL import Image
 from . import compose, style, video
 from .art import Artist
 from .book import Beat, Book
+
+DEFAULT_CONCURRENCY = 4
+
+
+def _generate_illustrations(
+    *,
+    artist: Artist,
+    book: Book,
+    subject_name: str,
+    relationship: str | None,
+    gt_context: str,
+    prime_photo: Image.Image | None,
+    deage: bool,
+    blend: str,
+    concurrency: int = DEFAULT_CONCURRENCY,
+) -> tuple[Image.Image, list[Image.Image], Image.Image]:
+    """Generate (opener, [beat...], closing) illustrations concurrently.
+
+    The reference is built first (serial) so every beat anchors to the same
+    figure; the independent page illustrations then run in a bounded thread
+    pool. Order is preserved. A failed page propagates (the worker redrives).
+    """
+    reference = artist.character_reference(
+        name=subject_name, relationship=relationship, gt_context=gt_context)
+
+    def gen_opener() -> Image.Image:
+        if prime_photo is not None:
+            return artist.portrait_from_photo(
+                prime_photo, name=subject_name, gt_context=gt_context,
+                deage=deage, blend=blend)
+        return artist.illustrate(book.opener.art_direction, gt_context, blend,
+                                 reference=reference)
+
+    def gen_beat(b: Beat) -> Image.Image:
+        return artist.illustrate(b.art_direction, gt_context, blend,
+                                 reference=reference)
+
+    def gen_closing() -> Image.Image:
+        return artist.illustrate(book.closing.art_direction, gt_context, blend,
+                                 reference=reference)
+
+    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
+        fut_opener = ex.submit(gen_opener)
+        fut_beats = [ex.submit(gen_beat, b) for b in book.beats]
+        fut_closing = ex.submit(gen_closing)
+        # .result() re-raises any per-page GeminiError, failing the render.
+        return (fut_opener.result(),
+                [f.result() for f in fut_beats],
+                fut_closing.result())
 
 
 @dataclass(frozen=True)
@@ -38,30 +94,27 @@ def render_book(
     blend: str = "cream",
     transition: str = "bleed",
     fps: int = 30,
+    concurrency: int = DEFAULT_CONCURRENCY,
 ) -> RenderResult:
     template = compose.load_template()
     template_rgba = template.convert("RGBA")
-    reference = artist.character_reference(
-        name=subject_name, relationship=relationship, gt_context=gt_context)
 
-    def illo_for(role: str, beat: Beat) -> Image.Image:
-        if role == "opener" and prime_photo is not None:
-            return artist.portrait_from_photo(
-                prime_photo, name=subject_name, gt_context=gt_context,
-                deage=deage, blend=blend)
-        return artist.illustrate(beat.art_direction, gt_context, blend,
-                                 reference=reference)
+    opener_illo, beat_illos, closing_illo = _generate_illustrations(
+        artist=artist, book=book, subject_name=subject_name,
+        relationship=relationship, gt_context=gt_context,
+        prime_photo=prime_photo, deage=deage, blend=blend,
+        concurrency=concurrency)
 
-    # opener + beats (illustrate each); capture the opener illo for the message
+    # Assemble pages in order; the message page reuses the opener illustration
+    # as a visual bookend (no extra generation).
     ordered: list[tuple[str, Beat, Image.Image]] = []
-    opener_illo = illo_for("opener", book.opener)
     ordered.append(("opener", book.opener, opener_illo))
-    for b in book.beats:
-        ordered.append(("beat", b, illo_for("beat", b)))
+    for b, illo in zip(book.beats, beat_illos):
+        ordered.append(("beat", b, illo))
     if book.message.strip():
         ordered.append(("message", Beat(line=book.message, art_direction=""),
                         opener_illo))
-    ordered.append(("closing", book.closing, illo_for("closing", book.closing)))
+    ordered.append(("closing", book.closing, closing_illo))
 
     pages_img: list[Image.Image] = []
     video_pages: list[video.Page] = []

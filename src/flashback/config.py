@@ -760,6 +760,10 @@ class TributeRenderConfig:
     render_fps: int = 30
     render_transition: str = "bleed"
     render_blend: str = "cream"
+    # Concurrent Gemini image-gen calls per render. Pages are independent, so
+    # this turns ~18 serial calls into a few parallel batches (no quality
+    # change). Keep modest to stay under image-model rate limits.
+    render_concurrency: int = 4
     # Mirror the queue's redrive maxReceiveCount. On the final attempt the
     # worker writes status='failed' + render_error instead of silently
     # dropping to the DLQ (which would strand the row in 'generating').
@@ -790,6 +794,7 @@ class TributeRenderConfig:
             render_fps=int(os.environ.get("RENDER_FPS", "30")),
             render_transition=os.environ.get("RENDER_TRANSITION", "bleed"),
             render_blend=os.environ.get("RENDER_BLEND", "cream"),
+            render_concurrency=int(os.environ.get("RENDER_CONCURRENCY", "4")),
             max_render_attempts=int(os.environ.get("MAX_RENDER_ATTEMPTS", "3")),
         )
 
