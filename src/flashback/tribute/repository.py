@@ -247,6 +247,47 @@ async def fetch_scene_moments_async(
     ]
 
 
+async def fetch_theme_scene_moments_async(
+    cur, *, person_id: UUID | str, theme_id: UUID | str, limit: int = 15
+) -> list[dict[str, Any]]:
+    """Qualifying moments tagged to the tribute's theme (the FD-flow story),
+    newest first. Empty when the theme has none -- callers fall back to the
+    general qualifying pool so a tribute can always assemble."""
+    await cur.execute(
+        """
+        SELECT m.id::text, m.title, m.narrative,
+               m.generation_prompt, m.sensory_details, m.time_anchor
+          FROM active_moments m
+          JOIN edges te ON te.from_kind = 'moment' AND te.from_id = m.id
+                       AND te.edge_type = 'themed_as' AND te.to_kind = 'theme'
+                       AND te.to_id = %(theme_id)s AND te.status = 'active'
+         WHERE m.person_id = %(person_id)s
+           AND (
+                m.sensory_details IS NOT NULL
+             OR m.time_anchor IS NOT NULL
+             OR EXISTS (SELECT 1 FROM edges ie
+                         WHERE ie.from_kind = 'moment' AND ie.from_id = m.id
+                           AND ie.edge_type = 'involves' AND ie.status = 'active')
+           )
+         ORDER BY m.created_at DESC
+         LIMIT %(limit)s
+        """,
+        {"person_id": str(person_id), "theme_id": str(theme_id), "limit": limit},
+    )
+    rows = await cur.fetchall()
+    return [
+        {
+            "id": r[0],
+            "title": r[1],
+            "narrative": r[2],
+            "generation_prompt": r[3],
+            "sensory_details": r[4],
+            "time_anchor": r[5],
+        }
+        for r in rows
+    ]
+
+
 async def fetch_tribute_for_assembly_async(
     cur, *, tribute_id: UUID | str
 ) -> dict[str, Any] | None:
@@ -254,7 +295,7 @@ async def fetch_tribute_for_assembly_async(
     await cur.execute(
         """
         SELECT tr.id::text, tr.person_id::text, tr.message_text,
-               p.name, p.relationship
+               p.name, p.relationship, tr.theme_id::text
           FROM tributes tr
           JOIN persons p ON p.id = tr.person_id
          WHERE tr.id = %(id)s
@@ -270,6 +311,7 @@ async def fetch_tribute_for_assembly_async(
         "message_text": row[2],
         "person_name": row[3],
         "person_relationship": row[4],
+        "theme_id": row[5],
     }
 
 
