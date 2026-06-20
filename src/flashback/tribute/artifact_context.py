@@ -145,6 +145,7 @@ def build_storybook_context(
     deage_cover: bool = False,
     defining_phrase: str | None = None,
     hero_line: str | None = None,
+    include_cover: bool = True,
 ) -> dict[str, Any]:
     """Compile the storybook context (keyed under 'storybook').
 
@@ -156,8 +157,13 @@ def build_storybook_context(
     falls back to the first content still when ``cover.prompt`` is absent. The
     cover ``caption`` is the short ``cover_title`` (falling back to the opening
     line), with the subject name as an optional ``subtitle``.
+
+    ``include_cover=False`` drops the cover entirely (standalone storybooks
+    have no cover page -- the tribute keeps its cover). With no cover, the full
+    ``max_pages`` budget is available for content pages and the returned context
+    carries no ``cover`` key, so Node opens the book on the first content page.
     """
-    content_budget = max(1, max_pages - 1)
+    content_budget = max(1, max_pages if not include_cover else max_pages - 1)
     pages: list[dict[str, Any]] = []
     for s in script.scenes[:content_budget]:
         moment = moments_by_id.get(s.moment_id, {})
@@ -185,6 +191,19 @@ def build_storybook_context(
         if s.layout:
             page["layout"] = s.layout
         pages.append(page)
+    result: dict[str, Any] = {
+        "pages": pages,
+        "message_page": {"text": script.message_text},
+        "closing_caption": script.closing_caption,
+        "style_preset": preset,
+        "max_pages": max_pages,
+        "negative_prompt": SCENE_NEGATIVE_PROMPT,
+        "composed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not include_cover:
+        # Standalone storybooks have no cover page; Node opens on page one.
+        return result
+
     # Caption precedence: explicit defining_phrase arg -> script.defining_phrase
     # -> cover_title -> opening line.
     cover_caption = (
@@ -224,13 +243,5 @@ def build_storybook_context(
                 ground_truth_context=ground_truth_context,
             )
             cover["negative"] = SCENE_NEGATIVE_PROMPT
-    return {
-        "cover": cover,
-        "pages": pages,
-        "message_page": {"text": script.message_text},
-        "closing_caption": script.closing_caption,
-        "style_preset": preset,
-        "max_pages": max_pages,
-        "negative_prompt": SCENE_NEGATIVE_PROMPT,
-        "composed_at": datetime.now(timezone.utc).isoformat(),
-    }
+    result["cover"] = cover
+    return result

@@ -43,6 +43,7 @@ class TributeScript:
     cover_prompt: str = ""  # dramatic establishing-scene concept for the cover image
     defining_phrase: str = ""  # cover line: who he IS at core (confession, brief §2.3)
     hero_line: str = ""  # story-gated "fork in the road" line (brief §2.4)
+    tags: tuple[str, ...] = ()  # emotional tag slugs (storybook only; see storybook.tags)
 
 
 _ASSEMBLY_SYSTEM = """\
@@ -237,6 +238,20 @@ your closing line is the final word of the book; make it land.
 Call the `assemble` tool exactly once.
 """
 
+# Appended to the system prompt ONLY when a tag catalog is supplied (storybook
+# path). Tribute calls pass no catalog, so their prompt is unchanged.
+_TAG_DIRECTIVE = """\
+
+Emotional tags:
+- A <emotional_tags> catalog is provided. Choose the 1-3 slugs that best
+  capture the dominant emotional register of THIS set of memories and return
+  them in `tags`, most dominant first. Use ONLY slugs that appear in the
+  catalog; never invent one.
+- Let the chosen register shape the TONE of every caption and the opening +
+  closing lines -- a "happiness" book reads light and warm, a "grief" book
+  quiet and tender. The register colours the words; it never invents facts.\
+"""
+
 _ASSEMBLY_TOOL = ToolSpec(
     name="assemble",
     description="Return the ordered scenes + captions + opening/closing. Once.",
@@ -273,6 +288,11 @@ _ASSEMBLY_TOOL = ToolSpec(
             "cover_prompt": {"type": "string", "maxLength": 400},
             "defining_phrase": {"type": "string", "maxLength": 120},
             "hero_line": {"type": "string", "maxLength": 160},
+            "tags": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {"type": "string", "maxLength": 40},
+            },
         },
         "required": ["scenes", "opening_caption", "closing_caption"],
         "additionalProperties": False,
@@ -305,6 +325,9 @@ async def assemble_tribute_script(
     person_relationship: str | None,
     max_scenes: int,
     confession: bool = False,
+    tag_catalog: str | None = None,
+    style_directive: str | None = None,
+    edit_directive: str | None = None,
 ) -> TributeScript:
     """Return an assembled script. Falls back to chronological on failure.
 
@@ -312,6 +335,16 @@ async def assemble_tribute_script(
     person ABOUT him, addressed to the world, ``he``) and asks for a
     ``defining_phrase`` + story-gated ``hero_line``. Default ``False`` keeps the
     shipped "letter to you" voice byte-for-byte.
+
+    Storybook-only knobs (all default off, so tribute behaviour is unchanged):
+      * ``tag_catalog`` -- a rendered ``<emotional_tags>`` block. When set, the
+        assembler is asked to pick 1-3 slugs (returned in ``script.tags``) and
+        tone the prose to match.
+      * ``style_directive`` -- an extra system instruction appended to the
+        voice prompt (e.g. forcing a register on edit). Free text.
+      * ``edit_directive`` -- cumulative user edit instructions, rendered as an
+        ``<editorial_notes>`` block in the user message so the reshape honours
+        them.
     """
     usable = [c for c in candidates if c.get("id")]
     if not usable:
@@ -339,13 +372,27 @@ async def assemble_tribute_script(
         if msg
         else "<message present=\"false\"/>\n"
     )
+    catalog_block = f"{tag_catalog}\n" if tag_catalog else ""
+    edit_note = (edit_directive or "").strip()
+    edit_block = (
+        f"<editorial_notes>{xml_text(edit_note)}</editorial_notes>\n"
+        if edit_note
+        else ""
+    )
     user_block = (
         f"<subject{rel}>{xml_text(person_name)}</subject>\n"
         f"{message_line}"
+        f"{catalog_block}"
+        f"{edit_block}"
         f"<candidate_scenes>\n{scene_blocks}\n</candidate_scenes>"
     )
 
     system = _CONFESSION_SYSTEM if confession else _ASSEMBLY_SYSTEM
+    if tag_catalog:
+        system = system + _TAG_DIRECTIVE
+    extra = (style_directive or "").strip()
+    if extra:
+        system = system + "\n\n" + extra
     try:
         args = await call_with_tool(
             provider=settings.llm_big_provider,
@@ -406,6 +453,21 @@ async def assemble_tribute_script(
             usable, message_text=message_text, max_scenes=max_scenes
         )
 
+    # Raw tag slugs, lower-cased + de-duped + capped. Validation against the
+    # registry happens in the storybook layer (keeps this module registry-
+    # agnostic and avoids a tribute -> storybook import cycle).
+    raw_tags = args.get("tags") if isinstance(args, dict) else None
+    tags: tuple[str, ...] = ()
+    if isinstance(raw_tags, list):
+        seen: list[str] = []
+        for t in raw_tags:
+            slug = (t or "").strip().lower() if isinstance(t, str) else ""
+            if slug and slug not in seen:
+                seen.append(slug)
+            if len(seen) >= 3:
+                break
+        tags = tuple(seen)
+
     return TributeScript(
         scenes=scenes,
         opening_caption=(args.get("opening_caption") or "").strip(),
@@ -415,4 +477,5 @@ async def assemble_tribute_script(
         cover_prompt=(args.get("cover_prompt") or "").strip(),
         defining_phrase=(args.get("defining_phrase") or "").strip(),
         hero_line=(args.get("hero_line") or "").strip(),
+        tags=tags,
     )
