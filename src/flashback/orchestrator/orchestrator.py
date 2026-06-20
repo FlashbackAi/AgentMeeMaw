@@ -74,6 +74,7 @@ from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
 from flashback.response_generator import ResponseGenerator
 from flashback.response_generator.voice_style import VoiceStyleStreamParser
 from flashback.session_summary import SessionSummaryGenerator
+from flashback.tribute.progress import progress_to_payload
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -953,23 +954,7 @@ def _tribute_progress_payload(state) -> dict | None:
     p = getattr(state, "tribute_progress", None)
     if p is None:
         return None
-    return {
-        "percent": p.percent,
-        "ready": p.ready,
-        "title": p.title,
-        "next": p.next_key,
-        "slots": [
-            {
-                "key": s.key,
-                "label": s.label,
-                "hint": s.hint,
-                "filled": s.filled,
-                "count": s.count,
-                "target": s.target,
-            }
-            for s in p.slots
-        ],
-    }
+    return progress_to_payload(p)
 
 
 def _build_turn_result(state: TurnState) -> TurnResult:

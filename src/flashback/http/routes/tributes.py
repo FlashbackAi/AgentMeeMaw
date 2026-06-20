@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg_pool import AsyncConnectionPool
 
 from flashback.ground_truth.render import render_ground_truth_block
@@ -29,13 +29,17 @@ from flashback.http.models import (
     TributeCampaignsResponse,
     TributeGenerateRequest,
     TributeGenerateResponse,
+    TributeProgressResponse,
 )
 from flashback.tribute.campaigns import (
     active_featured_campaign,
     list_campaigns,
     resolve_campaign,
 )
-from flashback.tribute.progress import fetch_tribute_progress_async
+from flashback.tribute.progress import (
+    fetch_tribute_progress_async,
+    progress_to_payload,
+)
 from flashback.tribute.repository import (
     fetch_scene_moments_async,
     fetch_theme_scene_moments_async,
@@ -54,6 +58,44 @@ if TYPE_CHECKING:
 
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.tributes")
+
+
+@router.get(
+    "/tributes/{tribute_id}/progress", response_model=TributeProgressResponse
+)
+async def get_tribute_progress(
+    tribute_id: UUID,
+    person_id: UUID = Query(..., description="Owning legacy; scopes the lookup."),
+    campaign: str | None = Query(
+        None,
+        description=(
+            "Optional campaign skin slug. When set, the title and the "
+            "message slot's hint use the skin copy; otherwise neutral."
+        ),
+    ),
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> TributeProgressResponse:
+    """Standalone read of the tribute completion meter.
+
+    The same decorated shape /turn emits as `tribute_progress`, but pollable
+    on its own so the meter updates without a chat turn. Owner-scoped: a
+    tribute that doesn't belong to ``person_id`` 404s. Pure read, no
+    side effects -- render status (video/PDF URLs) is a separate concern
+    Node reads from the tribute_status view directly.
+    """
+    resolved_campaign = resolve_campaign(campaign or None)
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            progress = await fetch_tribute_progress_async(
+                cur,
+                tribute_id=tribute_id,
+                campaign=resolved_campaign,
+                person_id=person_id,
+            )
+    if progress is None:
+        raise HTTPException(status_code=404, detail="tribute not found")
+    return TributeProgressResponse(**progress_to_payload(progress))
+
 
 @router.post("/tributes/{tribute_id}/generate", response_model=TributeGenerateResponse)
 async def generate_tribute(

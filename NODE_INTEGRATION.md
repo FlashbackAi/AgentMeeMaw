@@ -647,6 +647,19 @@ retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
 **Why presigned (not agent-side S3):** S3 + URL-column ownership stay with Node
 (CLAUDE.md §3). The agent renders the bytes; Node owns storage.
 
+### 7b.1 The completion meter (decorated) — `GET /tributes/{id}/progress`
+
+The meter that gates the 100% → `/generate` step is the **decorated** progress
+(per-slot label/hint, campaign `title`, `next` steer) — the same block `/turn`
+emits as `tribute_progress`. It's now also a **standalone read** so the UI can
+refresh the meter without a chat turn (after an upload, on modal open, light
+polling). Add a Node route that proxies
+`GET /tributes/{id}/progress?person_id=<uuid>&campaign=<slug?>` (derive
+`person_id` server-side; forward `campaign` when skinned) and pass the body
+through. Full Node-side spec: `docs/TRIBUTE_PROGRESS_ENDPOINT_NODE_PROMPT.md`;
+shape: `API.md` §7b. This is the **meter only** — render status (`video_url` /
+`pdf_url` / `rendered_at`) stays on the `tribute_status` view you read directly.
+
 ---
 
 ## 8. Async timing — gotchas Node needs to know

@@ -53,6 +53,37 @@ SELECT memories_count, message_present, appearance_present,
  WHERE id = %(id)s
 """
 
+# Owner-scoped variant: returns no row when the tribute belongs to a
+# different person, so the HTTP route gets a clean 404 for free instead
+# of leaking another legacy's progress.
+_PROGRESS_SCOPED_SQL = _PROGRESS_SQL + " AND person_id = %(person_id)s"
+
+
+def progress_to_payload(p: TributeProgress) -> dict:
+    """Serialize the decorated progress into the live-meter JSON shape.
+
+    Single source of truth for the meter payload: both the /turn metadata
+    (orchestrator) and the standalone GET /tributes/{id}/progress endpoint
+    render through here so their shapes never drift.
+    """
+    return {
+        "percent": p.percent,
+        "ready": p.ready,
+        "title": p.title,
+        "next": p.next_key,
+        "slots": [
+            {
+                "key": s.key,
+                "label": s.label,
+                "hint": s.hint,
+                "filled": s.filled,
+                "count": s.count,
+                "target": s.target,
+            }
+            for s in p.slots
+        ],
+    }
+
 
 def _decorate(
     row, *, tribute_id: UUID | str, campaign: Campaign | None
@@ -121,10 +152,26 @@ def fetch_tribute_progress_sync(
 
 
 async def fetch_tribute_progress_async(
-    cur, *, tribute_id: UUID | str, campaign: Campaign | None = None
+    cur,
+    *,
+    tribute_id: UUID | str,
+    campaign: Campaign | None = None,
+    person_id: UUID | str | None = None,
 ) -> TributeProgress | None:
-    """Async twin of ``fetch_tribute_progress_sync``."""
-    await cur.execute(_PROGRESS_SQL, {"id": str(tribute_id)})
+    """Async twin of ``fetch_tribute_progress_sync``.
+
+    When ``person_id`` is supplied the lookup is owner-scoped: a tribute
+    belonging to a different person returns None (the route turns that into
+    a 404). Omit it for the internal live-meter read, which is already
+    scoped by the session's ``current_tribute_id``.
+    """
+    if person_id is not None:
+        await cur.execute(
+            _PROGRESS_SCOPED_SQL,
+            {"id": str(tribute_id), "person_id": str(person_id)},
+        )
+    else:
+        await cur.execute(_PROGRESS_SQL, {"id": str(tribute_id)})
     row = await cur.fetchone()
     if row is None:
         return None

@@ -127,6 +127,37 @@ class TributeCampaignsResponse(BaseModel):
     active_featured_slug: str | None = None
 
 
+class TributeProgressSlotOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    hint: str
+    filled: bool
+    # Granular progress, populated for the memories slot only (else null).
+    count: int | None = None
+    target: int | None = None
+
+
+class TributeProgressResponse(BaseModel):
+    """Decorated tribute completion meter for GET /tributes/{id}/progress.
+
+    Identical shape to the `tribute_progress` block on /turn metadata
+    (both serialize through `progress_to_payload`), so the frontend can
+    render the same meter whether it polls this endpoint or reads it off
+    a turn. `title` is the campaign skin's display name; `next` is the key
+    of the first unfilled slot (drives the "next -- ..." steer).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    percent: int
+    ready: bool
+    title: str
+    next: str | None = None
+    slots: list[TributeProgressSlotOut]
+
+
 # --- /session/start --------------------------------------------------------
 
 

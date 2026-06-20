@@ -1062,6 +1062,51 @@ reads the `tribute_status` view (now exposing `pdf_url` + `rendered_at`) and
 writes `video_url` / `pdf_url` on that NOTIFY. **Not retry-safe** — a repeat
 call re-renders.
 
+### `GET /tributes/{tribute_id}/progress`
+
+Standalone read of the tribute **completion meter** — the same decorated shape
+the `/turn` metadata carries as `tribute_progress`, but pollable on its own so
+the meter updates without a chat turn. Pure read, no side effects.
+
+Query params:
+
+- `person_id` (**required**, UUID) — owning legacy; scopes the lookup. A tribute
+  that doesn't belong to this person `404`s.
+- `campaign` (optional, slug) — campaign skin. When set, the `title` and the
+  `message` slot's `hint` use the skin copy; otherwise neutral. Pass the same
+  slug the UI is themed with (mirrors `/generate`'s `campaign`).
+
+Response `200`:
+
+```json
+{
+  "percent": 70,
+  "ready": false,
+  "title": "A Letter to Dad",
+  "next": "appearance",
+  "slots": [
+    {"key": "memories",   "label": "...", "hint": "...", "filled": true,  "count": 3, "target": 3},
+    {"key": "message",    "label": "...", "hint": "...", "filled": true,  "count": null, "target": null},
+    {"key": "appearance", "label": "...", "hint": "...", "filled": false, "count": null, "target": null},
+    {"key": "signature",  "label": "...", "hint": "...", "filled": false, "count": null, "target": null}
+  ]
+}
+```
+
+- `next` is the key of the first unfilled slot (drives the "next — …" steer), or
+  `null` when everything is filled. `count`/`target` are populated for the
+  `memories` slot only (else `null`). `percent`/`ready` math lives in the
+  `tribute_status` SQL view.
+
+Errors:
+
+- `404` — tribute not found / not owned by `person_id`.
+- `422` — `person_id` query param missing.
+
+This is the **meter**, not render state. Video/PDF render status (`status`,
+`video_url`, `pdf_url`, `rendered_at`) is a separate concern Node reads from the
+`tribute_status` view directly (see §7b).
+
 ### `GET /tribute-campaigns`
 
 Public campaign list + which campaign is featured today (drives the Father's Day
