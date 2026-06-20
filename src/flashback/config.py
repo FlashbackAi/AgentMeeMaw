@@ -754,6 +754,10 @@ class TributeRenderConfig:
     render_fps: int = 30
     render_transition: str = "bleed"
     render_blend: str = "cream"
+    # Mirror the queue's redrive maxReceiveCount. On the final attempt the
+    # worker writes status='failed' + render_error instead of silently
+    # dropping to the DLQ (which would strand the row in 'generating').
+    max_render_attempts: int = 3
 
     @classmethod
     def from_env(cls, *, queue_required: bool = True) -> "TributeRenderConfig":
@@ -777,6 +781,7 @@ class TributeRenderConfig:
             render_fps=int(os.environ.get("RENDER_FPS", "30")),
             render_transition=os.environ.get("RENDER_TRANSITION", "bleed"),
             render_blend=os.environ.get("RENDER_BLEND", "cream"),
+            max_render_attempts=int(os.environ.get("MAX_RENDER_ATTEMPTS", "3")),
         )
 
 

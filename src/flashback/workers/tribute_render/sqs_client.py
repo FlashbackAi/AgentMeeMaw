@@ -20,10 +20,12 @@ class TributeRenderMessage:
     composed_at: str
     receipt_handle: str
     raw_body: str
+    receive_count: int = 1  # SQS ApproximateReceiveCount (1 on first delivery)
 
 
 def _parse_message(msg: dict) -> TributeRenderMessage:
     body = json.loads(msg["Body"])
+    attrs = msg.get("Attributes", {})
     return TributeRenderMessage(
         job_id=body.get("job_id", ""),
         tribute_id=body["tribute_id"],
@@ -31,6 +33,7 @@ def _parse_message(msg: dict) -> TributeRenderMessage:
         composed_at=body.get("composed_at", ""),
         receipt_handle=msg["ReceiptHandle"],
         raw_body=msg["Body"],
+        receive_count=int(attrs.get("ApproximateReceiveCount", "1")),
     )
 
 
@@ -51,6 +54,7 @@ class SQSClient:
             QueueUrl=self.queue_url,
             MaxNumberOfMessages=max_messages,
             WaitTimeSeconds=wait_seconds,
+            AttributeNames=["ApproximateReceiveCount"],
         )
         return [_parse_message(m) for m in resp.get("Messages", [])]
 

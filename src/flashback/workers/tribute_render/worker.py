@@ -63,6 +63,22 @@ def process_one(msg: TributeRenderMessage, *, load_context, run_render,
     return "ok"
 
 
+def handle_failure(msg: TributeRenderMessage, exc: Exception, *,
+                   max_attempts: int, mark_failed, ack) -> str:
+    """Decide what to do after a render exception.
+
+    Returns "retry" when the message should be left unacked for SQS to
+    redrive, or "failed" when retries are exhausted -- in which case the
+    row is marked terminally failed and the message acked (so it does not
+    pointlessly cycle to the DLQ, where nothing would advance the status).
+    """
+    if msg.receive_count >= max_attempts:
+        mark_failed(msg.tribute_id, f"{type(exc).__name__}: {exc}")
+        ack(msg.receipt_handle)
+        return "failed"
+    return "retry"
+
+
 class _StopSignal:
     def __init__(self) -> None:
         self.requested = False
@@ -95,6 +111,9 @@ def run_forever(*, pool, cfg, sqs: SQSClient, stop: _StopSignal | None = None) -
         persistence.mark_complete(pool, tribute_id=tid, person_id=pid,
                                   video_present=video, pdf_present=pdf)
 
+    def _fail(tid: str, error: str) -> None:
+        persistence.mark_failed(pool, tribute_id=tid, error=error)
+
     log.info("tribute_render.worker_started",
              max_messages=cfg.sqs_max_messages, wait_seconds=cfg.sqs_wait_seconds)
     while not stop.requested:
@@ -104,7 +123,19 @@ def run_forever(*, pool, cfg, sqs: SQSClient, stop: _StopSignal | None = None) -
                 process_one(msg, load_context=_load, run_render=_render,
                             mark_complete=_complete)
                 sqs.delete(msg.receipt_handle)
-            except Exception as exc:  # transient -> redrive -> DLQ
+            except Exception as exc:  # transient -> redrive; terminal -> failed
                 log.error("tribute_render.failed", tribute_id=msg.tribute_id,
+                          attempt=msg.receive_count,
                           error_type=type(exc).__name__, error=str(exc)[:200])
+                try:
+                    outcome = handle_failure(
+                        msg, exc, max_attempts=cfg.max_render_attempts,
+                        mark_failed=_fail, ack=sqs.delete)
+                    if outcome == "failed":
+                        log.error("tribute_render.exhausted",
+                                  tribute_id=msg.tribute_id,
+                                  attempts=msg.receive_count)
+                except Exception:  # mark/ack failed -> leave for redrive
+                    log.exception("tribute_render.mark_failed_error",
+                                  tribute_id=msg.tribute_id)
     log.info("tribute_render.worker_stopped")

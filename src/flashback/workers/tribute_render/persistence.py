@@ -60,3 +60,22 @@ def mark_complete(pool, *, tribute_id: str, person_id: str,
                 (str(tribute_id),),
             )
             cur.execute("SELECT pg_notify(%s, %s)", (NOTIFY_CHANNEL, payload))
+
+
+def mark_failed(pool, *, tribute_id: str, error: str) -> None:
+    """Mark a render that exhausted its SQS retries as terminally failed.
+
+    Writes status='failed' + render_error so the UI can stop polling instead
+    of stranding the row in 'generating' (the DLQ path is otherwise silent --
+    see CLAUDE.md invariant #25 sibling). Guarded on status='generating' so a
+    newer /generate (status flipped back to generating with a fresh context)
+    or an already-complete row is never clobbered. We deliberately do NOT
+    NOTIFY here: the completion handler writes URL columns, and there are none.
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tributes SET status = 'failed', render_error = %s, "
+                "updated_at = now() WHERE id = %s AND status = 'generating'",
+                (error[:2000], str(tribute_id)),
+            )
