@@ -359,7 +359,11 @@ class ArchetypeAnswersRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     person_id: UUID
-    answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=8)
+    # Upper bound tracks the live question set: every archetype now returns 10
+    # questions (5 base + 3 universal + 2 ground-truth), and Node requires every
+    # returned question answered exactly once. 12 leaves headroom (mirrors Node's
+    # 3-12 guard). An 8-cap silently 422'd every full submission.
+    answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=12)
     contributor_display_name: str | None = Field(default=None, max_length=64)
 
     @field_validator("contributor_display_name", mode="before")

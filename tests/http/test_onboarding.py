@@ -69,13 +69,15 @@ class TestArchetypeQuestions:
         body = resp.json()
         assert body["relationship"] == "friend"
         assert body["archetype"] == "friend"
-        # 3-5 relationship questions + the 2 appended ground-truth questions
-        assert 5 <= len(body["questions"]) <= 7
-        assert [q["id"] for q in body["questions"][:3]] == [
+        # 5 relationship + 3 universal + 2 appended ground-truth questions.
+        ids = [q["id"] for q in body["questions"]]
+        assert len(ids) == 10
+        assert ids[:3] == [
             "friend_meet",
             "friend_shared_place",
             "friend_usual_activity",
         ]
+        assert "gt_region" in ids and "gt_birth_era" in ids
         assert "implies" not in body["questions"][0]["options"][0]
 
 
@@ -99,6 +101,11 @@ class TestArchetypeAnswers:
                     {"question_id": "friend_usual_activity", "skipped": True},
                     {"question_id": "friend_kind", "skipped": True},
                     {"question_id": "friend_first_memory", "skipped": True},
+                    # Universal questions must be present (route enforces every
+                    # question exactly once); skip them so coverage is unchanged.
+                    {"question_id": "universal_what_you_call_them", "skipped": True},
+                    {"question_id": "universal_their_work", "skipped": True},
+                    {"question_id": "universal_their_place", "skipped": True},
                     {"question_id": "gt_region", "option_id": "another_state"},
                     {"question_id": "gt_birth_era", "option_id": "era_50s_60s"},
                 ],
@@ -170,6 +177,36 @@ class TestArchetypeAnswers:
         assert entity_rows[0][0] == "place"
         assert entity_rows[0][1] == "school"
         assert entity_rows[0][2]["source"] == "archetype_onboarding"
+
+    async def test_full_ten_question_submission_succeeds(
+        self, client_with_db, async_db_pool
+    ) -> None:
+        # Production answers EVERY returned question (5 base + 3 universal + 2
+        # ground-truth = 10). The request cap used to be 8, which 422'd every
+        # full submission; it must accept the full set.
+        person_id = await _create_friend_person(client_with_db)
+        resp = await client_with_db.post(
+            "/api/v1/onboarding/archetype-answers",
+            headers=auth_headers(),
+            json={
+                "person_id": person_id,
+                "answers": [
+                    {"question_id": "friend_meet", "option_id": "school"},
+                    {"question_id": "friend_shared_place", "option_id": "calls"},
+                    {"question_id": "friend_usual_activity", "option_id": "talk"},
+                    {"question_id": "friend_kind", "option_id": "funny"},
+                    {"question_id": "friend_first_memory", "option_id": "laughed"},
+                    {"question_id": "universal_what_you_call_them", "option_id": "by_name"},
+                    {"question_id": "universal_their_work", "option_id": "trade"},
+                    {"question_id": "universal_their_place", "option_id": "role_model"},
+                    {"question_id": "gt_region", "option_id": "another_state"},
+                    {"question_id": "gt_birth_era", "option_id": "era_50s_60s"},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        UUID(resp.json()["session_id"])
 
     async def test_complete_person_returns_409(
         self, client_with_db, async_db_pool
