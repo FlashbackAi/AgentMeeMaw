@@ -88,6 +88,13 @@ class TributeGenerateRequest(BaseModel):
     # False (default) when it's a current/older/profile photo that should be
     # de-aged to his prime years. Node sets this based on which photo it sent.
     cover_photo_is_prime_years: bool = False
+    # Presigned URLs (Node-minted) for the Python-owned video render: a GET for
+    # the prime photo and PUTs for the MP4 + PDF. The tribute_render worker
+    # transfers through them (no S3 creds on our side). Required for
+    # artifact_kind='tribute_video'; expiry must cover queue latency + render.
+    video_put_url: str | None = None
+    pdf_put_url: str | None = None
+    prime_photo_get_url: str | None = None
 
 
 class TributeGenerateResponse(BaseModel):

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from flashback.queues import AsyncSQSClient
     from flashback.queues.artifact_generation import ArtifactGenerationQueueProducer
+    from flashback.queues.tribute_render import TributeRenderQueueProducer
     from flashback.queues.profile_picture import ProfilePictureQueueProducer
     from flashback.identity_merges import IdentityMergeVerifier
 
@@ -75,3 +76,9 @@ def get_artifact_generation_queue(
     request: Request,
 ) -> "ArtifactGenerationQueueProducer | None":
     return getattr(request.app.state, "artifact_generation_queue", None)
+
+
+def get_tribute_render_queue(
+    request: Request,
+) -> "TributeRenderQueueProducer | None":
+    return getattr(request.app.state, "tribute_render_queue", None)

@@ -16,17 +16,15 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 
-from flashback.artifacts import people_scene_fragment
-from flashback.artifacts.presets import resolve_preset
 from flashback.config import HttpConfig
 from flashback.ground_truth.render import render_ground_truth_block
 from flashback.ground_truth.store import fetch_ground_truth
-from flashback.persons import get_person_by_id
 from flashback.http.auth import require_service_token
 from flashback.http.deps import (
     get_artifact_generation_queue,
     get_db_pool,
     get_http_config,
+    get_tribute_render_queue,
 )
 from flashback.http.models import (
     TributeCampaignOut,
@@ -34,11 +32,6 @@ from flashback.http.models import (
     TributeGenerateRequest,
     TributeGenerateResponse,
 )
-from flashback.tribute.artifact_context import (
-    build_storybook_context,
-    build_tribute_video_context,
-)
-from flashback.tribute.assembly import assemble_tribute_script
 from flashback.tribute.campaigns import (
     active_featured_campaign,
     list_campaigns,
@@ -47,28 +40,23 @@ from flashback.tribute.campaigns import (
 from flashback.tribute.progress import fetch_tribute_progress_async
 from flashback.tribute.repository import (
     fetch_scene_moments_async,
+    fetch_theme_scene_moments_async,
     fetch_tribute_for_assembly_async,
-    set_script_async,
     set_status_async,
     write_tribute_generation_context_async,
 )
-from flashback.tribute.theme import (
-    STORYBOOK_MAX_PAGES,
-    STORYBOOK_MIN_PAGES,
-)
+from flashback.tribute_video.assembler import assemble_storybook_video
+from flashback.tribute_video.context import build_context_dict
+from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
 if TYPE_CHECKING:
     from flashback.queues.artifact_generation import (
         ArtifactGenerationQueueProducer,
     )
+    from flashback.queues.tribute_render import TributeRenderQueueProducer
 
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.tributes")
-
-# Video stays tighter than the storybook for pacing: 45s / 8 scenes is still
-# ~5.6s per beat. The storybook can run the fuller arc (STORYBOOK_MAX_PAGES).
-_MAX_VIDEO_SCENES = 8
-
 
 @router.post("/tributes/{tribute_id}/generate", response_model=TributeGenerateResponse)
 async def generate_tribute(
@@ -79,12 +67,10 @@ async def generate_tribute(
     artifact_queue: "ArtifactGenerationQueueProducer | None" = Depends(
         get_artifact_generation_queue
     ),
+    tribute_render_queue: "TributeRenderQueueProducer | None" = Depends(
+        get_tribute_render_queue
+    ),
 ) -> TributeGenerateResponse:
-    try:
-        preset_slug = resolve_preset(body.preset)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     # 1) Gate + ownership via the status view + the tribute row.
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
@@ -92,146 +78,124 @@ async def generate_tribute(
             if tribute is None or tribute["person_id"] != str(body.person_id):
                 raise HTTPException(status_code=404, detail="tribute not found")
             progress = await fetch_tribute_progress_async(cur, tribute_id=tribute_id)
-            candidates = await fetch_scene_moments_async(
-                cur, person_id=body.person_id, limit=12
-            )
     ground_truth = await fetch_ground_truth(db_pool, body.person_id)
 
     if progress is None:
         raise HTTPException(status_code=404, detail="tribute status unavailable")
 
-    if body.artifact_kind == "tribute_video" and not progress.ready:
-        raise HTTPException(
-            status_code=409,
-            detail=f"tribute not ready for video (percent={progress.percent})",
-        )
-    if body.artifact_kind == "storybook" and len(candidates) < STORYBOOK_MIN_PAGES:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"need at least {STORYBOOK_MIN_PAGES} qualifying moments for a "
-                f"storybook (have {len(candidates)})"
-            ),
+    if body.artifact_kind == "tribute_video":
+        return await _generate_video(
+            tribute_id=tribute_id,
+            body=body,
+            cfg=cfg,
+            db_pool=db_pool,
+            tribute=tribute,
+            progress=progress,
+            ground_truth=ground_truth,
+            tribute_render_queue=tribute_render_queue,
         )
 
-    # 2) Assemble the shared script.
-    max_scenes = (
-        _MAX_VIDEO_SCENES
-        if body.artifact_kind == "tribute_video"
-        else STORYBOOK_MAX_PAGES - 1
+    # The tribute STORYBOOK artifact is retired -- a tribute now produces a
+    # video (+ PDF for print), rendered by flashback.workers.tribute_render via
+    # the tribute_video path above. (The standalone /storybooks keepsake books
+    # are a separate feature and are unaffected.)
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "tribute storybook is retired; tributes now produce a video "
+            "(+ PDF for print). Call with artifact_kind='tribute_video'."
+        ),
     )
-    campaign = resolve_campaign(body.campaign)
-    script = await assemble_tribute_script(
+
+
+async def _generate_video(
+    *,
+    tribute_id: UUID,
+    body: TributeGenerateRequest,
+    cfg: HttpConfig,
+    db_pool: AsyncConnectionPool,
+    tribute: dict,
+    progress,
+    ground_truth: dict | None,
+    tribute_render_queue: "TributeRenderQueueProducer | None",
+) -> TributeGenerateResponse:
+    """Python-owned tribute video: assemble the FD-flow Book, store the render
+    context + presigned URLs on the row, enqueue tribute_render. Unlocks at 100%;
+    the worker renders MP4 + PDF and Node writes the URLs on completion."""
+    if progress.percent < 100:
+        raise HTTPException(
+            status_code=409,
+            detail=f"tribute not at 100% (percent={progress.percent})",
+        )
+    if not body.video_put_url or not body.pdf_put_url:
+        raise HTTPException(
+            status_code=400,
+            detail="video_put_url and pdf_put_url are required for tribute_video",
+        )
+
+    # FD-flow story: theme-tagged moments, falling back to the qualifying pool.
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            candidates: list = []
+            if tribute.get("theme_id"):
+                candidates = await fetch_theme_scene_moments_async(
+                    cur, person_id=body.person_id,
+                    theme_id=tribute["theme_id"], limit=STORYBOOK_MAX_PAGES)
+            if not candidates:
+                candidates = await fetch_scene_moments_async(
+                    cur, person_id=body.person_id, limit=STORYBOOK_MAX_PAGES)
+
+    gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or ""
+    book = await assemble_storybook_video(
         settings=cfg,
+        subject_name=tribute["person_name"] or "",
+        relationship=tribute["person_relationship"],
+        gt_context=gt_scene,
         candidates=candidates,
         message_text=tribute["message_text"] or "",
-        person_name=tribute["person_name"] or "",
-        person_relationship=tribute["person_relationship"],
-        max_scenes=max_scenes,
-        confession=campaign.confession_voice,
+        archetype_leads=[],
+        n_pages=STORYBOOK_MAX_PAGES,
     )
-    moments_by_id = {c["id"]: c for c in candidates}
-    # scene_subject (not plain scene): tribute scenes recur the same person
-    # beat to beat, so we ground appearance for cross-scene consistency.
-    gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or None
-    # Subject + contributor are the two figures that recur across tribute
-    # scenes ("my father and I ..."); ground their gender so neither defaults.
-    person = await get_person_by_id(db_pool, person_id=body.person_id)
-    people_ctx = (
-        people_scene_fragment(
-            subject_gender=person.gender,
-            contributor_gender=person.contributor_gender,
-        )
-        if person is not None
-        else ""
-    ) or None
 
-    # 3) Build the artifact-kind context.
-    if body.artifact_kind == "tribute_video":
-        context = build_tribute_video_context(
-            script=script,
-            moments_by_id=moments_by_id,
-            preset=preset_slug,
-            target_duration_seconds=campaign.video_target_seconds,
-            ground_truth_context=gt_scene,
-            people_context=people_ctx,
-        )
-    else:
-        context = build_storybook_context(
-            script=script,
-            moments_by_id=moments_by_id,
-            preset=preset_slug,
-            max_pages=STORYBOOK_MAX_PAGES,
-            ground_truth_context=gt_scene,
-            people_context=people_ctx,
-            cover_reference_s3_key=body.prime_photo_s3_key,
-            # De-age only when the campaign allows it AND the supplied photo
-            # isn't already a prime-years shot (else we'd over-young a young face).
-            deage_cover=campaign.deage_cover and not body.cover_photo_is_prime_years,
-            defining_phrase=script.defining_phrase or None,
-            hero_line=script.hero_line or None,
-        )
+    composed_at = datetime.now(timezone.utc).isoformat()
+    campaign = resolve_campaign(body.campaign)
+    context = build_context_dict(
+        subject_name=tribute["person_name"] or "",
+        relationship=tribute["person_relationship"],
+        gt_context=gt_scene,
+        book=book,
+        video_put_url=body.video_put_url,
+        pdf_put_url=body.pdf_put_url,
+        prime_photo_get_url=body.prime_photo_get_url or "",
+        deage=campaign.deage_cover and not body.cover_photo_is_prime_years,
+        composed_at=composed_at,
+    )
 
-    # 4) Persist script + keyed context + flip status, all before pushing.
-    scene_ids = [s.moment_id for s in script.scenes]
-    checklist_state = {s.key: s.filled for s in progress.slots}
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
-                await set_script_async(
-                    cur,
-                    tribute_id=tribute_id,
-                    script={
-                        "scenes": [
-                            {"moment_id": s.moment_id, "caption": s.caption}
-                            for s in script.scenes
-                        ],
-                        "opening_caption": script.opening_caption,
-                        "closing_caption": script.closing_caption,
-                        "message_text": script.message_text,
-                    },
-                    scene_moment_ids=scene_ids,
-                    checklist_state=checklist_state,
-                )
                 await write_tribute_generation_context_async(
-                    cur,
-                    tribute_id=tribute_id,
-                    artifact_kind=body.artifact_kind,
-                    context=context,
-                )
+                    cur, tribute_id=tribute_id,
+                    artifact_kind="tribute_video", context=context)
                 await set_status_async(
-                    cur, tribute_id=tribute_id, status="generating"
-                )
+                    cur, tribute_id=tribute_id, status="generating")
 
-    # 5) Push the trigger-only job.
     job_id = str(uuid4())
     enqueued = False
-    if artifact_queue is not None:
+    if tribute_render_queue is not None:
         try:
-            msg_id = await artifact_queue.push(
-                job_id=job_id,
-                record_type="tribute",
-                record_id=str(tribute_id),
-                person_id=str(body.person_id),
-                artifact_kind=body.artifact_kind,
-                source="auto",
-                composed_at=context["composed_at"],
-            )
+            msg_id = await tribute_render_queue.push(
+                job_id=job_id, tribute_id=str(tribute_id),
+                person_id=str(body.person_id), composed_at=composed_at)
             enqueued = msg_id is not None
         except Exception:
-            log.warning(
-                "tribute.enqueue_failed", tribute_id=str(tribute_id), exc_info=True
-            )
+            log.warning("tribute.render_enqueue_failed",
+                        tribute_id=str(tribute_id), exc_info=True)
 
     return TributeGenerateResponse(
-        job_id=job_id,
-        tribute_id=tribute_id,
-        artifact_kind=body.artifact_kind,
-        enqueued=enqueued,
-        percent=progress.percent,
-        ready=progress.ready,
-        scene_count=len(script.scenes),
-    )
+        job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
+        enqueued=enqueued, percent=progress.percent, ready=progress.ready,
+        scene_count=len(book.beats))
 
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)

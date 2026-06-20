@@ -50,6 +50,7 @@ from flashback.orchestrator import Orchestrator, OrchestratorDeps
 from flashback.phase_gate import PhaseGate, SteadySelector
 from flashback.queues import (
     ArtifactGenerationQueueProducer,
+    TributeRenderQueueProducer,
     AsyncSQSClient,
     ExtractionQueueProducer,
     ProducersPerSessionQueueProducer,
@@ -174,6 +175,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             queue_url=cfg.artifact_queue_url,
         )
         app.state.artifact_generation_queue = artifact_generation_queue
+        tribute_render_queue = TributeRenderQueueProducer(
+            sqs_client=sqs_client,
+            queue_url=cfg.tribute_render_queue_url,
+        )
+        app.state.tribute_render_queue = tribute_render_queue
         session_summary_generator = SessionSummaryGenerator(settings=cfg)
         phase_gate = PhaseGate(
             db_pool=db_pool,
