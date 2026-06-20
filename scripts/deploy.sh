@@ -4,11 +4,17 @@
 #
 #   git pull -> pip install -> (optionally) run migrations -> restart units -> status
 #
+# Fast by default: the package must be installed editable (`pip install -e .`
+# once), so `git pull` + restart picks up code changes with no reinstall. This
+# script only runs `pip install -e .` when it sees pyproject.toml change in the
+# pull (i.e. dependencies may have changed) -- or when you force it.
+#
 # Usage (run from anywhere on the box; defaults match the prod install):
-#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh            # interactive: asks before migrating
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh            # pull + (deps-only)install + ask-migrate + restart
 #   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --migrate  # run pending migrations without asking
 #   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --no-migrate
 #   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --no-pull  # skip git pull (deploy current tree)
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --install  # force `pip install -e .` (e.g. first-time setup)
 #   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --skip-install
 #
 # Env overrides: APP_DIR, ENV_FILE, VENV
@@ -43,14 +49,16 @@ warn() { printf '%s warn%s %s\n' "$c_yel"  "$c_rst" "$*"; }
 die()  { printf '%s fail%s %s\n' "$c_red"  "$c_rst" "$*" >&2; exit 1; }
 
 main() {
-  local DO_PULL=1 DO_INSTALL=1 MIGRATE_MODE="ask"   # ask | yes | no
+  local DO_PULL=1 INSTALL_MODE="auto" MIGRATE_MODE="ask"   # ask|yes|no ; auto|yes|no
+  local before="" after="" changed=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --migrate)      MIGRATE_MODE="yes" ;;
       --no-migrate)   MIGRATE_MODE="no" ;;
       --no-pull)      DO_PULL=0 ;;
-      --skip-install) DO_INSTALL=0 ;;
+      --install)      INSTALL_MODE="yes" ;;
+      --skip-install) INSTALL_MODE="no" ;;
       -h|--help)      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
       *)              die "unknown arg: $1 (try --help)" ;;
     esac
@@ -68,22 +76,38 @@ main() {
   # --- 1. git pull --------------------------------------------------------
   if [[ $DO_PULL -eq 1 ]]; then
     step "git pull ($APP_DIR)"
-    local before after
-    before="$(git rev-parse --short HEAD)"
+    before="$(git rev-parse HEAD)"
     git pull --ff-only
-    after="$(git rev-parse --short HEAD)"
-    if [[ "$before" == "$after" ]]; then ok "already up to date ($after)"; else ok "$before -> $after"; fi
+    after="$(git rev-parse HEAD)"
+    if [[ "$before" == "$after" ]]; then
+      ok "already up to date ($(git rev-parse --short HEAD))"
+    else
+      changed="$(git diff --name-only "$before" "$after")"
+      ok "$(git rev-parse --short "$before") -> $(git rev-parse --short "$after") ($(echo "$changed" | grep -c .) files)"
+    fi
   else
     warn "skipping git pull (--no-pull); HEAD=$(git rev-parse --short HEAD)"
   fi
 
-  # --- 2. pip install -----------------------------------------------------
-  if [[ $DO_INSTALL -eq 1 ]]; then
-    step "pip install . (into $VENV)"
-    "$VENV/bin/pip" install . --quiet
-    ok "dependencies installed"
-  else
-    warn "skipping pip install (--skip-install)"
+  # --- 2. pip install (editable; deps only) -------------------------------
+  # The package is installed editable, so code changes need NO reinstall --
+  # only dependency changes do. Auto-install only when pyproject.toml moved.
+  local do_install="no"
+  case "$INSTALL_MODE" in
+    yes) do_install="yes" ;;
+    no)  warn "skipping pip install (--skip-install)" ;;
+    auto)
+      if echo "$changed" | grep -qE '(^|/)pyproject\.toml$'; then
+        do_install="yes"; step "pyproject.toml changed -> reinstalling deps"
+      else
+        ok "no dependency changes; skipping pip install (editable install picks up code on restart)"
+      fi
+      ;;
+  esac
+  if [[ "$do_install" == "yes" ]]; then
+    step "pip install -e . (into $VENV)"
+    "$VENV/bin/pip" install -e . --quiet
+    ok "dependencies installed (editable)"
   fi
 
   # --- 3. migrations ------------------------------------------------------
