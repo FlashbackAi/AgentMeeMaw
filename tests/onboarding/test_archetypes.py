@@ -19,8 +19,9 @@ def test_public_questions_strip_server_side_implies() -> None:
     archetype, questions = public_questions_for_relationship("best friend")
 
     assert archetype == "friend"
-    # 3-5 relationship questions + the 2 appended ground-truth questions
-    assert 5 <= len(questions) <= 7
+    # 5 relationship questions + 3 appended universal questions + the 2
+    # appended ground-truth questions = 10 (onboarding lands at 10).
+    assert len(questions) == 10
     assert questions[0]["id"] == "friend_meet"
     assert questions[0]["allow_free_text"] is True
     assert questions[0]["allow_skip"] is True

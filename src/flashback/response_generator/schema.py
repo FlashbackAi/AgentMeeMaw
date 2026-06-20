@@ -108,6 +108,10 @@ class TurnContext(BaseModel):
     # as a survey, never a hard filter.
     tribute_gap_hint: str | None = None
 
+    # True while the session is actively building a tribute. Switches on the
+    # <tribute_pace> directive: cover breadth fast, don't dwell on one topic.
+    tribute_active: bool = False
+
     # Rendered ground-truth block (audience='responder'); empty = unknown.
     ground_truth_block: str = ""
 

@@ -17,4 +17,13 @@ def test_universal_defaults_are_3_to_4() -> None:
 def test_tribute_count_is_wider() -> None:
     assert TRIBUTE_ARCHETYPE_MIN >= 5
     assert TRIBUTE_ARCHETYPE_MAX >= TRIBUTE_ARCHETYPE_MIN
-    assert TRIBUTE_ARCHETYPE_MAX <= 8
+    assert TRIBUTE_ARCHETYPE_MAX <= 22
+
+
+def test_fathers_day_bank_is_22() -> None:
+    from flashback.tribute.theme import build_fathers_day_archetype_questions
+
+    questions = build_fathers_day_archetype_questions()
+    assert len(questions) == 22
+    # Every question keeps >= 2 chip options (build drops degenerate ones).
+    assert all(len(q.options) >= 2 for q in questions)

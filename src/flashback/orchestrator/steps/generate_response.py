@@ -118,6 +118,7 @@ async def build_turn_context(
             else None
         ),
         tribute_gap_hint=tribute_gap_hint,
+        tribute_active=prog is not None and not prog.ready,
         mode=state.mode,
     )
 

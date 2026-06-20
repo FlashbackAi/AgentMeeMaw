@@ -48,6 +48,14 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
 
     wm_state = await deps.working_memory.get_state(str(state.session_id))
     cadence = getattr(deps.settings, "segment_detector_user_turn_cadence", 1)
+    # Tribute flow: switch topics aggressively to gather a lot of material, so
+    # close segments on a much tighter cadence (default 2 user turns vs 6).
+    if getattr(wm_state, "current_tribute_id", None):
+        cadence = getattr(
+            deps.settings,
+            "tribute_segment_detector_user_turn_cadence",
+            cadence,
+        )
     user_turns_since_check = wm_state.signal_user_turns_since_segment_check
     is_switch_turn = state.effective_intent == "switch"
     if user_turns_since_check < cadence and not is_switch_turn:

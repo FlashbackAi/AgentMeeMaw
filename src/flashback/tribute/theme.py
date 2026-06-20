@@ -24,9 +24,13 @@ MESSAGE_INVITATION_COPY = (
 )
 
 # Expanded archetype question count for the tribute theme (universals
-# stay at the 3-4 default).
-TRIBUTE_ARCHETYPE_MIN = 6
-TRIBUTE_ARCHETYPE_MAX = 8
+# stay at the 3-4 default). The Father's Day skin serves the fixed authored
+# FATHERS_DAY_ARCHETYPE_BANK below WHOLE (themes.unlock_prepare bypasses these
+# bounds), so all 22 of those show in the FD unlock flow regardless of MIN/MAX.
+# These bounds only gate the generic LLM-generated tribute path; they're wide
+# here because the tribute is built to gather a lot of material up front.
+TRIBUTE_ARCHETYPE_MIN = 8
+TRIBUTE_ARCHETYPE_MAX = 22
 
 # Compiled-output shape (Plan 3). Video length is skin-configurable in
 # Plan 4; this is the neutral default. Storybook is hard-capped with a floor
@@ -63,6 +67,18 @@ FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
         "Was he raised by both parents, or did he lose someone early?",
         ["Both, all through", "Lost his father young", "Lost his mother young", "Raised by others"],
     ),
+    (
+        "What did his own parents do for a living?",
+        ["Farming / land", "A trade or labour", "A small job", "I never knew them"],
+    ),
+    (
+        "What did your father go without when he was a child?",
+        ["Schooling", "Enough food", "New clothes", "A childhood at all"],
+    ),
+    (
+        "Did he talk much about his own childhood, or stay quiet about it?",
+        ["Told the same stories", "Only when asked", "Rarely spoke of it", "Never once"],
+    ),
     # -- Layer 2A: the mirror pairs (his childhood vs. yours) --
     (
         "What kind of clothes did you wear growing up?",
@@ -80,6 +96,10 @@ FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
         "What treats could you reach for freely as a kid?",
         ["Sweets", "Eating out", "Cold drinks", "Whatever I wanted"],
     ),
+    (
+        "Think of one thing you had as a kid that mattered -- did he have it at your age?",
+        ["He never had it", "Only much later", "He had it too", "Not sure"],
+    ),
     # -- Layer 2B: his choices & what he went without --
     (
         "What's something he made sure you had that he never did?",
@@ -94,12 +114,29 @@ FATHERS_DAY_ARCHETYPE_BANK: list[tuple[str, list[str]]] = [
         ["Skipped meals", "No small comforts", "No rest", "Spent nothing on himself"],
     ),
     (
+        "Did he work unusual hours, dangerous work, or more than one job?",
+        ["Long / odd hours", "Dangerous work", "More than one job", "Whatever paid"],
+    ),
+    (
+        "What did he put first, ahead of himself?",
+        ["Our schooling", "Our health", "The family name", "Our future"],
+    ),
+    (
         "Did he have money he could have spent on himself but didn't?",
         ["Yes -- always chose us", "Sometimes", "He was genuinely stretched", "Not sure"],
     ),
     (
         "If he'd chosen himself, what could his life have looked like?",
         ["More wealth", "Kept his land", "A bigger career", "His own dreams"],
+    ),
+    # -- Layer 2C: the realization --
+    (
+        "When did you first realize how much he gave up for you?",
+        ["Only as an adult", "When I had my own kids", "After he was gone", "I still don't fully"],
+    ),
+    (
+        "Stripped of all the sacrifice -- who is he, in one line?",
+        ["A quiet, strong man", "A dreamer who stayed", "All heart", "Still figuring it out"],
     ),
     # -- Layer 2D: the confession --
     (

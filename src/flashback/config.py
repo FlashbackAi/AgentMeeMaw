@@ -287,6 +287,9 @@ class HttpConfig:
     llm_segment_detector_timeout_seconds: float = 10.0
     llm_segment_detector_max_tokens: int = 1000
     segment_detector_user_turn_cadence: int = 6
+    # Tribute sessions churn topics fast to maximize coverage before the
+    # deadline, so the Segment Detector runs far more often than the default.
+    tribute_segment_detector_user_turn_cadence: int = 2
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
@@ -399,6 +402,9 @@ class HttpConfig:
             ),
             segment_detector_user_turn_cadence=int(
                 os.environ.get("SEGMENT_DETECTOR_USER_TURN_CADENCE", "6")
+            ),
+            tribute_segment_detector_user_turn_cadence=int(
+                os.environ.get("TRIBUTE_SEGMENT_DETECTOR_USER_TURN_CADENCE", "2")
             ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),

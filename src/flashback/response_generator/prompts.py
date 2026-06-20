@@ -157,6 +157,19 @@ moment doesn't fit, ignore it and follow the contributor.
 """
 
 
+_TRIBUTE_PACE_NOTE = """
+
+If a <tribute_pace> block is present, the contributor is actively building
+a tribute and you are gathering as much material as possible in a short
+window. Favor BREADTH over depth: once the current topic has given you one
+vivid, concrete detail, move on — bridge into a fresh facet of their life
+(a different time, place, person, or kind of memory) rather than mining the
+same moment further. Keep your turn short so they keep talking. Stay warm
+and never make it feel like a checklist or interview — but do keep the
+conversation moving across many different topics, not parked on one.
+"""
+
+
 CLARIFY_PROMPT = BASE_SYSTEM_PROMPT + """
 
 INTENT: clarify
@@ -185,7 +198,7 @@ that you remember what they shared, then gently invite them to expand
 on it.
 
 Reference a specific detail from the retrieved context.
-"""
+""" + _TRIBUTE_PACE_NOTE
 
 DEEPEN_PROMPT = BASE_SYSTEM_PROMPT + """
 
@@ -226,7 +239,7 @@ what they just said, or a small invitation to keep going - is right.
 
 If you ask anything, it should be a narrow question that lets them
 continue the story they're already telling, not a redirect.
-""" + _TRIBUTE_GAP_NOTE
+""" + _TRIBUTE_GAP_NOTE + _TRIBUTE_PACE_NOTE
 
 PIVOT_PROMPT = BASE_SYSTEM_PROMPT + """
 
@@ -272,7 +285,7 @@ Entity match: Madhav — "A friend and teammate of Chithanya and
 Mokshith who joined them on the Hyderabad hackathon trip."
 Agent: "Madhav was with you for the AURA stretch — what does he
 bring to the group that the rest of you don't?"
-"""
+""" + _TRIBUTE_PACE_NOTE
 
 
 SWITCH_PROMPT = BASE_SYSTEM_PROMPT + """
@@ -308,7 +321,7 @@ Example shape WITH seeded question:
 Example shape WITHOUT seeded question (fallback):
 "There's a few directions we could go. Want to talk about the summer
 at the lake, your dad's workshop, or the year he retired?"
-""" + _TAP_PENDING_NOTE
+""" + _TAP_PENDING_NOTE + _TRIBUTE_PACE_NOTE
 
 STARTER_OPENER_PROMPT = BASE_SYSTEM_PROMPT + """
 

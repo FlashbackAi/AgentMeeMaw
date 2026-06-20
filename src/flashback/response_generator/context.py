@@ -97,6 +97,9 @@ def render_turn_context(ctx: TurnContext) -> str:
             f"<tribute_gap_hint>{xml_text(ctx.tribute_gap_hint)}</tribute_gap_hint>"
         )
 
+    if ctx.tribute_active:
+        sections.append("<tribute_pace>active</tribute_pace>")
+
     if ctx.current_theme_display_name:
         sections.append(
             _block(

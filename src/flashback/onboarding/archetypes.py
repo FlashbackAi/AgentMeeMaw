@@ -782,6 +782,57 @@ GROUND_TRUTH_QUESTIONS: list[dict[str, Any]] = [
     },
 ]
 
+# --- Universal onboarding questions (asked for every archetype) -----------
+# Appended to EVERY archetype set, BEFORE the demographic ground-truth pair,
+# so onboarding always lands at 10 questions (5 archetype + 3 universal + 2
+# ground truth). Unlike the GT pair these carry `implies` (coverage + optional
+# entities) exactly like the archetype questions -- they are NOT ground truth,
+# so their answers seed coverage_state + the opener, never persons.ground_truth.
+# Phrasing avoids a bare "they + present verb" so render_pronouns stays clean
+# ("their place" -> "his place", "call them" -> "call him").
+
+UNIVERSAL_QUESTIONS: list[dict[str, Any]] = [
+    {
+        "id": "universal_what_you_call_them",
+        "text": "What do you call them?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("by_name", "By their name", coverage=["voice", "relation"]),
+            _option("nickname", "A nickname", coverage=["voice", "relation"]),
+            _option("family_title", "A family title", coverage=["voice", "relation"]),
+            _option("endearment", "A term of endearment", coverage=["voice", "relation"]),
+        ],
+    },
+    {
+        "id": "universal_their_work",
+        "text": "What was their main work or trade?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("trade", "A trade or manual work", coverage=["era"]),
+            _option("salaried", "A salaried job", coverage=["era"]),
+            _option("business", "Their own business", coverage=["era"]),
+            _option("farming", "Farming or land", coverage=["era", "place"]),
+            _option("homemaker", "Homemaker / family", coverage=["relation"]),
+        ],
+    },
+    {
+        "id": "universal_their_place",
+        "text": "What's their place in your life?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("role_model", "My role model", coverage=["relation"]),
+            _option("advisor", "My advisor or guide", coverage=["relation", "voice"]),
+            _option("safe_place", "My safe place", coverage=["relation"]),
+            _option("measure", "The person I measure things by", coverage=["relation"]),
+            _option("whole_world", "My whole world", coverage=["relation"]),
+        ],
+    },
+]
+
+
 _GT_QUESTION_FIELDS: dict[str, str] = {
     str(q["id"]): str(q["ground_truth_field"]) for q in GROUND_TRUTH_QUESTIONS
 }
@@ -966,7 +1017,7 @@ def public_questions_for_relationship(
 
 def questions_for_archetype(archetype: str) -> list[dict[str, Any]]:
     base = ARCHETYPES.get(archetype, ARCHETYPES["generic"])
-    return [*base, *GROUND_TRUTH_QUESTIONS]
+    return [*base, *UNIVERSAL_QUESTIONS, *GROUND_TRUTH_QUESTIONS]
 
 
 def resolve_answer(
