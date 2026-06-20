@@ -5,11 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from flashback.tribute_video.context import RenderContext, build_context_dict
 from flashback.workers.tribute_render.sqs_client import (
     TributeRenderMessage,
     _parse_message,
 )
-from flashback.workers.tribute_render.worker import handle_failure, process_one
+from flashback.workers.tribute_render import worker as worker_mod
+from flashback.workers.tribute_render.worker import (
+    assemble_book,
+    handle_failure,
+    process_one,
+)
 
 
 def _msg(receive_count: int = 1) -> TributeRenderMessage:
@@ -112,3 +118,47 @@ def test_parse_message_defaults_receive_count():
         "ReceiptHandle": "r",
     })
     assert msg.receive_count == 1
+
+
+def test_context_round_trip_carries_assembly_inputs():
+    d = build_context_dict(
+        subject_name="Dad", relationship="father", gt_context="south india",
+        candidates=[{"id": "m1", "title": "t", "narrative": "n"}],
+        video_put_url="https://put/v", pdf_put_url="https://put/p",
+        message_text="thanks", archetype_leads=["a lead"], n_pages=12,
+        composed_at="2026-06-20T00:00:00Z",
+    )
+    assert "book" not in d  # inputs, not a pre-built Book
+    ctx = RenderContext.from_dict(d, tribute_id="t1", person_id="p1")
+    assert ctx.candidates == [{"id": "m1", "title": "t", "narrative": "n"}]
+    assert ctx.message_text == "thanks"
+    assert ctx.archetype_leads == ["a lead"]
+    assert ctx.n_pages == 12
+    assert ctx.video_put_url == "https://put/v"
+
+
+def test_assemble_book_passes_context_inputs(monkeypatch):
+    from flashback.tribute_video.book import Beat, Book
+
+    seen = {}
+
+    async def _fake_assemble(**kwargs):
+        seen.update(kwargs)
+        return Book(cover_title="C", opener=Beat(line="o", art_direction=""),
+                    beats=[Beat(line="b", art_direction="", moment_id="m1")],
+                    closing=Beat(line="c", art_direction=""), message="thanks")
+
+    monkeypatch.setattr(worker_mod, "assemble_storybook_video", _fake_assemble)
+    ctx = RenderContext(
+        tribute_id="t1", person_id="p1", subject_name="Dad",
+        relationship="father", gt_context="gt", video_put_url="v",
+        pdf_put_url="p", candidates=[{"id": "m1"}], message_text="thanks",
+        archetype_leads=["lead"], n_pages=9)
+
+    book = assemble_book(ctx, settings=SimpleNamespace())
+
+    assert book.beats[0].moment_id == "m1"
+    assert seen["candidates"] == [{"id": "m1"}]
+    assert seen["message_text"] == "thanks"
+    assert seen["n_pages"] == 9
+    assert seen["subject_name"] == "Dad"

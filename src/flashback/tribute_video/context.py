@@ -2,15 +2,16 @@
 
 Written by ``POST /tributes/{id}/generate`` into
 ``tributes.latest_generation_context['tribute_video']`` (Postgres authoritative;
-the SQS message is a trigger only). Carries the assembled Book, the subject
-descriptors, the Node-minted presigned URLs, and the render knobs.
+the SQS message is a trigger only). Carries the assembly INPUTS (subject
+descriptors, candidate moments, message, leads) plus the Node-minted presigned
+URLs and render knobs. The Book is assembled by the worker (a big-LLM call) at
+render time -- NOT in the HTTP request -- so ``/generate`` returns immediately
+instead of blocking ~30s and tripping Node's request timeout.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
-
-from .book import Book, book_from_dict, book_to_dict
 
 CONTEXT_KEY = "tribute_video"
 
@@ -22,9 +23,12 @@ class RenderContext:
     subject_name: str
     relationship: str | None
     gt_context: str
-    book: Book
     video_put_url: str
     pdf_put_url: str
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    message_text: str = ""
+    archetype_leads: list[str] = field(default_factory=list)
+    n_pages: int = 15
     prime_photo_get_url: str = ""
     blend: str = "cream"
     transition: str = "bleed"
@@ -41,9 +45,12 @@ class RenderContext:
             subject_name=(d.get("subject_name") or ""),
             relationship=d.get("relationship"),
             gt_context=(d.get("gt_context") or ""),
-            book=book_from_dict(d.get("book") or {}),
             video_put_url=(d.get("video_put_url") or ""),
             pdf_put_url=(d.get("pdf_put_url") or ""),
+            candidates=list(d.get("candidates") or []),
+            message_text=(d.get("message_text") or ""),
+            archetype_leads=list(d.get("archetype_leads") or []),
+            n_pages=int(d.get("n_pages") or 15),
             prime_photo_get_url=(d.get("prime_photo_get_url") or ""),
             blend=(d.get("blend") or "cream"),
             transition=(d.get("transition") or "bleed"),
@@ -58,9 +65,12 @@ def build_context_dict(
     subject_name: str,
     relationship: str | None,
     gt_context: str,
-    book: Book,
+    candidates: list[dict[str, Any]],
     video_put_url: str,
     pdf_put_url: str,
+    message_text: str = "",
+    archetype_leads: list[str] | None = None,
+    n_pages: int = 15,
     prime_photo_get_url: str = "",
     blend: str = "cream",
     transition: str = "bleed",
@@ -73,9 +83,12 @@ def build_context_dict(
         "subject_name": subject_name,
         "relationship": relationship,
         "gt_context": gt_context,
-        "book": book_to_dict(book),
+        "candidates": candidates,
         "video_put_url": video_put_url,
         "pdf_put_url": pdf_put_url,
+        "message_text": message_text,
+        "archetype_leads": archetype_leads or [],
+        "n_pages": n_pages,
         "prime_photo_get_url": prime_photo_get_url,
         "blend": blend,
         "transition": transition,

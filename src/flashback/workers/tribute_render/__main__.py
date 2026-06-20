@@ -55,7 +55,8 @@ def _cmd_run_once(cfg: TributeRenderConfig, *, tribute_id: str) -> int:
             print(f"no render context for tribute {tribute_id}")
             return 1
         with tempfile.TemporaryDirectory() as td:
-            video_ok, pdf_ok = render_and_upload(ctx, artist=artist, tmpdir=td)
+            video_ok, pdf_ok = render_and_upload(
+                ctx, artist=artist, tmpdir=td, settings=cfg)
         persistence.mark_complete(pool, tribute_id=ctx.tribute_id,
                                   person_id=ctx.person_id,
                                   video_present=video_ok, pdf_present=pdf_ok)

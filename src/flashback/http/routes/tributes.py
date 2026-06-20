@@ -16,14 +16,12 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 
-from flashback.config import HttpConfig
 from flashback.ground_truth.render import render_ground_truth_block
 from flashback.ground_truth.store import fetch_ground_truth
 from flashback.http.auth import require_service_token
 from flashback.http.deps import (
     get_artifact_generation_queue,
     get_db_pool,
-    get_http_config,
     get_tribute_render_queue,
 )
 from flashback.http.models import (
@@ -45,7 +43,6 @@ from flashback.tribute.repository import (
     set_status_async,
     write_tribute_generation_context_async,
 )
-from flashback.tribute_video.assembler import assemble_storybook_video
 from flashback.tribute_video.context import build_context_dict
 from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
@@ -62,7 +59,6 @@ log = structlog.get_logger("flashback.http.tributes")
 async def generate_tribute(
     tribute_id: UUID,
     body: TributeGenerateRequest,
-    cfg: HttpConfig = Depends(get_http_config),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
     artifact_queue: "ArtifactGenerationQueueProducer | None" = Depends(
         get_artifact_generation_queue
@@ -87,7 +83,6 @@ async def generate_tribute(
         return await _generate_video(
             tribute_id=tribute_id,
             body=body,
-            cfg=cfg,
             db_pool=db_pool,
             tribute=tribute,
             progress=progress,
@@ -112,16 +107,16 @@ async def _generate_video(
     *,
     tribute_id: UUID,
     body: TributeGenerateRequest,
-    cfg: HttpConfig,
     db_pool: AsyncConnectionPool,
     tribute: dict,
     progress,
     ground_truth: dict | None,
     tribute_render_queue: "TributeRenderQueueProducer | None",
 ) -> TributeGenerateResponse:
-    """Python-owned tribute video: assemble the FD-flow Book, store the render
-    context + presigned URLs on the row, enqueue tribute_render. Unlocks at 100%;
-    the worker renders MP4 + PDF and Node writes the URLs on completion."""
+    """Python-owned tribute video: store the render context (assembly inputs +
+    presigned URLs) on the row and enqueue tribute_render. Unlocks at 100%. The
+    worker assembles the Book, renders MP4 + PDF, and Node writes the URLs on
+    completion -- assembly is NOT done here so the request returns fast."""
     if progress.percent < 100:
         raise HTTPException(
             status_code=409,
@@ -146,8 +141,13 @@ async def _generate_video(
                     cur, person_id=body.person_id, limit=STORYBOOK_MAX_PAGES)
 
     gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or ""
-    book = await assemble_storybook_video(
-        settings=cfg,
+
+    composed_at = datetime.now(timezone.utc).isoformat()
+    campaign = resolve_campaign(body.campaign)
+    # Store the assembly INPUTS, not a pre-built Book -- the worker assembles
+    # the storybook (a ~30s big-LLM call) at render time so this request stays
+    # fast and never trips Node's HTTP timeout.
+    context = build_context_dict(
         subject_name=tribute["person_name"] or "",
         relationship=tribute["person_relationship"],
         gt_context=gt_scene,
@@ -155,15 +155,6 @@ async def _generate_video(
         message_text=tribute["message_text"] or "",
         archetype_leads=[],
         n_pages=STORYBOOK_MAX_PAGES,
-    )
-
-    composed_at = datetime.now(timezone.utc).isoformat()
-    campaign = resolve_campaign(body.campaign)
-    context = build_context_dict(
-        subject_name=tribute["person_name"] or "",
-        relationship=tribute["person_relationship"],
-        gt_context=gt_scene,
-        book=book,
         video_put_url=body.video_put_url,
         pdf_put_url=body.pdf_put_url,
         prime_photo_get_url=body.prime_photo_get_url or "",
@@ -195,7 +186,7 @@ async def _generate_video(
     return TributeGenerateResponse(
         job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
         enqueued=enqueued, percent=progress.percent, ready=progress.ready,
-        scene_count=len(book.beats))
+        scene_count=min(len(candidates), STORYBOOK_MAX_PAGES))
 
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)

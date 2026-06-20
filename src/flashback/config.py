@@ -746,6 +746,12 @@ class TributeRenderConfig:
     aws_region: str
     tribute_render_queue_url: str
     gemini_api_key: str = field(repr=False)
+    # Big-LLM (Book assembly) -- the worker assembles the storybook script at
+    # render time so /generate returns immediately. These mirror HttpConfig's
+    # llm_big_* / anthropic_api_key and feed flashback.llm.interface.
+    anthropic_api_key: str = field(default="", repr=False)
+    llm_big_provider: str = "anthropic"
+    llm_big_model: str = "claude-sonnet-4-6"
     gemini_image_model: str = "gemini-3.1-flash-image"
     sqs_max_messages: int = 1            # one heavy render at a time
     sqs_wait_seconds: int = 20
@@ -771,6 +777,9 @@ class TributeRenderConfig:
             aws_region=os.environ.get("AWS_REGION", "us-east-1"),
             tribute_render_queue_url=queue_url,
             gemini_api_key=_required("GEMINI_API_KEY"),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            llm_big_model=os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6"),
             gemini_image_model=os.environ.get(
                 "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
             ),
