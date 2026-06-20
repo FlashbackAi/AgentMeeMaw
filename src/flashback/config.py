@@ -297,6 +297,7 @@ class HttpConfig:
     producers_per_session_queue_url: str = ""
     embedding_queue_url: str = ""
     artifact_queue_url: str = ""
+    tribute_render_queue_url: str = ""
     profile_picture_queue_url: str = ""
     llm_node_edit_provider: str = "anthropic"
     llm_node_edit_model: str = "claude-sonnet-4-6"
@@ -415,6 +416,7 @@ class HttpConfig:
             ),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
             artifact_queue_url=os.environ.get("ARTIFACT_QUEUE_URL", ""),
+            tribute_render_queue_url=os.environ.get("TRIBUTE_RENDER_QUEUE_URL", ""),
             profile_picture_queue_url=os.environ.get("PROFILE_PICTURE_QUEUE_URL", ""),
             llm_node_edit_provider=os.environ.get(
                 "LLM_NODE_EDIT_PROVIDER",
@@ -720,6 +722,55 @@ class ProfileSummaryConfig:
             sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class TributeRenderConfig:
+    """Configuration for the ``tribute_render`` worker (Python-owned video).
+
+    Drains the ``tribute_render`` SQS queue (one message per tribute; producer
+    is ``POST /tributes/{id}/generate``) and renders the MP4 + PDF with Gemini
+    illustrations. ``run-once --tribute-id <uuid>`` uses the same logic without
+    the queue (queue URL may be empty for that path). No S3 creds: the worker
+    transfers via Node-minted presigned URLs stored on the row.
+    """
+
+    database_url: str = field(repr=False)
+    aws_region: str
+    tribute_render_queue_url: str
+    gemini_api_key: str = field(repr=False)
+    gemini_image_model: str = "gemini-3.1-flash-image"
+    sqs_max_messages: int = 1            # one heavy render at a time
+    sqs_wait_seconds: int = 20
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 2
+    render_fps: int = 30
+    render_transition: str = "bleed"
+    render_blend: str = "cream"
+
+    @classmethod
+    def from_env(cls, *, queue_required: bool = True) -> "TributeRenderConfig":
+        queue_url = (
+            _required("TRIBUTE_RENDER_QUEUE_URL")
+            if queue_required
+            else os.environ.get("TRIBUTE_RENDER_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            tribute_render_queue_url=queue_url,
+            gemini_api_key=_required("GEMINI_API_KEY"),
+            gemini_image_model=os.environ.get(
+                "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
+            ),
+            sqs_max_messages=int(os.environ.get("SQS_MAX_MESSAGES", "1")),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "2")),
+            render_fps=int(os.environ.get("RENDER_FPS", "30")),
+            render_transition=os.environ.get("RENDER_TRANSITION", "bleed"),
+            render_blend=os.environ.get("RENDER_BLEND", "cream"),
         )
 
 
