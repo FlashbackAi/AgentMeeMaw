@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+#
+# deploy.sh — one-shot deploy for the Flashback agent service on EC2.
+#
+#   git pull -> pip install -> (optionally) run migrations -> restart units -> status
+#
+# Usage (run from anywhere on the box; defaults match the prod install):
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh            # interactive: asks before migrating
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --migrate  # run pending migrations without asking
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --no-migrate
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --no-pull  # skip git pull (deploy current tree)
+#   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh --skip-install
+#
+# Env overrides: APP_DIR, ENV_FILE, VENV
+#
+# The whole body runs inside main() so bash parses the entire file before
+# executing — a `git pull` that rewrites this script mid-run can't corrupt it.
+
+set -euo pipefail
+
+APP_DIR="${APP_DIR:-/opt/AgentMeeMaw}"
+ENV_FILE="${ENV_FILE:-/etc/flashback-agent.env}"
+VENV="${VENV:-$APP_DIR/.venv}"
+
+# systemd units, in restart order (API first so it picks up new env fastest).
+SERVICES=(
+  flashback-agent-api
+  flashback-agent-worker@embedding
+  flashback-agent-worker@extraction
+  flashback-agent-worker@thread_detector
+  flashback-agent-worker@trait_synthesizer
+  flashback-agent-worker@profile_summary
+  flashback-agent-worker@tribute_render
+  flashback-agent-producers-per-session
+  flashback-agent-producers-weekly
+)
+
+# --- tiny output helpers ----------------------------------------------------
+c_blue=$'\033[1;34m'; c_grn=$'\033[1;32m'; c_yel=$'\033[1;33m'; c_red=$'\033[1;31m'; c_rst=$'\033[0m'
+step() { printf '\n%s==>%s %s\n' "$c_blue" "$c_rst" "$*"; }
+ok()   { printf '%s  ok%s %s\n'  "$c_grn"  "$c_rst" "$*"; }
+warn() { printf '%s warn%s %s\n' "$c_yel"  "$c_rst" "$*"; }
+die()  { printf '%s fail%s %s\n' "$c_red"  "$c_rst" "$*" >&2; exit 1; }
+
+main() {
+  local DO_PULL=1 DO_INSTALL=1 MIGRATE_MODE="ask"   # ask | yes | no
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --migrate)      MIGRATE_MODE="yes" ;;
+      --no-migrate)   MIGRATE_MODE="no" ;;
+      --no-pull)      DO_PULL=0 ;;
+      --skip-install) DO_INSTALL=0 ;;
+      -h|--help)      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      *)              die "unknown arg: $1 (try --help)" ;;
+    esac
+    shift
+  done
+
+  # sudo only if we aren't already root.
+  local SUDO=""; [[ $EUID -ne 0 ]] && SUDO="sudo"
+
+  [[ -d "$APP_DIR" ]]   || die "APP_DIR not found: $APP_DIR"
+  [[ -f "$ENV_FILE" ]]  || die "ENV_FILE not found: $ENV_FILE"
+  [[ -x "$VENV/bin/python" ]] || die "venv python not found: $VENV/bin/python"
+  cd "$APP_DIR"
+
+  # --- 1. git pull --------------------------------------------------------
+  if [[ $DO_PULL -eq 1 ]]; then
+    step "git pull ($APP_DIR)"
+    local before after
+    before="$(git rev-parse --short HEAD)"
+    git pull --ff-only
+    after="$(git rev-parse --short HEAD)"
+    if [[ "$before" == "$after" ]]; then ok "already up to date ($after)"; else ok "$before -> $after"; fi
+  else
+    warn "skipping git pull (--no-pull); HEAD=$(git rev-parse --short HEAD)"
+  fi
+
+  # --- 2. pip install -----------------------------------------------------
+  if [[ $DO_INSTALL -eq 1 ]]; then
+    step "pip install . (into $VENV)"
+    "$VENV/bin/pip" install . --quiet
+    ok "dependencies installed"
+  else
+    warn "skipping pip install (--skip-install)"
+  fi
+
+  # --- 3. migrations ------------------------------------------------------
+  # Run inside a subshell so the sourced env doesn't leak into systemctl.
+  step "checking for pending migrations"
+  local pending
+  pending="$( set -a; source "$ENV_FILE"; set +a; "$VENV/bin/python" scripts/migrate.py --dry-run )"
+
+  if [[ -z "${pending//[[:space:]]/}" ]]; then
+    ok "no pending migrations"
+  else
+    printf '%spending:%s\n%s\n' "$c_yel" "$c_rst" "$pending"
+    local run_it="no"
+    case "$MIGRATE_MODE" in
+      yes) run_it="yes" ;;
+      no)  warn "skipping migrations (--no-migrate)" ;;
+      ask)
+        if [[ -t 0 ]]; then
+          read -r -p "Run these migrations now? [y/N] " ans
+          [[ "$ans" =~ ^[Yy]$ ]] && run_it="yes"
+        else
+          warn "non-interactive shell and no --migrate/--no-migrate; skipping migrations"
+        fi
+        ;;
+    esac
+    if [[ "$run_it" == "yes" ]]; then
+      step "running migrations"
+      ( set -a; source "$ENV_FILE"; set +a; "$VENV/bin/python" scripts/migrate.py )
+      ok "migrations applied"
+    fi
+  fi
+
+  # --- 4. restart units ---------------------------------------------------
+  step "restarting services"
+  local failed=()
+  for unit in "${SERVICES[@]}"; do
+    if $SUDO systemctl restart "$unit" 2>/dev/null; then
+      ok "restarted $unit"
+    else
+      warn "could not restart $unit (not installed/enabled?)"
+      failed+=("$unit")
+    fi
+  done
+
+  # --- 5. status ----------------------------------------------------------
+  step "status (flashback-agent-*)"
+  $SUDO systemctl --no-pager --no-legend list-units 'flashback-agent-*' || true
+  echo
+  $SUDO systemctl status flashback-agent-api --no-pager -l | head -8 || true
+
+  echo
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    warn "deploy finished with ${#failed[@]} unit(s) needing attention: ${failed[*]}"
+    warn "if flashback-agent-worker@tribute_render is new, create its drop-in + enable it (see docs/ec2-deploy.md), then re-run."
+  else
+    ok "deploy complete — all units restarted"
+  fi
+}
+
+main "$@"
