@@ -63,12 +63,6 @@ async def wrap_session(state: SessionWrapState, deps: OrchestratorDeps) -> None:
             fn=lambda: _push_producers_per_session(state, deps),
             state=state,
         ),
-        execute(
-            policies=SESSION_WRAP_POLICIES,
-            step_name="maybe_generate_storybook",
-            fn=lambda: _maybe_generate_storybook(state, deps),
-            state=state,
-        ),
     )
 
     wm_state = await _load_wm_state(state, deps)
@@ -255,37 +249,6 @@ async def _push_producers_per_session(
         raise QueueSendError(str(exc)) from exc
     state.producers_per_session_pushed = True
     log.info("producers_per_session_pushed", sqs_message_id=msg_id)
-
-
-async def _maybe_generate_storybook(
-    state: SessionWrapState,
-    deps: OrchestratorDeps,
-) -> None:
-    """Count-gated standalone storybook mint (best-effort, never fails wrap).
-
-    No-ops unless enough new qualifying moments have accumulated since the last
-    edition. The gate read, LLM assembly, persistence, and artifact-job push all
-    live in ``maybe_generate_storybook``; any failure here is swallowed so the
-    wrap sequence always completes.
-    """
-    from flashback.storybook.generation import maybe_generate_storybook
-
-    try:
-        result = await maybe_generate_storybook(
-            db_pool=deps.db_pool,
-            settings=deps.settings,
-            artifact_queue=deps.artifact_generation_queue,
-            person_id=str(state.person_id),
-        )
-    except Exception as exc:  # noqa: BLE001 -- best-effort; must not fail wrap
-        log.warning(
-            "storybook_generate_failed",
-            error=type(exc).__name__,
-            detail=str(exc),
-        )
-        return
-    if result.generated:
-        log.info("storybook_generated_at_wrap", storybook_id=result.storybook_id)
 
 
 async def _clear_wm(state: SessionWrapState, deps: OrchestratorDeps) -> None:

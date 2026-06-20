@@ -1,78 +1,137 @@
-"""Repository for the ``storybooks`` table + the count-gate watermark.
+"""Repository for the ``storybooks`` table.
 
-Async surfaces only -- the storybook is minted from the async Session Wrap
-path. 'Qualifying' moment mirrors ``tribute_status`` / ``fetch_scene_moments``:
-has ``sensory_details``, a ``time_anchor``, or an ``involves`` edge.
+Storybooks are minted ON DEMAND (Node/user-triggered), so there is no count
+gate and no ``moments_at_last_storybook_run`` watermark here any more -- that
+column (migration 0029) is left in place but unused. A legacy can hold many
+storybooks; new ones are inserted, never superseding their predecessors.
+
+'Qualifying' moment mirrors ``tribute_status`` / the themes tier view: has
+``sensory_details``, a ``time_anchor``, or an ``involves`` edge. Candidates are
+ordered life-chronologically (by ``time_anchor`` year, then creation order) so
+a book reads front-to-back as a life rather than newest-extracted-first.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from psycopg.types.json import Json
 
-# Count-gate constants (CLAUDE.md cold-start cadence family; tunable).
-STORYBOOK_MIN_MOMENTS = 3  # floor: never mint a book thinner than this
-STORYBOOK_NEW_MOMENTS_THRESHOLD = 8  # new qualifying moments since last edition
+# Floor: never mint a book thinner than this many qualifying (scoped) moments.
+STORYBOOK_MIN_MOMENTS = 3
+# Candidate ceiling handed to the assembler. Larger than the ~12 pages a book
+# holds so the LLM has a real pool to curate from.
+STORYBOOK_CANDIDATE_LIMIT = 40
+
+# Qualifying predicate, shared by every selector below.
+_QUALIFYING = """\
+m.sensory_details IS NOT NULL
+OR m.time_anchor IS NOT NULL
+OR EXISTS (
+    SELECT 1 FROM edges ie
+     WHERE ie.from_kind = 'moment'
+       AND ie.from_id   = m.id
+       AND ie.edge_type = 'involves'
+       AND ie.status    = 'active'
+)"""
+
+# Chronological-ish ordering: pull the digits out of time_anchor.year (the
+# JSONB shape is {year?, decade?, life_period?, era?}; year may be "1985" or
+# "around 1985"), order ascending with undated moments last, then by creation.
+_CHRONO_ORDER = """\
+ORDER BY
+    NULLIF(regexp_replace(COALESCE(m.time_anchor->>'year', ''), '[^0-9]', '', 'g'), '')::int
+        ASC NULLS LAST,
+    m.created_at ASC"""
+
+_MOMENT_COLUMNS = (
+    "m.id::text, m.title, m.narrative, "
+    "m.generation_prompt, m.sensory_details, m.time_anchor"
+)
 
 
-@dataclass(frozen=True)
-class StorybookGate:
-    qualifying_count: int
-    last_count: int
-    delta: int
-    valid: bool
+def _moment_row(r: tuple) -> dict[str, Any]:
+    return {
+        "id": r[0],
+        "title": r[1],
+        "narrative": r[2],
+        "generation_prompt": r[3],
+        "sensory_details": r[4],
+        "time_anchor": r[5],
+    }
 
 
-_QUALIFYING_COUNT_SQL = """
-SELECT count(*)
-  FROM active_moments m
- WHERE m.person_id = %(pid)s
-   AND (
-        m.sensory_details IS NOT NULL
-     OR m.time_anchor IS NOT NULL
-     OR EXISTS (
-         SELECT 1 FROM edges ie
-          WHERE ie.from_kind = 'moment'
-            AND ie.from_id   = m.id
-            AND ie.edge_type = 'involves'
-            AND ie.status    = 'active'
-     )
-   )
-"""
-
-
-async def storybook_gate_async(
+async def fetch_scope_scene_moments_async(
     cur,
     *,
     person_id: UUID | str,
-    threshold: int = STORYBOOK_NEW_MOMENTS_THRESHOLD,
-    min_moments: int = STORYBOOK_MIN_MOMENTS,
-) -> StorybookGate:
-    """Report whether a new storybook edition should be minted for this person.
+    theme_id: UUID | str | None = None,
+    life_period: str | None = None,
+    limit: int = STORYBOOK_CANDIDATE_LIMIT,
+) -> list[dict[str, Any]]:
+    """Return qualifying candidate moments for a storybook, scope-filtered.
 
-    Valid when total qualifying moments >= ``min_moments`` AND the number of
-    NEW qualifying moments since the last edition >= ``threshold``.
+    Optional scope narrows the pool: ``theme_id`` (moments tagged to that theme
+    via an active ``themed_as`` edge) and/or ``life_period`` (exact match on
+    ``life_period_estimate``). No scope = the whole qualifying pool. Ordered
+    life-chronologically and capped at ``limit``.
     """
-    await cur.execute(_QUALIFYING_COUNT_SQL, {"pid": str(person_id)})
-    row = await cur.fetchone()
-    qualifying = int(row[0]) if row is not None else 0
+    params: dict[str, Any] = {"pid": str(person_id), "limit": limit}
+    scope_sql = ""
+    if theme_id is not None:
+        params["theme_id"] = str(theme_id)
+        scope_sql += """
+           AND EXISTS (
+               SELECT 1 FROM edges te
+                WHERE te.from_kind = 'moment'
+                  AND te.from_id   = m.id
+                  AND te.to_kind   = 'theme'
+                  AND te.to_id     = %(theme_id)s
+                  AND te.edge_type = 'themed_as'
+                  AND te.status    = 'active'
+           )"""
+    if life_period:
+        params["life_period"] = life_period
+        scope_sql += "\n           AND m.life_period_estimate = %(life_period)s"
 
     await cur.execute(
-        "SELECT moments_at_last_storybook_run FROM persons WHERE id = %(pid)s",
-        {"pid": str(person_id)},
+        f"""
+        SELECT {_MOMENT_COLUMNS}
+          FROM active_moments m
+         WHERE m.person_id = %(pid)s
+           AND ({_QUALIFYING}){scope_sql}
+         {_CHRONO_ORDER}
+         LIMIT %(limit)s
+        """,
+        params,
     )
-    prow = await cur.fetchone()
-    last = int(prow[0]) if prow is not None else 0
+    rows = await cur.fetchall()
+    return [_moment_row(r) for r in rows]
 
-    delta = qualifying - last
-    valid = qualifying >= min_moments and delta >= threshold
-    return StorybookGate(
-        qualifying_count=qualifying, last_count=last, delta=delta, valid=valid
+
+async def fetch_moments_by_ids_async(
+    cur, *, person_id: UUID | str, moment_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Reload specific moments (active + owned), preserving ``moment_ids`` order.
+
+    Used by regenerate / edit to rebuild the page set from a storybook's stored
+    ``scene_moment_ids``. Dropped (superseded / re-owned) ids simply fall out.
+    """
+    if not moment_ids:
+        return []
+    await cur.execute(
+        f"""
+        SELECT {_MOMENT_COLUMNS}
+          FROM active_moments m
+         WHERE m.person_id = %(pid)s
+           AND m.id = ANY(%(ids)s)
+        """,
+        {"pid": str(person_id), "ids": [str(m) for m in moment_ids]},
     )
+    by_id = {r[0]: _moment_row(r) for r in await cur.fetchall()}
+    return [by_id[mid] for mid in (str(m) for m in moment_ids) if mid in by_id]
 
 
 async def fetch_person_for_storybook_async(
@@ -104,21 +163,18 @@ async def insert_storybook_async(
     scene_moment_ids: list[str],
     moments_count: int,
     context: dict[str, Any],
+    tags: list[str],
 ) -> str:
-    """Insert a fresh ``generating`` storybook edition; return its id.
-
-    The full storybook context is written on insert (not keyed by kind -- this
-    table holds storybooks only), so the artifact job can be pushed immediately.
-    """
+    """Insert a fresh ``generating`` storybook; return its id."""
     await cur.execute(
         """
         INSERT INTO storybooks (
             person_id, title, script, scene_moment_ids, moments_count,
-            status, latest_generation_context
+            status, latest_generation_context, tags
         )
         VALUES (
             %(person_id)s, %(title)s, %(script)s, %(scene_ids)s, %(moments_count)s,
-            'generating', %(ctx)s
+            'generating', %(ctx)s, %(tags)s
         )
         RETURNING id::text
         """,
@@ -129,10 +185,100 @@ async def insert_storybook_async(
             "scene_ids": [str(s) for s in scene_moment_ids],
             "moments_count": moments_count,
             "ctx": json.dumps(context),
+            "tags": list(tags),
         },
     )
     (storybook_id,) = await cur.fetchone()
     return storybook_id
+
+
+async def fetch_storybook_for_regen_async(
+    cur, *, storybook_id: UUID | str, person_id: UUID | str
+) -> dict[str, Any] | None:
+    """Return a storybook's script + scene ids + tags for regen/edit, owned-check.
+
+    Returns None when the storybook does not exist, is not owned by this
+    person, or has been superseded.
+    """
+    await cur.execute(
+        """
+        SELECT title, script, scene_moment_ids, tags, moments_count
+          FROM storybooks
+         WHERE id = %(id)s AND person_id = %(pid)s AND status <> 'superseded'
+        """,
+        {"id": str(storybook_id), "pid": str(person_id)},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "title": row[0],
+        "script": row[1],
+        "scene_moment_ids": [str(s) for s in (row[2] or [])],
+        "tags": list(row[3] or []),
+        "moments_count": row[4],
+    }
+
+
+async def update_storybook_after_edit_async(
+    cur,
+    *,
+    storybook_id: UUID | str,
+    title: str | None,
+    script: dict[str, Any],
+    scene_moment_ids: list[str],
+    context: dict[str, Any],
+    tags: list[str],
+) -> None:
+    """Rewrite the script + context + tags after an edit re-assembly."""
+    await cur.execute(
+        """
+        UPDATE storybooks
+           SET title = %(title)s,
+               script = %(script)s,
+               scene_moment_ids = %(scene_ids)s,
+               latest_generation_context = %(ctx)s,
+               tags = %(tags)s,
+               status = 'generating'
+         WHERE id = %(id)s
+        """,
+        {
+            "id": str(storybook_id),
+            "title": title,
+            "script": Json(script),
+            "scene_ids": [str(s) for s in scene_moment_ids],
+            "ctx": json.dumps(context),
+            "tags": list(tags),
+        },
+    )
+
+
+async def update_storybook_after_regen_async(
+    cur,
+    *,
+    storybook_id: UUID | str,
+    context: dict[str, Any],
+    tags: list[str],
+) -> None:
+    """Rewrite only the context + tags after a render-only regenerate.
+
+    The script (scenes, captions, ordering) is kept; regenerate re-composes the
+    page image prompts with a new preset and may re-tag for template selection.
+    """
+    await cur.execute(
+        """
+        UPDATE storybooks
+           SET latest_generation_context = %(ctx)s,
+               tags = %(tags)s,
+               status = 'generating'
+         WHERE id = %(id)s
+        """,
+        {
+            "id": str(storybook_id),
+            "ctx": json.dumps(context),
+            "tags": list(tags),
+        },
+    )
 
 
 async def set_storybook_status_async(
@@ -142,18 +288,4 @@ async def set_storybook_status_async(
     await cur.execute(
         "UPDATE storybooks SET status = %(status)s WHERE id = %(id)s",
         {"id": str(storybook_id), "status": status},
-    )
-
-
-async def stamp_moments_at_last_storybook_run_async(
-    cur, *, person_id: UUID | str, count: int
-) -> None:
-    """Stamp the watermark to the qualifying count captured at gate time."""
-    await cur.execute(
-        """
-        UPDATE persons
-           SET moments_at_last_storybook_run = %(count)s
-         WHERE id = %(pid)s
-        """,
-        {"pid": str(person_id), "count": count},
     )

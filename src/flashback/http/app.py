@@ -38,6 +38,7 @@ from flashback.http.routes.artifacts import router as artifacts_router
 from flashback.http.routes.profile_picture import router as profile_picture_router
 from flashback.http.routes.profile_facts import router as profile_facts_router
 from flashback.http.routes.session import router as session_router
+from flashback.http.routes.storybooks import router as storybooks_router
 from flashback.http.routes.stream import router as stream_router
 from flashback.http.routes.themes import router as themes_router
 from flashback.http.routes.tributes import router as tributes_router
@@ -256,6 +257,7 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
     app.include_router(onboarding_router)
     app.include_router(themes_router)
     app.include_router(tributes_router)
+    app.include_router(storybooks_router)
 
     return app
 
