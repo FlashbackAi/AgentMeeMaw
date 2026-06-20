@@ -95,13 +95,28 @@ External dependencies we **call** but do not own: the Node Backend
 - **Consuming** the `artifact_generation` queue: calling the
   image/video generation model, uploading to S3, writing the URL
   columns (`image_url`, `video_url`, `thumbnail_url`) back to Postgres.
+  **Exception — tributes:** the agent renders the tribute video + PDF
+  (see Hard rules below). Node does **not** render tributes off
+  `artifact_generation`; it mints presigned URLs and writes
+  `tributes.video_url` / `pdf_url` on the `tribute_render_complete` NOTIFY.
 
 ### Hard rules
 
 - **We never touch DynamoDB.** Session/turn metadata we need is passed
   in by Node on the request, or fetched from a Node API.
-- **We never touch S3 or the URL columns.** We only write the
-  `generation_prompt` column and push onto `artifact_generation`.
+- **We never touch S3 or the URL columns** — with one scoped exception,
+  the tribute video render (next bullet). For canonical-graph artifacts
+  we only write the `generation_prompt` column and push onto
+  `artifact_generation`.
+- **The tribute video + PDF are rendered by the agent**
+  (`flashback.workers.tribute_render`), not Node. The agent reaches S3
+  **only via Node-minted presigned URLs** (GET the prime photo, PUT the
+  MP4 + PDF) — it holds **no** S3 credentials and still **never writes
+  the URL columns**; Node writes `tributes.video_url` / `pdf_url` on the
+  transactional `tribute_render_complete` NOTIFY (a sibling of invariant
+  #25). The tribute *storybook* artifact is retired (video + PDF only);
+  the standalone `/storybooks` feature is separate. Spec:
+  `docs/superpowers/specs/2026-06-20-tribute-video-pipeline-design.md`.
 - **We never write to Node-owned tables** (users, future
   `person_roles`, etc.). In v1 onboarding state is stored on the
   agent-owned `persons` row because there is only one contributor per

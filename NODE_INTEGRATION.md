@@ -509,9 +509,12 @@ Strictly limited:
 | `moments` | `video_url`, `thumbnail_url` |
 | `entities` | `image_url`, `thumbnail_url` |
 | `threads` | `image_url`, `thumbnail_url` |
+| `tributes` | `video_url`, `pdf_url`, `image_url`, `thumbnail_url` |
 
 These are the artifact URL columns. Node writes them after the
-artifact-generation worker uploads to S3. **Nothing else.**
+artifact-generation worker uploads to S3 — and, for `tributes`, after the
+agent's `tribute_render` worker PUTs the MP4/PDF to your presigned URLs and
+fires `tribute_render_complete` (§7b). **Nothing else.**
 
 In particular, **do not** write `generation_prompt` (we write it),
 `status`, `superseded_by`, `merged_into`, embedding columns, or any
@@ -586,6 +589,63 @@ that photo; when absent, the existing establishing-scene cover behavior
 applies. Pass the photo to the agent via the new optional
 `prime_photo_s3_key` field on `POST /tributes/{id}/generate`. Full
 contract: **`docs/STORYBOOK_FD_COVER_NODE_PROMPT.md`**.
+
+---
+
+## 7b. Tribute video — now rendered by the agent (NOT via artifact_generation)
+
+The tribute output moved off Node's renderer. A tribute now produces a **video**
+(shown in-app) + a **PDF** (print on request), rendered by the agent's
+`tribute_render` worker. The standalone tribute **storybook** artifact is
+retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
+**410**. (The separate `/storybooks` keepsake-book feature is unaffected.)
+
+### What Node STOPS doing
+
+- **Do not** consume `artifact_generation` messages with `record_type='tribute'`
+  — the agent no longer pushes them. Keep consuming `moment` / `entity` /
+  `thread` / `person` (unchanged, §7).
+- Retire the tribute storybook renderer (templates / compositor / image model)
+  for tributes.
+
+### The new handshake — Node mints presigned URLs; the agent renders
+
+1. When the meter hits **100%** (`tribute_status.percent = 100`), call
+   `POST /tributes/{id}/generate` with `artifact_kind='tribute_video'` and:
+   - `video_put_url` — presigned **PUT** for the MP4 (`video/mp4`)
+   - `pdf_put_url` — presigned **PUT** for the PDF (`application/pdf`)
+   - `prime_photo_get_url` — presigned **GET** for the contributor's prime photo
+     (optional; when present the opener becomes a painterly portrait of the
+     subject, image-to-image, likeness kept)
+
+   Expiry must cover queue latency + render — **≥ 24h** recommended. Below 100%
+   → **409**; missing PUT URLs → **400**. Sign the PUTs for the content-types
+   above (or sign without enforcing content-type).
+2. The agent assembles the FD-flow story, stores it + your URLs on the row,
+   flips `status='generating'`, and enqueues the render. Response is the usual
+   `{job_id, percent, ready, enqueued, ...}`.
+3. The agent's worker downloads the photo (your GET URL), renders the MP4 + PDF,
+   and **PUTs** them to your URLs. **No AWS credentials live in the agent** — it
+   only uses the URLs you sign, and it never writes the URL columns.
+
+### Completion — listen, don't poll (mirrors `extraction_complete`, §8.3)
+
+- The worker fires a **transactional** `NOTIFY` on channel
+  **`tribute_render_complete`** on success:
+  ```json
+  {"event":"tribute_render_complete","tribute_id":"…","person_id":"…",
+   "status":"complete","video_present":true,"pdf_present":true}
+  ```
+- On that signal, **Node writes `tributes.video_url` + `tributes.pdf_url`** from
+  the keys it minted (you signed the PUTs, so you know the object keys), then
+  shows the video; "Print" → `pdf_url`.
+- The `tributes` row + the `tribute_status` view are authoritative. `status`
+  goes `generating → complete`, or `failed` if the render exhausts SQS retries —
+  the DLQ path emits **no** NOTIFY, so fall back to a timeout (same as
+  extraction). `tribute_status` now also exposes `pdf_url` + `rendered_at`.
+
+**Why presigned (not agent-side S3):** S3 + URL-column ownership stay with Node
+(CLAUDE.md §3). The agent renders the bytes; Node owns storage.
 
 ---
 

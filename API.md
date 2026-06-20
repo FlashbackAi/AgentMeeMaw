@@ -1005,6 +1005,71 @@ that legacy and refuse cross-legacy edits.
 
 ---
 
+## 7b. Tributes — video render
+
+A tribute produces a **video** (shown in-app) + a **PDF** (print). The agent
+assembles the story and renders both via the `tribute_render` worker, uploading
+to **Node-minted presigned URLs**; Node writes the URL columns on completion.
+Full handshake: `NODE_INTEGRATION.md` §7b.
+
+### `POST /tributes/{tribute_id}/generate`
+
+Trigger a tribute video render. Call when the meter is at **100%**
+(`tribute_status.percent = 100`).
+
+Request:
+
+```json
+{
+  "person_id": "<uuid>",
+  "artifact_kind": "tribute_video",
+  "video_put_url": "<presigned PUT for the MP4 (video/mp4)>",
+  "pdf_put_url": "<presigned PUT for the PDF (application/pdf)>",
+  "prime_photo_get_url": "<presigned GET for the prime photo, optional>",
+  "campaign": "fathers_day_2026",
+  "cover_photo_is_prime_years": false
+}
+```
+
+- `video_put_url` + `pdf_put_url` are **required**; expiry must cover queue
+  latency + render (**≥ 24h** recommended). Sign for the content-types shown.
+- `prime_photo_get_url` optional — when present the opener becomes a painterly
+  portrait of the subject (image-to-image, likeness kept).
+- `cover_photo_is_prime_years` — `false` (default) de-ages an older/current
+  photo to prime years; `true` skips de-age.
+
+Response `200`:
+
+```json
+{
+  "job_id": "<uuid>", "tribute_id": "<uuid>", "artifact_kind": "tribute_video",
+  "enqueued": true, "percent": 100, "ready": true, "scene_count": 15
+}
+```
+
+Errors:
+
+- `404` — tribute not found / not owned by `person_id`, or status unavailable.
+- `409` — meter below 100% (`detail` carries the current percent).
+- `400` — missing `video_put_url` / `pdf_put_url`.
+- `410` — `artifact_kind='storybook'`: the tribute storybook is retired; use
+  `tribute_video`. (The standalone `/storybooks` feature is separate.)
+
+Generation is **async**: `200` means enqueued. The `tribute_render` worker
+renders + PUTs the MP4/PDF, flips `tributes.status` `generating → complete` (or
+`failed`), and fires the transactional `tribute_render_complete` NOTIFY. Node
+reads the `tribute_status` view (now exposing `pdf_url` + `rendered_at`) and
+writes `video_url` / `pdf_url` on that NOTIFY. **Not retry-safe** — a repeat
+call re-renders.
+
+### `GET /tribute-campaigns`
+
+Public campaign list + which campaign is featured today (drives the Father's Day
+skin). Returns `{campaigns: [{slug, display_name, featured, is_active,
+active_start, active_end}], active_featured_slug}`.
+
+---
+
 ## 8. Admin
 
 ### `POST /admin/reset_phase`
