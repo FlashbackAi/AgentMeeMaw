@@ -25,6 +25,7 @@ class RenderContext:
     gt_context: str
     video_put_url: str
     pdf_put_url: str
+    poster_put_url: str = ""
     candidates: list[dict[str, Any]] = field(default_factory=list)
     message_text: str = ""
     archetype_leads: list[str] = field(default_factory=list)
@@ -47,6 +48,7 @@ class RenderContext:
             gt_context=(d.get("gt_context") or ""),
             video_put_url=(d.get("video_put_url") or ""),
             pdf_put_url=(d.get("pdf_put_url") or ""),
+            poster_put_url=(d.get("poster_put_url") or ""),
             candidates=list(d.get("candidates") or []),
             message_text=(d.get("message_text") or ""),
             archetype_leads=list(d.get("archetype_leads") or []),
@@ -68,6 +70,7 @@ def build_context_dict(
     candidates: list[dict[str, Any]],
     video_put_url: str,
     pdf_put_url: str,
+    poster_put_url: str = "",
     message_text: str = "",
     archetype_leads: list[str] | None = None,
     n_pages: int = 15,
@@ -86,6 +89,7 @@ def build_context_dict(
         "candidates": candidates,
         "video_put_url": video_put_url,
         "pdf_put_url": pdf_put_url,
+        "poster_put_url": poster_put_url,
         "message_text": message_text,
         "archetype_leads": archetype_leads or [],
         "n_pages": n_pages,

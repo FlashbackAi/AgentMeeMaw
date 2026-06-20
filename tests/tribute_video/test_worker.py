@@ -34,17 +34,17 @@ def test_renders_and_completes():
 
     def run_render(c):
         calls["render"] = c
-        return (True, True)
+        return (True, True, True)
 
-    def complete(tid, pid, v, p):
-        calls["complete"] = (tid, pid, v, p)
+    def complete(tid, pid, v, p, poster):
+        calls["complete"] = (tid, pid, v, p, poster)
 
     res = process_one(_msg(), load_context=load, run_render=run_render,
                       mark_complete=complete)
     assert res == "ok"
     assert calls["load"] == ("t1", "c1")
     assert calls["render"] is ctx
-    assert calls["complete"] == ("t1", "p1", True, True)
+    assert calls["complete"] == ("t1", "p1", True, True, True)
 
 
 def test_skips_when_context_missing_or_stale():
@@ -135,6 +135,49 @@ def test_context_round_trip_carries_assembly_inputs():
     assert ctx.archetype_leads == ["a lead"]
     assert ctx.n_pages == 12
     assert ctx.video_put_url == "https://put/v"
+
+
+def _render_ctx(**over) -> RenderContext:
+    base = dict(
+        tribute_id="t1", person_id="p1", subject_name="Dad",
+        relationship="father", gt_context="", video_put_url="v",
+        pdf_put_url="p", candidates=[{"id": "m1"}])
+    base.update(over)
+    return RenderContext(**base)
+
+
+def _stub_render(monkeypatch):
+    uploaded = []
+    monkeypatch.setattr(worker_mod, "assemble_book",
+                        lambda ctx, *, settings: SimpleNamespace(beats=[]))
+    monkeypatch.setattr(worker_mod, "render_book", lambda **kw: None)
+    monkeypatch.setattr(worker_mod.transfer, "download_image",
+                        lambda url, **k: None)
+
+    def fake_upload(url, path, *, content_type, timeout=180.0):
+        uploaded.append((url, content_type))
+        return 200
+
+    monkeypatch.setattr(worker_mod.transfer, "upload_file", fake_upload)
+    return uploaded
+
+
+def test_render_and_upload_uploads_poster_when_url_present(monkeypatch):
+    uploaded = _stub_render(monkeypatch)
+    ctx = _render_ctx(poster_put_url="poster-url")
+    video, pdf, poster = worker_mod.render_and_upload(
+        ctx, artist=None, tmpdir="/tmp", settings=SimpleNamespace())
+    assert (video, pdf, poster) == (True, True, True)
+    assert ("poster-url", "image/jpeg") in uploaded
+
+
+def test_render_and_upload_skips_poster_without_url(monkeypatch):
+    uploaded = _stub_render(monkeypatch)
+    ctx = _render_ctx()  # no poster_put_url
+    video, pdf, poster = worker_mod.render_and_upload(
+        ctx, artist=None, tmpdir="/tmp", settings=SimpleNamespace())
+    assert (video, pdf, poster) == (True, True, False)
+    assert all(ct != "image/jpeg" for _url, ct in uploaded)
 
 
 def test_assemble_book_passes_context_inputs(monkeypatch):

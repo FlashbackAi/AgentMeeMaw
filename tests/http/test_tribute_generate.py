@@ -125,6 +125,7 @@ async def test_video_200_stores_context_inputs_and_enqueues(
             "artifact_kind": "tribute_video",
             "video_put_url": "https://s3.example/put/video?sig=1",
             "pdf_put_url": "https://s3.example/put/pdf?sig=1",
+            "poster_put_url": "https://s3.example/put/poster?sig=1",
             "prime_photo_get_url": "https://s3.example/get/photo?sig=1",
         },
         headers=_HEADERS,
@@ -146,6 +147,7 @@ async def test_video_200_stores_context_inputs_and_enqueues(
     assert ctx is not None
     assert ctx["video_put_url"].startswith("https://s3.example/put/video")
     assert ctx["pdf_put_url"].startswith("https://s3.example/put/pdf")
+    assert ctx["poster_put_url"].startswith("https://s3.example/put/poster")
     # The route stores assembly INPUTS, not a pre-built Book (assembly is the
     # worker's job now). The 3 seeded moments are the candidates.
     assert "book" not in ctx

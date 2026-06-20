@@ -51,8 +51,14 @@ def assemble_book(ctx: RenderContext, *, settings) -> Book:
 
 
 def render_and_upload(ctx: RenderContext, *, artist: Artist,
-                      tmpdir: str, settings) -> tuple[bool, bool]:
-    """Assemble the Book, render the artifacts, and PUT them to the URLs."""
+                      tmpdir: str, settings) -> tuple[bool, bool, bool]:
+    """Assemble the Book, render the artifacts, and PUT them to the URLs.
+
+    Returns (video_ok, pdf_ok, poster_ok). The poster is the opener page (the
+    cover: portrait + title); it's only rendered + uploaded when Node minted a
+    poster_put_url, so the card/thumbnail can show the cover rather than a
+    stray video frame.
+    """
     book = assemble_book(ctx, settings=settings)
     log.info("tribute_render.assembled", tribute_id=ctx.tribute_id,
              beats=len(book.beats))
@@ -60,10 +66,13 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
              if ctx.prime_photo_get_url else None)
     pdf_path = os.path.join(tmpdir, f"{ctx.tribute_id}.pdf")
     mp4_path = os.path.join(tmpdir, f"{ctx.tribute_id}.mp4")
+    poster_path = (os.path.join(tmpdir, f"{ctx.tribute_id}.poster.jpg")
+                   if ctx.poster_put_url else None)
     render_book(
         book=book, subject_name=ctx.subject_name,
         relationship=ctx.relationship, gt_context=ctx.gt_context,
         artist=artist, pdf_path=pdf_path, mp4_path=mp4_path,
+        poster_path=poster_path,
         prime_photo=photo, deage=ctx.deage, blend=ctx.blend,
         transition=ctx.transition, fps=ctx.fps,
         concurrency=getattr(settings, "render_concurrency", 4),
@@ -72,7 +81,11 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
         ctx.video_put_url, mp4_path, content_type="video/mp4") < 300
     pdf_ok = 200 <= transfer.upload_file(
         ctx.pdf_put_url, pdf_path, content_type="application/pdf") < 300
-    return video_ok, pdf_ok
+    poster_ok = False
+    if poster_path is not None:
+        poster_ok = 200 <= transfer.upload_file(
+            ctx.poster_put_url, poster_path, content_type="image/jpeg") < 300
+    return video_ok, pdf_ok, poster_ok
 
 
 def process_one(msg: TributeRenderMessage, *, load_context, run_render,
@@ -86,10 +99,11 @@ def process_one(msg: TributeRenderMessage, *, load_context, run_render,
         log.info("tribute_render.skip", tribute_id=msg.tribute_id,
                  reason="missing_or_stale")
         return "skip"
-    video_present, pdf_present = run_render(ctx)
-    mark_complete(ctx.tribute_id, ctx.person_id, video_present, pdf_present)
+    video_present, pdf_present, poster_present = run_render(ctx)
+    mark_complete(ctx.tribute_id, ctx.person_id, video_present, pdf_present,
+                  poster_present)
     log.info("tribute_render.complete", tribute_id=ctx.tribute_id,
-             video=video_present, pdf=pdf_present)
+             video=video_present, pdf=pdf_present, poster=poster_present)
     return "ok"
 
 
@@ -133,13 +147,15 @@ def run_forever(*, pool, cfg, sqs: SQSClient, stop: _StopSignal | None = None) -
         return persistence.load_render_context(
             pool, tribute_id=tid, composed_at=composed_at)
 
-    def _render(ctx: RenderContext) -> tuple[bool, bool]:
+    def _render(ctx: RenderContext) -> tuple[bool, bool, bool]:
         with tempfile.TemporaryDirectory() as td:
             return render_and_upload(ctx, artist=artist, tmpdir=td, settings=cfg)
 
-    def _complete(tid: str, pid: str, video: bool, pdf: bool) -> None:
+    def _complete(tid: str, pid: str, video: bool, pdf: bool,
+                  poster: bool) -> None:
         persistence.mark_complete(pool, tribute_id=tid, person_id=pid,
-                                  video_present=video, pdf_present=pdf)
+                                  video_present=video, pdf_present=pdf,
+                                  poster_present=poster)
 
     def _fail(tid: str, error: str) -> None:
         persistence.mark_failed(pool, tribute_id=tid, error=error)

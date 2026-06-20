@@ -78,6 +78,7 @@ class RenderResult:
     pages: int
     pdf_path: str
     mp4_path: str
+    poster_path: str | None = None
 
 
 def render_book(
@@ -89,6 +90,7 @@ def render_book(
     artist: Artist,
     pdf_path: str,
     mp4_path: str,
+    poster_path: str | None = None,
     prime_photo: Image.Image | None = None,
     deage: bool = False,
     blend: str = "cream",
@@ -132,5 +134,11 @@ def render_book(
 
     pages_img[0].save(pdf_path, save_all=True, append_images=pages_img[1:],
                       resolution=150.0)
+    # The opener page IS the cover (portrait + title). Save it as a standalone
+    # poster JPEG so the card/thumbnail surfaces the cover instead of a stray
+    # video frame -- the worker PUTs it to the Node-minted poster URL.
+    if poster_path is not None:
+        pages_img[0].save(poster_path, format="JPEG", quality=88)
     video.render_video(video_pages, mp4_path, fps=fps, transition=transition)
-    return RenderResult(pages=len(pages_img), pdf_path=pdf_path, mp4_path=mp4_path)
+    return RenderResult(pages=len(pages_img), pdf_path=pdf_path, mp4_path=mp4_path,
+                        poster_path=poster_path)

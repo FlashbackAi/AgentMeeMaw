@@ -98,7 +98,8 @@ External dependencies we **call** but do not own: the Node Backend
   **Exception — tributes:** the agent renders the tribute video + PDF
   (see Hard rules below). Node does **not** render tributes off
   `artifact_generation`; it mints presigned URLs and writes
-  `tributes.video_url` / `pdf_url` on the `tribute_render_complete` NOTIFY.
+  `tributes.video_url` / `pdf_url` (and `thumbnail_url` from the cover
+  poster) on the `tribute_render_complete` NOTIFY.
 
 ### Hard rules
 
@@ -111,10 +112,14 @@ External dependencies we **call** but do not own: the Node Backend
 - **The tribute video + PDF are rendered by the agent**
   (`flashback.workers.tribute_render`), not Node. The agent reaches S3
   **only via Node-minted presigned URLs** (GET the prime photo, PUT the
-  MP4 + PDF) — it holds **no** S3 credentials and still **never writes
-  the URL columns**; Node writes `tributes.video_url` / `pdf_url` on the
-  transactional `tribute_render_complete` NOTIFY (a sibling of invariant
-  #25). The tribute *storybook* artifact is retired (video + PDF only);
+  MP4 + PDF + an optional cover poster JPEG) — it holds **no** S3
+  credentials and still **never writes the URL columns**; Node writes
+  `tributes.video_url` / `pdf_url` (and `thumbnail_url` from the poster,
+  when the NOTIFY carries `poster_present`) on the transactional
+  `tribute_render_complete` NOTIFY (a sibling of invariant #25). The
+  poster is the opener page (the cover: portrait + title, the video's
+  first frame); writing it as the thumbnail keeps the tribute card from
+  showing a stray mid-video text frame. The tribute *storybook* artifact is retired (video + PDF only);
   the standalone `/storybooks` feature is separate. Spec:
   `docs/superpowers/specs/2026-06-20-tribute-video-pipeline-design.md`.
 - **We never write to Node-owned tables** (users, future

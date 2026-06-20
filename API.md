@@ -1025,6 +1025,7 @@ Request:
   "artifact_kind": "tribute_video",
   "video_put_url": "<presigned PUT for the MP4 (video/mp4)>",
   "pdf_put_url": "<presigned PUT for the PDF (application/pdf)>",
+  "poster_put_url": "<presigned PUT for the cover poster (image/jpeg), optional>",
   "prime_photo_get_url": "<presigned GET for the prime photo, optional>",
   "campaign": "fathers_day_2026",
   "cover_photo_is_prime_years": false
@@ -1033,6 +1034,11 @@ Request:
 
 - `video_put_url` + `pdf_put_url` are **required**; expiry must cover queue
   latency + render (**≥ 24h** recommended). Sign for the content-types shown.
+- `poster_put_url` optional — when present the worker PUTs the **cover poster**
+  (the opener page: portrait + title, the video's first frame) as a JPEG, and
+  the NOTIFY carries `poster_present:true`. Node writes `tributes.thumbnail_url`
+  from the key it minted so the tribute card/thumbnail shows the cover instead
+  of a stray video frame. Omit to skip the poster (thumbnail unchanged).
 - `prime_photo_get_url` optional — when present the opener becomes a painterly
   portrait of the subject (image-to-image, likeness kept).
 - `cover_photo_is_prime_years` — `false` (default) de-ages an older/current

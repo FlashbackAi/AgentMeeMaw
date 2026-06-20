@@ -614,6 +614,11 @@ retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
    `POST /tributes/{id}/generate` with `artifact_kind='tribute_video'` and:
    - `video_put_url` — presigned **PUT** for the MP4 (`video/mp4`)
    - `pdf_put_url` — presigned **PUT** for the PDF (`application/pdf`)
+   - `poster_put_url` — presigned **PUT** for the cover poster (`image/jpeg`)
+     (optional but recommended; when present the worker PUTs the opener page —
+     the cover: portrait + title — as a JPEG, and you write `thumbnail_url` from
+     the key on completion so the tribute card/thumbnail shows the cover, not a
+     stray video frame)
    - `prime_photo_get_url` — presigned **GET** for the contributor's prime photo
      (optional; when present the opener becomes a painterly portrait of the
      subject, image-to-image, likeness kept)
@@ -634,11 +639,15 @@ retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
   **`tribute_render_complete`** on success:
   ```json
   {"event":"tribute_render_complete","tribute_id":"…","person_id":"…",
-   "status":"complete","video_present":true,"pdf_present":true}
+   "status":"complete","video_present":true,"pdf_present":true,
+   "poster_present":true}
   ```
 - On that signal, **Node writes `tributes.video_url` + `tributes.pdf_url`** from
   the keys it minted (you signed the PUTs, so you know the object keys), then
-  shows the video; "Print" → `pdf_url`.
+  shows the video; "Print" → `pdf_url`. When `poster_present` is true and you
+  minted a `poster_put_url`, also write `tributes.thumbnail_url` from the poster
+  key so the tribute card/thumbnail shows the cover (the opener page) rather
+  than a stray video frame.
 - The `tributes` row + the `tribute_status` view are authoritative. `status`
   goes `generating → complete`, or `failed` if the render exhausts SQS retries —
   the DLQ path emits **no** NOTIFY, so fall back to a timeout (same as

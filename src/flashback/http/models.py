@@ -94,6 +94,10 @@ class TributeGenerateRequest(BaseModel):
     # artifact_kind='tribute_video'; expiry must cover queue latency + render.
     video_put_url: str | None = None
     pdf_put_url: str | None = None
+    # PUT for the cover poster (the opener page: portrait + title) as a JPEG.
+    # Optional; when present the worker uploads it and Node writes thumbnail_url
+    # so the tribute card/thumbnail shows the cover, not a stray video frame.
+    poster_put_url: str | None = None
     prime_photo_get_url: str | None = None
 
 

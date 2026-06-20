@@ -51,6 +51,7 @@ Before calling `/generate`, mint three presigned URLs against your S3 bucket and
 |---|---|---|---|
 | `video_put_url` | **PUT** | your key (see *Key scheme* below) | `video/mp4` |
 | `pdf_put_url` | **PUT** | your key (see *Key scheme* below) | `application/pdf` |
+| `poster_put_url` | **PUT** | your key (see *Key scheme* below) | `image/jpeg` |
 | `prime_photo_get_url` | **GET** | the contributor's prime/profile photo | — |
 
 - **Expiry ≥ 24h.** The job sits in SQS and the render takes minutes; a 1h
@@ -64,12 +65,18 @@ Before calling `/generate`, mint three presigned URLs against your S3 bucket and
   likeness kept). Same photo source as the FD cover's `prime_photo_s3_key`
   (prime-years upload, else profile/legacy photo). Omit only when there's no
   photo at all (opener falls back to an establishing scene).
+- `poster_put_url` is **optional but recommended**: when present, the worker
+  PUTs the **cover poster** (the opener page — portrait + title, the video's
+  first frame) as a JPEG, and the completion NOTIFY carries
+  `poster_present:true`. Write `tributes.thumbnail_url` from this key (§2d) so
+  the tribute card/thumbnail shows the cover instead of a stray mid-video
+  frame. Omit to leave `thumbnail_url` untouched.
 
 **Key scheme — your call (the agent is agnostic).** The agent only PUTs to the
 URLs you sign and fires the NOTIFY with `tribute_id`/`person_id` (no keys), so
 the listener must recover the public URL on its own. **Recommended:** derivable
 **userId-scoped** keys (e.g. `sessions/<userId>/tributes/<tributeId>/video.mp4`
-+ `…/storybook.pdf`) — stable, zero storage, re-derive on NOTIFY via
++ `…/storybook.pdf` + `…/poster.jpg`) — stable, zero storage, re-derive on NOTIFY via
 `resolveUserId(personId)`, and keeps your `sessions/<userId>/` access-control
 prefix. Re-render **overwrites** the same object (correct — a tribute is one
 deliverable, not versioned); if you serve `video_url` via a CDN, **cache-bust
@@ -86,6 +93,7 @@ POST /tributes/{tribute_id}/generate
   "artifact_kind": "tribute_video",      // the only supported kind now
   "video_put_url": "https://<bucket>.s3...&X-Amz-Signature=...",  // REQUIRED
   "pdf_put_url":   "https://<bucket>.s3...&X-Amz-Signature=...",  // REQUIRED
+  "poster_put_url": "https://<bucket>.s3...&X-Amz-Signature=...", // optional (cover poster)
   "prime_photo_get_url": "https://<bucket>.s3...&X-Amz-Signature=...", // optional
   "campaign": "fathers_day_2026",        // optional skin
   "cover_photo_is_prime_years": false    // false = de-age an older/current photo
@@ -114,7 +122,8 @@ The worker fires a **transactional** Postgres `NOTIFY` on channel
 
 ```json
 { "event": "tribute_render_complete", "tribute_id": "…", "person_id": "…",
-  "status": "complete", "video_present": true, "pdf_present": true }
+  "status": "complete", "video_present": true, "pdf_present": true,
+  "poster_present": true }
 ```
 
 Wire it like your existing `extraction_complete` listener:
@@ -130,11 +139,15 @@ Wire it like your existing `extraction_complete` listener:
 
 On a `complete` signal, **Node writes** `tributes.video_url` and
 `tributes.pdf_url` from the keys you minted in 2a (you chose them, so you know
-the public URLs). The agent never writes these. (Optionally set
-`thumbnail_url` if you generate one from the video.)
+the public URLs). The agent never writes these. **When you minted a
+`poster_put_url` and the NOTIFY has `poster_present:true`, also write
+`tributes.thumbnail_url`** from the poster key — that's the cover (the opener
+page), so the tribute card shows the cover instead of a stray mid-video frame.
+(If you prefer, you can still derive a thumbnail from the video yourself; the
+poster just gives you the exact cover frame for free.)
 
-These remain the **only** columns Node writes on `tributes` — see
-`NODE_INTEGRATION.md` §6.5.
+`video_url`, `pdf_url`, and `thumbnail_url` are the **only** columns Node writes
+on `tributes` — see `NODE_INTEGRATION.md` §6.5.
 
 ## 3. The `tribute_status` view (read surface)
 
@@ -168,12 +181,13 @@ timeout, show "still processing / try again" and re-query `tribute_status`.
       (`record_type='tribute'`). Keep `moment/entity/thread/person`.
 - [ ] Retire the tribute storybook renderer path (keep standalone `/storybooks`
       if that feature stays).
-- [ ] Presigned-URL minting helper (GET photo, PUT video, PUT pdf; ≥24h;
-      content-types per §2a). Persist/derive the object keys.
+- [ ] Presigned-URL minting helper (GET photo, PUT video, PUT pdf, PUT poster;
+      ≥24h; content-types per §2a). Persist/derive the object keys.
 - [ ] Update the `/generate` client: send `artifact_kind='tribute_video'` +
-      the three URLs; gate at `percent==100`; handle 400/409/410.
+      the URLs (incl. `poster_put_url`); gate at `percent==100`; handle 400/409/410.
 - [ ] `LISTEN tribute_render_complete` (clone the `extraction_complete`
-      listener); on signal, write `video_url` + `pdf_url`, refresh UI.
+      listener); on signal, write `video_url` + `pdf_url` (+ `thumbnail_url`
+      from the poster key when `poster_present`), refresh UI.
 - [ ] Tolerate new `tributes` columns (`pdf_url`, `rendered_at`) + `status`
       value `'failed'`.
 - [ ] UI: 100% unlock, generating/complete/failed states, video player,

@@ -199,6 +199,7 @@ async def _generate_video(
         n_pages=STORYBOOK_MAX_PAGES,
         video_put_url=body.video_put_url,
         pdf_put_url=body.pdf_put_url,
+        poster_put_url=body.poster_put_url or "",
         prime_photo_get_url=body.prime_photo_get_url or "",
         deage=campaign.deage_cover and not body.cover_photo_is_prime_years,
         composed_at=composed_at,

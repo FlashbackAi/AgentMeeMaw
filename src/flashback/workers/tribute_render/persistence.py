@@ -38,11 +38,14 @@ def load_render_context(pool, *, tribute_id: str,
 
 
 def mark_complete(pool, *, tribute_id: str, person_id: str,
-                  video_present: bool, pdf_present: bool) -> None:
+                  video_present: bool, pdf_present: bool,
+                  poster_present: bool = False) -> None:
     """Flip status -> complete and fire the transactional completion NOTIFY.
 
-    Node (LISTENing) writes video_url + pdf_url from the keys it minted; this
-    service never writes the URL columns.
+    Node (LISTENing) writes video_url + pdf_url (and, when poster_present,
+    thumbnail_url) from the keys it minted; this service never writes the URL
+    columns. poster_present says whether a cover poster JPEG was PUT to the
+    poster URL Node minted.
     """
     payload = json.dumps({
         "event": "tribute_render_complete",
@@ -51,6 +54,7 @@ def mark_complete(pool, *, tribute_id: str, person_id: str,
         "status": "complete",
         "video_present": video_present,
         "pdf_present": pdf_present,
+        "poster_present": poster_present,
     })
     with pool.connection() as conn:
         with conn.cursor() as cur:
