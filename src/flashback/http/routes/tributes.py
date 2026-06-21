@@ -30,6 +30,7 @@ from flashback.http.models import (
     TributeGenerateRequest,
     TributeGenerateResponse,
     TributeProgressResponse,
+    TributeRegenerateRequest,
 )
 from flashback.tribute.campaigns import (
     active_featured_campaign,
@@ -44,10 +45,11 @@ from flashback.tribute.repository import (
     fetch_scene_moments_async,
     fetch_theme_scene_moments_async,
     fetch_tribute_for_assembly_async,
+    fetch_tribute_generation_context_async,
     set_status_async,
     write_tribute_generation_context_async,
 )
-from flashback.tribute_video.context import build_context_dict
+from flashback.tribute_video.context import CONTEXT_KEY, build_context_dict
 from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
 if TYPE_CHECKING:
@@ -230,6 +232,96 @@ async def _generate_video(
         job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
         enqueued=enqueued, percent=progress.percent, ready=progress.ready,
         scene_count=min(len(candidates), STORYBOOK_MAX_PAGES))
+
+
+@router.post(
+    "/tributes/{tribute_id}/regenerate", response_model=TributeGenerateResponse
+)
+async def regenerate_tribute(
+    tribute_id: UUID,
+    body: TributeRegenerateRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    tribute_render_queue: "TributeRenderQueueProducer | None" = Depends(
+        get_tribute_render_queue
+    ),
+) -> TributeGenerateResponse:
+    """Re-render a tribute video from the SAME stored assembly inputs.
+
+    Reuses the prior tribute_video context (candidates, message, leads, knobs)
+    verbatim and only overlays fresh Node-minted presigned URLs + a new
+    composed_at -- the old URLs have expired by now. The bumped composed_at
+    makes any in-flight older render go stale and skip. The worker re-assembles
+    the Book from the same inputs, so the LLM re-rolls a fresh take.
+    """
+    if not body.video_put_url or not body.pdf_put_url:
+        raise HTTPException(
+            status_code=400,
+            detail="video_put_url and pdf_put_url are required",
+        )
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            fetched = await fetch_tribute_generation_context_async(
+                cur, tribute_id=tribute_id, artifact_kind=CONTEXT_KEY)
+    if fetched is None or fetched[0] != str(body.person_id):
+        raise HTTPException(status_code=404, detail="tribute not found")
+    stored = fetched[1]
+    if not stored:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "no prior tribute_video render to regenerate; "
+                "call /generate first"
+            ),
+        )
+
+    composed_at = datetime.now(timezone.utc).isoformat()
+    # Rebuild through the canonical builder so the shape is guaranteed and any
+    # stray keys are dropped; only the URLs + composed_at change.
+    context = build_context_dict(
+        subject_name=stored.get("subject_name") or "",
+        relationship=stored.get("relationship"),
+        gt_context=stored.get("gt_context") or "",
+        candidates=list(stored.get("candidates") or []),
+        message_text=stored.get("message_text") or "",
+        archetype_leads=list(stored.get("archetype_leads") or []),
+        n_pages=int(stored.get("n_pages") or STORYBOOK_MAX_PAGES),
+        blend=stored.get("blend") or "cream",
+        transition=stored.get("transition") or "bleed",
+        fps=int(stored.get("fps") or 30),
+        deage=bool(stored.get("deage") or False),
+        video_put_url=body.video_put_url,
+        pdf_put_url=body.pdf_put_url,
+        poster_put_url=body.poster_put_url or "",
+        prime_photo_get_url=body.prime_photo_get_url or "",
+        composed_at=composed_at,
+    )
+
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await write_tribute_generation_context_async(
+                    cur, tribute_id=tribute_id,
+                    artifact_kind=CONTEXT_KEY, context=context)
+                await set_status_async(
+                    cur, tribute_id=tribute_id, status="generating")
+
+    job_id = str(uuid4())
+    enqueued = False
+    if tribute_render_queue is not None:
+        try:
+            msg_id = await tribute_render_queue.push(
+                job_id=job_id, tribute_id=str(tribute_id),
+                person_id=str(body.person_id), composed_at=composed_at)
+            enqueued = msg_id is not None
+        except Exception:
+            log.warning("tribute.regenerate_enqueue_failed",
+                        tribute_id=str(tribute_id), exc_info=True)
+
+    scene_count = min(len(context["candidates"]), STORYBOOK_MAX_PAGES)
+    return TributeGenerateResponse(
+        job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
+        enqueued=enqueued, percent=100, ready=True, scene_count=scene_count)
 
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)

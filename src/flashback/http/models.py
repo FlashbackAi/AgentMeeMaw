@@ -113,6 +113,25 @@ class TributeGenerateResponse(BaseModel):
     scene_count: int
 
 
+class TributeRegenerateRequest(BaseModel):
+    """Re-render a tribute video from the SAME stored assembly inputs.
+
+    Reuses everything on the row's prior tribute_video context (candidates,
+    message, leads, knobs) and only overlays fresh Node-minted presigned URLs
+    + a new composed_at -- the old URLs have expired by the time a user taps
+    regenerate. The worker re-assembles the Book from the same inputs, so the
+    LLM produces a fresh take on the same data.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    video_put_url: str | None = None
+    pdf_put_url: str | None = None
+    poster_put_url: str | None = None
+    prime_photo_get_url: str | None = None
+
+
 class TributeCampaignOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

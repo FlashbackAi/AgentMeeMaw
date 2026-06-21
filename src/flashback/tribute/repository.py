@@ -346,6 +346,30 @@ async def set_status_async(cur, *, tribute_id: UUID | str, status: str) -> None:
     await cur.execute(_SET_STATUS_SQL, {"id": str(tribute_id), "status": status})
 
 
+async def fetch_tribute_generation_context_async(
+    cur, *, tribute_id: UUID | str, artifact_kind: str
+) -> tuple[str, dict[str, Any] | None] | None:
+    """Return ``(person_id, stored_context)`` for one artifact kind on the row.
+
+    ``stored_context`` is the dict previously written under
+    ``latest_generation_context[artifact_kind]`` (None when never generated).
+    Returns None when the tribute row itself doesn't exist. Used by
+    /tributes/{id}/regenerate to re-render from the SAME inputs.
+    """
+    await cur.execute(
+        """
+        SELECT person_id::text, latest_generation_context -> %(kind)s
+          FROM tributes
+         WHERE id = %(id)s
+        """,
+        {"id": str(tribute_id), "kind": artifact_kind},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
 async def write_tribute_generation_context_async(
     cur,
     *,
