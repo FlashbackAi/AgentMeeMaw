@@ -1,9 +1,15 @@
-"""Gating + happy path for select_message_invitation.
+"""Gating + both firing paths for select_message_invitation.
 
-Negative gates short-circuit before any DB call, so they use a dummy
-tribute id. The happy path builds a real tribute with appearance +
-3 qualifying memories (percent 60, message empty) and asserts a
-``message`` tap is emitted.
+Two ways the message card fires:
+  - WARM CLIMAX (one-time): warm story/deepen turn, other slots mostly
+    filled. Built on a tribute with memories + appearance but NO signature
+    (percent 60), so only the warm path can fire it -- the fallback can't.
+  - FALLBACK (re-offering): the message is the ONLY unfilled slot. Built on
+    a tribute with memories + appearance + signature all filled, message
+    empty -- fires on a cold clarify turn and even after `asked`.
+
+Cheap gates (no tribute / other tap pending / cooldown) short-circuit
+before any DB call.
 """
 
 from __future__ import annotations
@@ -58,7 +64,9 @@ class _Deps:
         self.db_pool = pool
 
 
-async def _make_ready_tribute(pool) -> str:
+async def _seed_tribute(pool, *, with_signature: bool) -> str:
+    """A tribute with 3 qualifying memories + appearance ground truth and,
+    optionally, a trait (so the signature slot fills). Message stays empty."""
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -83,6 +91,12 @@ async def _make_ready_tribute(pool) -> str:
                         "sensory_details) VALUES (%s, %s, %s, %s)",
                         (person_id, f"m{i}", "n", "the smell of diesel and rain"),
                     )
+                if with_signature:
+                    await cur.execute(
+                        "INSERT INTO traits (person_id, name, status) "
+                        "VALUES (%s, 'patient', 'active')",
+                        (person_id,),
+                    )
                 theme_id = await ensure_tribute_theme_async(
                     cur,
                     person_id=person_id,
@@ -96,8 +110,13 @@ async def _make_ready_tribute(pool) -> str:
     return tribute_id
 
 
-async def test_happy_path_emits_message_tap(async_pool) -> None:
-    tribute_id = await _make_ready_tribute(async_pool)
+# ---------------------------------------------------------------------------
+# Warm-climax path: memories + appearance filled, signature NOT (percent 60).
+# ---------------------------------------------------------------------------
+
+
+async def test_warm_climax_emits_message_tap(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
     state = _TurnState(wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
@@ -106,27 +125,86 @@ async def test_happy_path_emits_message_tap(async_pool) -> None:
     assert deps.working_memory.emitted is True
 
 
-async def test_wrong_intent_no_tap(async_pool) -> None:
+async def test_warm_gate_wrong_intent_no_tap(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(intent="switch", wm=_WMState(current_tribute_id="t1"))
+    state = _TurnState(intent="switch", wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert state.taps == []
 
 
-async def test_not_warm_no_tap(async_pool) -> None:
+async def test_warm_gate_low_temp_no_tap(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(temp="low", wm=_WMState(current_tribute_id="t1"))
+    state = _TurnState(temp="low", wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert state.taps == []
 
 
-async def test_already_asked_no_tap(async_pool) -> None:
+async def test_warm_gate_already_asked_no_tap(async_pool) -> None:
+    # Signature still missing, so the fallback can't rescue it: a one-time
+    # warm card that's already been asked stays silent.
+    tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
     state = _TurnState(
-        wm=_WMState(current_tribute_id="t1", message_invitation_asked=True)
+        wm=_WMState(current_tribute_id=tribute_id, message_invitation_asked=True)
     )
     await select_message_invitation(state, deps)
     assert state.taps == []
+
+
+# ---------------------------------------------------------------------------
+# Fallback path: memories + appearance + signature all filled, message empty.
+# ---------------------------------------------------------------------------
+
+
+async def test_fallback_fires_on_cold_clarify_turn(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    deps = _Deps(async_pool)
+    state = _TurnState(
+        intent="clarify", temp="low", wm=_WMState(current_tribute_id=tribute_id)
+    )
+    await select_message_invitation(state, deps)
+    assert len(state.taps) == 1
+    assert state.taps[0].kind == "message"
+    assert deps.working_memory.emitted is True
+
+
+async def test_fallback_reoffers_even_after_asked(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    deps = _Deps(async_pool)
+    state = _TurnState(
+        intent="clarify",
+        temp="low",
+        wm=_WMState(current_tribute_id=tribute_id, message_invitation_asked=True),
+    )
+    await select_message_invitation(state, deps)
+    assert len(state.taps) == 1
+    assert state.taps[0].kind == "message"
+
+
+async def test_fallback_respects_cooldown(async_pool) -> None:
+    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    deps = _Deps(async_pool)
+    state = _TurnState(
+        intent="clarify",
+        temp="low",
+        wm=_WMState(current_tribute_id=tribute_id, user_turns_since_last_tap=1),
+    )
+    await select_message_invitation(state, deps)
+    assert state.taps == []
+
+
+# ---------------------------------------------------------------------------
+# Cheap gates -- short-circuit before any DB call.
+# ---------------------------------------------------------------------------
+
+
+async def test_other_tap_pending_no_tap(async_pool) -> None:
+    deps = _Deps(async_pool)
+    state = _TurnState(taps=["x"], wm=_WMState(current_tribute_id="t1"))
+    await select_message_invitation(state, deps)
+    assert state.taps == ["x"]
 
 
 async def test_no_tribute_no_tap(async_pool) -> None:

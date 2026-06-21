@@ -1,11 +1,17 @@
-"""One-time message-invitation tap for the tribute flow.
+"""Message-invitation tap for the tribute flow.
 
-Emits a single "say it to them" tap when the contributor is in a tribute
-flow, the conversation is warm, and the other checklist slots are mostly
-filled -- so the message lands as the emotional climax, not a cold open
-(design 2026-06-14 section 5). The answer returns as the message_answer
-sidecar and is polished into tributes.message_text; it never enters the
-transcript.
+Two ways the "say it to them" card fires; the answer always returns as the
+message_answer sidecar and is polished into tributes.message_text, never
+entering the transcript (so it can't be mined-and-lost by extraction):
+
+  - WARM CLIMAX (one-time): on a warm story/deepen turn once the other
+    checklist slots are mostly filled, so the message lands as the
+    emotional climax, not a cold open (design 2026-06-14 section 5).
+  - FALLBACK (re-offering): once the message is the ONLY unfilled slot,
+    the card fires regardless of intent/temperature and keeps re-offering
+    every cooldown window until it's answered. `message_present` is
+    required for `ready`, so without this a contributor whose warm turns
+    never line up is stuck below 100% forever.
 
 The invitation copy is neutral here; Plan 4's campaign skin overrides it.
 """
@@ -37,17 +43,12 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
     """Emit the one-time tribute message-invitation tap, if warranted."""
 
     with timed_step(log, "select_message_invitation"):
-        if state.intent_result is None or state.intent_result.intent not in {
-            "story",
-            "deepen",
-        }:
-            return
+        # Cheap gates first -- these short-circuit before any DB call. We no
+        # longer gate on intent/temperature here: the fallback path must reach
+        # the progress read even on a cold clarify turn to learn whether the
+        # message is the only thing left.
         if state.taps:
             log.info("message_tap.skipped", reason="other_tap_pending")
-            return
-        # We WANT a warm moment for the confession (opposite of GT taps).
-        if state.effective_temperature != "high":
-            log.info("message_tap.skipped", reason="not_warm_enough")
             return
 
         wm_state = state.working_memory_state or await deps.working_memory.get_state(
@@ -58,9 +59,6 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         tribute_id = wm_state.current_tribute_id
         if not tribute_id:
             return  # not in a tribute flow
-        if wm_state.message_invitation_asked:
-            log.info("message_tap.skipped", reason="already_asked")
-            return
         if wm_state.user_turns_since_last_tap < MESSAGE_TAP_COOLDOWN_USER_TURNS:
             log.info("message_tap.skipped", reason="cooldown")
             return
@@ -79,12 +77,34 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         if _filled("message"):
             log.info("message_tap.skipped", reason="message_already_present")
             return
-        # Mostly-filled gate: appearance present and a completion floor.
-        if not _filled("appearance"):
-            log.info("message_tap.skipped", reason="slots_not_ready")
-            return
-        if progress.percent < MESSAGE_INVITATION_PERCENT_FLOOR:
-            log.info("message_tap.skipped", reason="too_sparse")
+
+        # Fallback: the message is the ONLY unfilled slot. Fire regardless of
+        # intent/temperature and re-offer every cooldown window (ignore the
+        # one-time `message_invitation_asked` flag) -- `message_present` is
+        # required for `ready`, so this is what guarantees the contributor is
+        # never permanently stuck below 100%.
+        only_slot_left = (
+            _filled("memories")
+            and _filled("appearance")
+            and _filled("signature")
+        )
+
+        # Warm climax (one-time): the preferred in-conversation moment.
+        warm_climax = (
+            not wm_state.message_invitation_asked
+            and state.intent_result is not None
+            and state.intent_result.intent in {"story", "deepen"}
+            and state.effective_temperature == "high"
+            and _filled("appearance")
+            and progress.percent >= MESSAGE_INVITATION_PERCENT_FLOOR
+        )
+
+        if not (only_slot_left or warm_climax):
+            log.info(
+                "message_tap.skipped",
+                reason="not_warranted",
+                only_slot_left=only_slot_left,
+            )
             return
 
         # Skin copy (e.g. Father's Day) overrides the neutral default.
@@ -104,4 +124,8 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
             session_id=str(state.session_id),
             payload_json=json.dumps({"kind": "message", "text": invitation_copy}),
         )
-        log.info("message_tap.selected", tribute_id=tribute_id)
+        log.info(
+            "message_tap.selected",
+            tribute_id=tribute_id,
+            path="fallback" if only_slot_left and not warm_climax else "warm_climax",
+        )

@@ -67,6 +67,12 @@ async def build_turn_context(
             tribute_gap_hint is None
             and state.effective_intent == "story"
             and first_unfilled is not None
+            # The message slot is captured ONLY via the structured message
+            # card (select_message_invitation) -> message_answer sidecar.
+            # Steering it into plain chat would mean the contributor's line
+            # gets mined as a generic moment and the slot never fills, so we
+            # never nudge it in prose -- the card owns that question.
+            and first_unfilled.key != "message"
         ):
             tribute_gap_hint = first_unfilled.hint
 
