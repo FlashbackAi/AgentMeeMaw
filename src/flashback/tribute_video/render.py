@@ -24,6 +24,9 @@ from .art import Artist
 from .book import Beat, Book
 
 DEFAULT_CONCURRENCY = 4
+# Sentinel: when the caller passes nothing, use the bundled backing track. A
+# caller can pass audio_path=None explicitly to render a silent video.
+_DEFAULT_AUDIO = object()
 
 
 def _generate_illustrations(
@@ -97,6 +100,7 @@ def render_book(
     transition: str = "bleed",
     fps: int = 30,
     concurrency: int = DEFAULT_CONCURRENCY,
+    audio_path: str | None = _DEFAULT_AUDIO,  # type: ignore[assignment]
 ) -> RenderResult:
     template = compose.load_template()
     template_rgba = template.convert("RGBA")
@@ -139,6 +143,8 @@ def render_book(
     # video frame -- the worker PUTs it to the Node-minted poster URL.
     if poster_path is not None:
         pages_img[0].save(poster_path, format="JPEG", quality=88)
-    video.render_video(video_pages, mp4_path, fps=fps, transition=transition)
+    track = style.AUDIO_PATH if audio_path is _DEFAULT_AUDIO else audio_path
+    video.render_video(video_pages, mp4_path, fps=fps, transition=transition,
+                       audio_path=track)
     return RenderResult(pages=len(pages_img), pdf_path=pdf_path, mp4_path=mp4_path,
                         poster_path=poster_path)

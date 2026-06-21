@@ -13,6 +13,9 @@ from dataclasses import dataclass
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 TEMPLATE_PATH = os.path.join(ASSETS_DIR, "page-template.jpg")
 FONTS_DIR = os.path.join(ASSETS_DIR, "fonts")
+AUDIO_DIR = os.path.join(ASSETS_DIR, "audio")
+# Default backing music: a soft sentimental piano bed under the storybook.
+AUDIO_PATH = os.path.join(AUDIO_DIR, "sentimental-piano.mp3")
 
 # Main emotional line: Playfair Display Italic (high-contrast display serif).
 MAIN_FONT = os.path.join(FONTS_DIR, "PlayfairDisplay-Italic.ttf")

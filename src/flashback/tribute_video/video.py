@@ -8,12 +8,26 @@ bundled imageio-ffmpeg (no system ffmpeg needed).
 """
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+
 import imageio.v2 as imageio
+import imageio_ffmpeg
 import numpy as np
+import structlog
 from PIL import Image, ImageFilter
+
+log = structlog.get_logger("flashback.tribute_video.video")
 
 OUT_W, OUT_H = 896, 1600          # multiples of 16 for libx264
 ZOOM_MAX = 1.05
+
+# Backing music: a gentle bed under the painterly pages (no narration), faded
+# in at the start and out under the closing visual fade.
+AUDIO_VOLUME = 0.5                 # ~-6 dB
+AUDIO_FADE_IN = 1.5
+AUDIO_FADE_OUT = 2.5
 
 T_INTRO = 0.6
 T_ILLO = 1.0
@@ -103,21 +117,56 @@ class Page:
         return Image.alpha_composite(f, self.text).convert("RGB")
 
 
+def _mux_audio(silent_path: str, audio_path: str, out_path: str,
+               duration: float) -> None:
+    """Lay the backing track under the silent video with the bundled ffmpeg.
+
+    The track loops to fill the video (``-stream_loop -1``), is clamped to the
+    exact video length (``-t``), lowered to a gentle bed, and faded in/out. The
+    video stream is copied (no re-encode); only audio is encoded.
+    """
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    fade_out_start = max(0.0, duration - AUDIO_FADE_OUT)
+    af = (f"volume={AUDIO_VOLUME},"
+          f"afade=t=in:st=0:d={AUDIO_FADE_IN},"
+          f"afade=t=out:st={fade_out_start:.3f}:d={AUDIO_FADE_OUT}")
+    cmd = [
+        ffmpeg, "-y",
+        "-i", silent_path,
+        "-stream_loop", "-1", "-i", audio_path,
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-af", af,
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-t", f"{duration:.3f}",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 def render_video(pages: list[Page], out_path: str, fps: int = 30,
-                 transition: str = "bleed") -> None:
+                 transition: str = "bleed", audio_path: str | None = None) -> None:
     paper = pages[0].paper
 
     def nfr(sec: float) -> int:
         return max(1, int(round(sec * fps)))
 
+    # When muxing audio, render frames to a sibling silent file first, then lay
+    # the track under it into out_path. Without audio, write out_path directly.
+    silent_path = out_path if not audio_path else out_path + ".silent.mp4"
+
     writer = imageio.get_writer(
-        out_path, fps=fps, codec="libx264", quality=None,
+        silent_path, fps=fps, codec="libx264", quality=None,
         macro_block_size=1, pixelformat="yuv420p",
         output_params=["-crf", "20", "-preset", "medium"],
     )
 
+    frame_count = 0
+
     def emit(img: Image.Image) -> None:
+        nonlocal frame_count
         writer.append_data(_np(img))
+        frame_count += 1
 
     def reveal_text_hold(pg: Page) -> None:
         nt, nh = nfr(T_TEXT), nfr(T_HOLD)
@@ -161,3 +210,19 @@ def render_video(pages: list[Page], out_path: str, fps: int = 30,
             emit(Image.blend(last, paper, k / max(1, nf - 1)))
     finally:
         writer.close()
+
+    if not audio_path:
+        return
+    # Best-effort: music is decorative, so a mux failure falls back to the
+    # silent video rather than failing the whole tribute render.
+    duration = frame_count / float(fps)
+    try:
+        _mux_audio(silent_path, audio_path, out_path, duration)
+        os.remove(silent_path)
+    except Exception as exc:  # noqa: BLE001 - keep the silent render as fallback
+        detail = getattr(exc, "stderr", b"")
+        log.warning("tribute_video.audio_mux_failed",
+                    error_type=type(exc).__name__,
+                    detail=(detail[-500:].decode("utf-8", "replace")
+                            if isinstance(detail, bytes) else str(exc)))
+        shutil.move(silent_path, out_path)
