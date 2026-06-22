@@ -23,7 +23,7 @@ shapes the persistence layer can rely on.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import numpy as np
@@ -121,6 +121,7 @@ class P4Question(BaseModel):
 
     text: str
     themes: list[str] = Field(min_length=1)
+    scope: Literal["public", "personal", "private"] = "personal"
 
 
 class P4Result(BaseModel):

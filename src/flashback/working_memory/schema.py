@@ -113,6 +113,11 @@ class WorkingMemoryState(BaseModel):
     current_theme_slug: str = ""
     current_theme_display_name: str = ""
 
+    # ---- Collaborator onboarding nudge ------------------------------------
+    # Set to True the first time the onboarding tap is emitted within a
+    # session. Ensures the nudge fires at most once per session.
+    collaborator_onboarding_tap_emitted: bool = False
+
     @field_validator("started_at")
     @classmethod
     def _ensure_tz(cls, v: datetime) -> datetime:
@@ -130,6 +135,14 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "segments_pushed_this_session",
         "taps_emitted_this_session",
         "user_turns_since_last_tap",
+    }
+)
+
+# The set of bool-typed fields. Valkey returns "True"/"False" strings;
+# parse_state_hash converts them to Python bools before model_validate.
+_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "collaborator_onboarding_tap_emitted",
     }
 )
 
@@ -154,6 +167,8 @@ def parse_state_hash(raw: dict[str, str | bytes]) -> WorkingMemoryState:
             parsed[key] = datetime.fromisoformat(value)
         elif key in _INT_FIELDS:
             parsed[key] = int(value)
+        elif key in _BOOL_FIELDS:
+            parsed[key] = value.lower() in ("true", "1", "yes")
         elif key == "emitted_tap_question_ids":
             parsed[key] = json.loads(value) if value else []
         else:
@@ -191,4 +206,5 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "current_theme_slug": state.current_theme_slug,
         "current_theme_display_name": state.current_theme_display_name,
         "mode": state.mode,
+        "collaborator_onboarding_tap_emitted": str(state.collaborator_onboarding_tap_emitted),
     }

@@ -48,6 +48,7 @@ async def select_question(state: TurnState, deps: OrchestratorDeps) -> None:
             recently_asked_ids=recently_asked_ids,
             active_theme_slug=active_theme_slug,
             last_seeded_source=last_seeded_source,
+            current_user_id=state.user_id,
         )
         log.info(
             "phase_gate.selected",

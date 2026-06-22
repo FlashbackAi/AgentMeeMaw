@@ -16,6 +16,7 @@ LLM calls in total: N namings + (N+M) P4 calls.
 from __future__ import annotations
 
 from flashback.llm.tool_spec import ToolSpec
+from flashback.workers.producers.prompts import SCOPE_RUBRIC
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +208,7 @@ strings used by the question ranker. Examples: ["place", "summers"], \
 ["voice", "advice"], ["family", "rituals"].
 
 Respond ONLY by calling the `propose_thread_deepen_questions` tool.\
-"""
+""" + SCOPE_RUBRIC
 
 
 P4_TOOL = ToolSpec(
@@ -229,8 +230,16 @@ P4_TOOL = ToolSpec(
                             "items": {"type": "string"},
                             "minItems": 1,
                         },
+                        "scope": {
+                            "type": "string",
+                            "enum": ["public", "personal", "private"],
+                            "description": (
+                                "Sensitivity tier (see system prompt). "
+                                "Default to 'personal' if unsure."
+                            ),
+                        },
                     },
-                    "required": ["text", "themes"],
+                    "required": ["text", "themes", "scope"],
                     "additionalProperties": False,
                 },
             },

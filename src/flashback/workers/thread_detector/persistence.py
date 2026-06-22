@@ -46,6 +46,7 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.questions.scope import normalize_scope
 from flashback.themes.archetype_llm import (
     ArchetypeContextMoment,
     ArchetypeQuestion,
@@ -301,12 +302,26 @@ def process_cluster(
                     moment_ids=cluster.member_moment_ids,
                     thread_id=thread_id,
                 )
+                # Derive told_by AFTER evidences edges are inserted so that,
+                # on the existing-match path, we query the full thread-wide
+                # moment set (not just this cluster's members). A thread with
+                # moments from multiple contributors is cross-contributor →
+                # NULL; a single-contributor thread stamps that contributor.
+                if outcome.matched_existing:
+                    all_moment_ids = _fetch_thread_moment_ids(cur, thread_id)
+                else:
+                    all_moment_ids = cluster.member_moment_ids
+                told_by = _resolve_single_contributor(
+                    _fetch_member_told_by(cur, all_moment_ids)
+                )
                 for q in (p4_result.questions if p4_result is not None else []):
                     qid = _insert_thread_deepen_question(
                         cur,
                         person_id=person_id,
                         text=q.text,
                         themes=list(q.themes),
+                        scope=q.scope,
+                        told_by_user_id=told_by,
                         llm_provider=p4_cfg.provider,
                         llm_model=p4_cfg.model,
                         prompt_version=P4_PROMPT_VERSION,
@@ -332,8 +347,6 @@ def process_cluster(
             embedding_model_version=embedding_model_version,
         )
         if naming.generation_prompt:
-            from uuid import uuid4
-
             from flashback.artifacts import (
                 build_generation_context,
                 write_latest_generation_context_sync,
@@ -560,12 +573,58 @@ def _insert_evidences_edges(
     return inserted
 
 
+def _fetch_thread_moment_ids(cur, thread_id: str) -> list[str]:
+    """All moment ids linked to a thread via active evidences edges."""
+    cur.execute(
+        """
+        SELECT from_id::text
+          FROM active_edges
+         WHERE to_kind   = 'thread'
+           AND to_id     = %s::uuid
+           AND from_kind = 'moment'
+           AND edge_type = 'evidences'
+        """,
+        (thread_id,),
+    )
+    return [row[0] for row in cur.fetchall()]
+
+
+def _resolve_single_contributor(told_by_values: list[str | None]) -> str | None:
+    """Derive a thread_deepen question's told_by from its members.
+
+    NULL members are unowned (creator/shared). If exactly one distinct
+    collaborator authored the cluster, stamp that contributor; if two or
+    more distinct collaborators contributed, the thread is genuinely
+    cross-contributor -> NULL (shared). All-NULL/empty -> NULL.
+    """
+    distinct = {v for v in told_by_values if v}
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    return None
+
+
+def _fetch_member_told_by(cur, moment_ids: list[str]) -> list[str | None]:
+    if not moment_ids:
+        return []
+    cur.execute(
+        """
+        SELECT told_by_user_id::text
+          FROM active_moments
+         WHERE id = ANY(%s::uuid[])
+        """,
+        (moment_ids,),
+    )
+    return [row[0] for row in cur.fetchall()]
+
+
 def _insert_thread_deepen_question(
     cur,
     *,
     person_id: str,
     text: str,
     themes: list[str],
+    scope: str,
+    told_by_user_id: str | None,
     llm_provider: str,
     llm_model: str,
     prompt_version: str,
@@ -574,18 +633,21 @@ def _insert_thread_deepen_question(
         """
         INSERT INTO questions
               (person_id, text, source, attributes,
-               llm_provider, llm_model, prompt_version)
+               llm_provider, llm_model, prompt_version,
+               told_by_user_id)
         VALUES (%s,        %s,   'thread_deepen', %s,
-                %s,           %s,        %s)
+                %s,           %s,        %s,
+                %s)
         RETURNING id::text
         """,
         (
             person_id,
             text,
-            Json({"themes": themes}),
+            Json({"themes": themes, "scope": normalize_scope(scope)}),
             llm_provider,
             llm_model,
             prompt_version,
+            told_by_user_id,
         ),
     )
     return cur.fetchone()[0]

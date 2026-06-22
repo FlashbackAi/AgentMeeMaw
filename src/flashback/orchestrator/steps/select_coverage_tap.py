@@ -29,6 +29,9 @@ async def select_coverage_tap(state: TurnState, deps: OrchestratorDeps) -> None:
     """Emit at most one structured tap chip for the lowest empty dimension."""
 
     with timed_step(log, "select_coverage_tap"):
+        if state.taps:
+            log.info("coverage_tap.skipped", reason="tap_already_set")
+            return
         if state.intent_result is None or state.intent_result.intent not in {
             "switch",
             "clarify",

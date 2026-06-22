@@ -90,11 +90,48 @@ from .sqs_client import (
 from .voyage_query import SyncVoyageQueryEmbedder
 from .coverage import run_coverage_tracker
 from .handover import run_handover_check
+from flashback.collaborator_onboarding.queries import (
+    FLIP_PHASE_IF_COMPLETE_SQL,
+    MARK_FIRST_MOMENT_SQL,
+    SET_VOICE_ANCHOR_IF_EMPTY_SQL,
+)
 from flashback.entity_mention.cache_sync import invalidate_entity_name_cache
 from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 from uuid import UUID as _UUID
 
 log = structlog.get_logger("flashback.workers.extraction")
+
+
+def apply_collaborator_onboarding_extraction(
+    cur,
+    *,
+    person_id: str,
+    user_id: str | None,
+    moment_ids: list[str],
+    contributor_relationship: str | None,
+) -> None:
+    """Collaborator onboarding tx-tail: fill the voice anchor from the
+    inferred relationship (non-clobber), mark the first moment, then run the
+    Onboarding Check (flip phase->active when both items satisfied). All
+    no-ops when there is no active onboarding row (creator-era NULL user, or a
+    creator with no row)."""
+    if not user_id:
+        return
+    if contributor_relationship and contributor_relationship.strip():
+        cur.execute(
+            SET_VOICE_ANCHOR_IF_EMPTY_SQL,
+            {"person_id": person_id, "user_id": user_id,
+             "voice_anchor_text": contributor_relationship.strip()},
+        )
+    if moment_ids:
+        cur.execute(
+            MARK_FIRST_MOMENT_SQL,
+            {"person_id": person_id, "user_id": user_id, "moment_id": moment_ids[0]},
+        )
+    cur.execute(
+        FLIP_PHASE_IF_COMPLETE_SQL,
+        {"person_id": person_id, "user_id": user_id},
+    )
 
 
 def _build_theme_catalog(theme_rows) -> list[ThemeCatalogEntry]:
@@ -364,6 +401,17 @@ class ExtractionWorker:
                         moment_signals=persistence_result.moment_signals,
                     )
                     run_handover_check(cur, person_id=str(payload.person_id))
+                    apply_collaborator_onboarding_extraction(
+                        cur,
+                        person_id=str(payload.person_id),
+                        user_id=(
+                            str(payload.told_by_user_id)
+                            if payload.told_by_user_id
+                            else None
+                        ),
+                        moment_ids=persistence_result.moment_ids,
+                        contributor_relationship=extraction.contributor_relationship,
+                    )
                     auto_unlocked_themes = auto_unlock_rich_themes_sync(
                         cur, person_id=str(payload.person_id)
                     )

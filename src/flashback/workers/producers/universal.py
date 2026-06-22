@@ -163,6 +163,7 @@ class P5UniversalCoverage:
                     text=item["text"],
                     themes=item["themes"],
                     attributes={"dimension": dimension},
+                    scope=item.get("scope", "personal"),
                 )
             )
         return ProducerResult(

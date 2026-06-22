@@ -468,8 +468,12 @@ Every piece of code touching the graph or queues must respect these.
 26. **Contributor provenance is stamped, never inferred.** Every
     contributor-authored row carries `told_by_user_id` (the Node
     `user_id` that authored it); NULL = creator era (pre-collaborator
-    rows, seeded questions, cadence producer runs). It is stamped
-    code-side at insert — the LLM never sees or emits it. Only
+    rows, seeded questions, cadence producer runs). Exception:
+    `thread_deepen` questions derive `told_by_user_id` from their
+    thread's member moments — a single contributing collaborator is
+    stamped; a genuinely cross-contributor (multi-collaborator) thread
+    stays NULL. It is stamped code-side at insert — the LLM never
+    sees or emits it. Only
     `moments.told_by_user_id` (with denormalized `told_by_display_name`)
     ever drives hiding/removal; the same column on entities/traits/
     questions/profile_facts is informational/first-authored-by.
@@ -477,6 +481,17 @@ Every piece of code touching the graph or queues must respect these.
     `threads`/`themes` are cross-contributor aggregates and carry no
     provenance. `user_id` is the sole identity; `role_id` is retired
     (tolerated-and-ignored on requests until Node drops it).
+
+27. **Question eligibility is provenance + scope gated.** Every produced
+    question carries `attributes.scope ∈ {public, personal, private}`
+    (LLM-labelled, code-normalized via `flashback.questions.scope.normalize_scope`;
+    missing/unknown → `personal`). The steady/coverage-tap selector admits a
+    question for contributor `Y` (NULL `user_id` = creator era) iff: `public`
+    (everyone); `personal` AND (`told_by_user_id IS NULL` OR `= Y`); or
+    `private` AND `told_by_user_id IS NOT DISTINCT FROM Y`. The LLM picks the
+    label; SQL enforces the gate (code over LLM, §10). Coverage taps are seeded
+    `public`. Relationship-based `personal` (close family of the subject) is
+    deferred to a later sub-project.
 
 ---
 
@@ -614,6 +629,59 @@ in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
 | `era` | `time_anchor` has a year, OR `life_period_estimate` is set |
 
 Counters can climb past 1 — that's diagnostic. Only `≥ 1` matters.
+
+### Collaborator onboarding phase
+
+A lightweight per-`(person_id, user_id)` analog of the creator's 5-anchor
+starter phase. Tracked on the `collaborator_onboarding` table
+(`phase TEXT ∈ {'onboarding','active'}`, `phase_locked_at TIMESTAMP NULL`).
+Added by migration **0032**.
+
+Three things to keep distinct:
+- `collaborator_onboarding.phase` — agent-internal; drives the onboarding
+  nudge only.
+- `persons.phase` — legacy-wide creator cold-start flag (`starter`/`steady`).
+  Separate concern.
+- Node/DynamoDB `onboarding_complete` — membership gate; the agent never
+  reads or writes it.
+
+**Two items**, both captured indirectly (anti-survey; no dedicated survey
+field):
+
+1. **Connection** — satisfied when `voice_anchor_text` is non-NULL (mirrored
+   from the Node onboarding modal at `/session/start` via `session_metadata`,
+   OR inferred by the Extraction Worker from the contributor's own words
+   via the optional `contributor_relationship` field — written non-clobber,
+   never overwrites a value already set), OR `modal_answered_at` /
+   `modal_dismissed_at` is set.
+2. **Memory** — satisfied when the collaborator's first extracted moment
+   (`told_by_user_id = user_id`) flips `first_moment_id` on the row.
+
+**Onboarding Check** (code) is a guarded UPDATE (`FLIP_PHASE_IF_COMPLETE_SQL`)
+that flips `phase 'onboarding' → 'active'` when both items are satisfied.
+Sticky: the guard is `WHERE phase = 'onboarding'` — no double-stamp possible.
+Runs at two points:
+- **Extraction Worker tx tail** — after `first_moment_id` may have been set
+  and after any inferred-relationship write.
+- **Session start** — `apply_collaborator_onboarding` orchestrator step, so
+  a modal result arriving on `/session/start` can graduate the collaborator
+  before the first turn.
+
+**The nudge** — `select_collaborator_onboarding_tap` (`/turn` pipeline step):
+
+- Emits one indirect "defining memory" tap card (reuses the tap-card surface
+  + `tap_options` chip generation) when `phase='onboarding'`.
+- Gated by `collaborator_onboarding_tap_emitted` in Working Memory — fires
+  **once per session**.
+- Repeats **every session** until `phase='active'`; no lifetime cap/ceiling.
+- Runs **before** `select_coverage_tap`; if a tap is already set, coverage
+  tap early-returns. Collaborator onboarding tap takes precedence.
+- The agent **never asks the contributor's relationship directly** — connection
+  is modal-driven or inferred from conversation.
+
+Showing the connection popup is a **Node/frontend responsibility**. The agent
+only mirrors the modal result (received via `session_metadata`) and infers the
+relationship from conversation text.
 
 ---
 

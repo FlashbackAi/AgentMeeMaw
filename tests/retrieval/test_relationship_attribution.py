@@ -26,14 +26,16 @@ async def test_told_by_relationship_populated_from_onboarding(async_db_pool, ret
         told_by_user_id=contributor,
     )
 
-    # Insert a collaborator_onboarding row for this contributor
+    # Insert a collaborator_onboarding row for this contributor.
+    # voice_anchored_at must be supplied alongside voice_anchor_text to
+    # satisfy the both-or-neither CHECK constraint from migration 0028.
     async with async_db_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
                 INSERT INTO collaborator_onboarding
-                    (person_id, user_id, voice_anchor_text, status)
-                VALUES (%s, %s, %s, 'active')
+                    (person_id, user_id, voice_anchor_text, voice_anchored_at, status)
+                VALUES (%s, %s, %s, now(), 'active')
                 """,
                 (person, contributor, "her brother"),
             )

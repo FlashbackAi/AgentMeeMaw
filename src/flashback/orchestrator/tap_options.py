@@ -163,3 +163,34 @@ async def generate_tap_options(
             if stripped:
                 cleaned.append(stripped)
     return cleaned[:4]
+
+
+def _onboarding_prompt(person_name: str) -> str:
+    name = person_name or "them"
+    return (
+        f"When you picture {name}, what's one small, ordinary moment with "
+        f"them that's stayed with you?"
+    )
+
+
+async def generate_onboarding_tap(
+    *,
+    settings,
+    person_name: str,
+    relationship: str | None,
+) -> tuple[str, list[str]]:
+    """Indirect 'defining memory' onboarding prompt + 4 chips.
+
+    The prompt is templated (warm, never a direct 'what did they mean to
+    you?'); the chips reuse :func:`generate_tap_options`. Options are ``[]``
+    on any failure — the card falls back to prompt + free-text.
+    """
+    text = _onboarding_prompt(person_name)
+    options = await generate_tap_options(
+        settings=settings,
+        question_text=text,
+        person_name=person_name,
+        person_relationship=relationship,
+        dimension="",
+    )
+    return text, options

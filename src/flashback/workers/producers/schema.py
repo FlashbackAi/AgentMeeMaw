@@ -38,6 +38,7 @@ class GeneratedQuestion(BaseModel):
     themes: list[str] = Field(min_length=1)
     attributes: dict = Field(default_factory=dict)
     targets_entity_id: UUID | None = None
+    scope: Literal["public", "personal", "private"] = "personal"
 
 
 class ProducerResult(BaseModel):

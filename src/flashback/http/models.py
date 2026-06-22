@@ -242,6 +242,11 @@ class ArchetypeAnswersRequest(BaseModel):
     person_id: UUID
     answers: list[ArchetypeAnswerInput] = Field(min_length=3, max_length=5)
     contributor_display_name: str | None = Field(default=None, max_length=64)
+    # The authoring Node user for the creator's very-first (onboarding)
+    # session. Optional during the contract transition: when supplied, the
+    # first session's extracted content is stamped to this user_id (matching
+    # the creator's stamped ongoing sessions). NULL = creator-era provenance.
+    user_id: UUID | None = None
 
     @field_validator("contributor_display_name", mode="before")
     @classmethod

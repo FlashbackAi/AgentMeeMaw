@@ -10,6 +10,7 @@ from flashback.orchestrator.steps.entity_mention_scan import scan_entity_mention
 from flashback.orchestrator.steps.generate_response import generate_response
 from flashback.orchestrator.steps.retrieve import retrieve
 from flashback.orchestrator.steps.promote_seeded_to_tap import promote_seeded_to_tap
+from flashback.orchestrator.steps.select_collaborator_onboarding_tap import select_collaborator_onboarding_tap
 from flashback.orchestrator.steps.select_coverage_tap import select_coverage_tap
 from flashback.orchestrator.steps.select_question import select_question
 from flashback.orchestrator.steps.starter_opener import (
@@ -39,6 +40,7 @@ __all__ = [
     "retrieve",
     "promote_seeded_to_tap",
     "scan_entity_mentions",
+    "select_collaborator_onboarding_tap",
     "select_coverage_tap",
     "select_question",
     "select_starter_question",

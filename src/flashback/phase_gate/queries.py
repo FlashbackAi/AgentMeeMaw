@@ -50,6 +50,14 @@ WHERE q.source = 'coverage_tap'
       AND e.to_kind = 'moment'
       AND m.person_id = %(person_id)s
   )
+  AND (
+        COALESCE(q.attributes->>'scope', 'personal') = 'public'
+     OR (COALESCE(q.attributes->>'scope', 'personal') = 'personal'
+           AND (q.told_by_user_id IS NULL
+                OR q.told_by_user_id = %(current_user_id)s))
+     OR (COALESCE(q.attributes->>'scope', 'personal') NOT IN ('public', 'personal')
+           AND q.told_by_user_id IS NOT DISTINCT FROM %(current_user_id)s)
+      )
 ORDER BY random()
 LIMIT 1
 """
@@ -61,6 +69,14 @@ WHERE q.source = 'coverage_tap'
   AND q.person_id IS NULL
   AND q.attributes->>'dimension' = %(dimension)s
   AND NOT (q.id = ANY(%(recent_ids)s::uuid[]))
+  AND (
+        COALESCE(q.attributes->>'scope', 'personal') = 'public'
+     OR (COALESCE(q.attributes->>'scope', 'personal') = 'personal'
+           AND (q.told_by_user_id IS NULL
+                OR q.told_by_user_id = %(current_user_id)s))
+     OR (COALESCE(q.attributes->>'scope', 'personal') NOT IN ('public', 'personal')
+           AND q.told_by_user_id IS NOT DISTINCT FROM %(current_user_id)s)
+      )
 ORDER BY random()
 LIMIT 1
 """
@@ -84,6 +100,19 @@ WHERE q.person_id = %(person_id)s
   AND q.source    = ANY(%(sources)s::text[])
   AND NOT (q.id   = ANY(%(recent_ids)s::uuid[]))
   AND (d.action IS NULL OR d.action != 'suppress')
+  -- Collaborator content-scoping (SP4). A contributor only sees questions
+  -- that are public, their own (told_by = them) + shared (told_by NULL) when
+  -- personal, or strictly theirs when private. Untagged rows default to
+  -- 'personal'. NULL current_user_id is the creator era and matches only
+  -- NULL-told_by rows. See CLAUDE.md scope invariant.
+  AND (
+        COALESCE(q.attributes->>'scope', 'personal') = 'public'
+     OR (COALESCE(q.attributes->>'scope', 'personal') = 'personal'
+           AND (q.told_by_user_id IS NULL
+                OR q.told_by_user_id = %(current_user_id)s))
+     OR (COALESCE(q.attributes->>'scope', 'personal') NOT IN ('public', 'personal')
+           AND q.told_by_user_id IS NOT DISTINCT FROM %(current_user_id)s)
+      )
   AND (
         NOT %(exclude_skipped)s
         OR d.action IS NULL

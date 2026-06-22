@@ -27,6 +27,7 @@ class PhaseGate:
         recently_asked_ids: list[UUID] | None = None,
         active_theme_slug: str | None = None,
         last_seeded_source: str | None = None,
+        current_user_id: UUID | None = None,
     ) -> SelectionResult:
         """Read ``persons.phase`` and select from the runtime question bank.
 
@@ -50,6 +51,7 @@ class PhaseGate:
                 sources=STARTER_FALLBACK_SOURCES,
                 active_theme_slug=active_theme_slug,
                 last_seeded_source=last_seeded_source,
+                current_user_id=current_user_id,
             )
         else:
             result = await self._steady.select(
@@ -57,6 +59,7 @@ class PhaseGate:
                 session_id,
                 active_theme_slug=active_theme_slug,
                 last_seeded_source=last_seeded_source,
+                current_user_id=current_user_id,
             )
         result.phase = phase
         result.rationale = result.rationale or f"{phase} selection"

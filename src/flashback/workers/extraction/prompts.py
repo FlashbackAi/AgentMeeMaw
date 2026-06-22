@@ -17,6 +17,7 @@ gains a new entity kind, that test fails until this file is updated.
 from __future__ import annotations
 
 from flashback.llm.tool_spec import ToolSpec
+from flashback.workers.producers.prompts import SCOPE_RUBRIC
 
 
 ENTITY_KINDS: tuple[str, ...] = ("person", "place", "object", "organization")
@@ -171,11 +172,20 @@ EXTRACTION_TOOL = ToolSpec(
                             "items": {"type": "string"},
                             "minItems": 1,
                         },
+                        "scope": {
+                            "type": "string",
+                            "enum": ["public", "personal", "private"],
+                            "description": (
+                                "Sensitivity tier for the resulting question; see "
+                                "the scope guidance. Default 'personal' if unsure."
+                            ),
+                        },
                     },
                     "required": [
                         "dropped_phrase",
                         "question_text",
                         "themes",
+                        "scope",
                     ],
                     "additionalProperties": False,
                 },
@@ -185,6 +195,16 @@ EXTRACTION_TOOL = ToolSpec(
                 "description": (
                     "One or two sentences explaining what was extracted and "
                     "why. For logs only."
+                ),
+            },
+            "contributor_relationship": {
+                "type": "string",
+                "description": (
+                    "If the person speaking is clearly someone OTHER than the "
+                    "subject describing their own bond to the subject (e.g. 'my "
+                    "dad', 'we served together'), a SHORT relationship phrase "
+                    "from the subject's side: 'his daughter', 'her colleague', "
+                    "'his old friend'. Omit if not evident. Never invent it."
                 ),
             },
         },
@@ -364,6 +384,12 @@ guidance after.
 Examples of good generation_prompts:
 - "A wood-paneled kitchen at dawn, sunlight catching steam from a coffee cup."
 - "An old red truck parked in a snowy driveway under a porch light."
+
+For each dropped_reference, also label its question's sensitivity:\
+""" + SCOPE_RUBRIC + """
+If the contributor reveals how they themselves are related to the subject, \
+set `contributor_relationship` to a brief phrase from the subject's side \
+(e.g. "his daughter"). Infer only from what they actually say; omit otherwise.
 
 Respond ONLY by calling the `extract_segment` tool.\
 """

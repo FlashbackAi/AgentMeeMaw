@@ -100,6 +100,7 @@ class DroppedReference(BaseModel):
     dropped_phrase: str
     question_text: str
     themes: list[str] = Field(min_length=1)
+    scope: Literal["public", "personal", "private"] = "personal"
 
 
 class ExtractionResult(BaseModel):
@@ -121,6 +122,11 @@ class ExtractionResult(BaseModel):
         default_factory=list, max_length=3
     )
     extraction_notes: str = ""
+    contributor_relationship: str | None = None
+    """Short phrase (from the subject's side) describing how the contributor
+    relates to the subject, inferred from the contributor's own words.
+    E.g. 'his daughter', 'her colleague', 'his old friend'. None if not
+    evident from the segment."""
 
     @field_validator("dropped_references")
     @classmethod

@@ -43,6 +43,7 @@ class SteadySelector:
         sources: tuple[str, ...] = STEADY_SOURCES,
         active_theme_slug: str | None = None,
         last_seeded_source: str | None = None,
+        current_user_id: UUID | None = None,
     ) -> SelectionResult:
         """Pick the next-best question from the person's bank.
 
@@ -72,16 +73,19 @@ class SteadySelector:
         used_skip_fallback = False
 
         candidates = await self._fetch_candidates(
-            person_id, recent_ids, effective_sources, exclude_skipped=True
+            person_id, recent_ids, effective_sources, exclude_skipped=True,
+            current_user_id=current_user_id,
         )
         if not candidates and effective_sources != sources:
             candidates = await self._fetch_candidates(
-                person_id, recent_ids, sources, exclude_skipped=True
+                person_id, recent_ids, sources, exclude_skipped=True,
+                current_user_id=current_user_id,
             )
             used_source_cooldown_fallback = bool(candidates)
         if not candidates:
             candidates = await self._fetch_candidates(
-                person_id, recent_ids, sources, exclude_skipped=False
+                person_id, recent_ids, sources, exclude_skipped=False,
+                current_user_id=current_user_id,
             )
             used_skip_fallback = bool(candidates)
         if not candidates:
@@ -151,6 +155,7 @@ class SteadySelector:
         sources: tuple[str, ...],
         *,
         exclude_skipped: bool,
+        current_user_id: UUID | None = None,
     ) -> list["_Candidate"]:
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -161,6 +166,7 @@ class SteadySelector:
                         "recent_ids": recent_ids,
                         "sources": list(sources),
                         "exclude_skipped": exclude_skipped,
+                        "current_user_id": current_user_id,
                     },
                 )
                 rows = await cur.fetchall()

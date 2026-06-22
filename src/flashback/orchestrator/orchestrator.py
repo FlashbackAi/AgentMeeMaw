@@ -54,6 +54,7 @@ from flashback.orchestrator.steps import (
     promote_seeded_to_tap,
     retrieve,
     scan_entity_mentions,
+    select_collaborator_onboarding_tap,
     select_coverage_tap,
     select_question,
     select_starter_question,
@@ -342,6 +343,12 @@ class Orchestrator:
             )
             await execute(
                 policies=TURN_POLICIES,
+                step_name="select_collaborator_onboarding_tap",
+                fn=lambda: select_collaborator_onboarding_tap(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
                 step_name="select_coverage_tap",
                 fn=lambda: select_coverage_tap(state, self._deps),
                 state=state,
@@ -467,6 +474,12 @@ class Orchestrator:
                 policies=TURN_POLICIES,
                 step_name="entity_mention_scan",
                 fn=lambda: scan_entity_mentions(state, self._deps),
+                state=state,
+            )
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="select_collaborator_onboarding_tap",
+                fn=lambda: select_collaborator_onboarding_tap(state, self._deps),
                 state=state,
             )
             await execute(

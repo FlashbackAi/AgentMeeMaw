@@ -82,3 +82,30 @@ async def test_collaborator_without_anchor_upserts_no_wm_signal():
     await apply_collaborator_onboarding(state, _Deps(_FakePool(conn)))
     assert conn.calls, "expected an upsert even without an anchor"
     assert "contributor_voice_anchor" not in state.session_metadata
+
+
+@pytest.mark.asyncio
+async def test_display_name_whitespace_normalised_to_none():
+    """Whitespace-only display_name becomes None; non-empty string is kept."""
+    conn = _FakeConn()
+    state = _state(uuid4(), {"role": "collaborator", "contributor_display_name": "  "})
+    await apply_collaborator_onboarding(state, _Deps(_FakePool(conn)))
+    assert conn.calls, "expected an upsert"
+    params = conn.calls[0][1]
+    assert params["display_name"] is None, "whitespace-only should normalise to None"
+
+    conn2 = _FakeConn()
+    state2 = _state(uuid4(), {"role": "collaborator", "contributor_display_name": "Keerthi"})
+    await apply_collaborator_onboarding(state2, _Deps(_FakePool(conn2)))
+    params2 = conn2.calls[0][1]
+    assert params2["display_name"] == "Keerthi", "non-empty string should pass through unchanged"
+
+
+@pytest.mark.asyncio
+async def test_apply_runs_onboarding_check():
+    """flip_phase_if_complete must be called after upsert_onboarding."""
+    conn = _FakeConn()
+    state = _state(uuid4(), {"role": "collaborator", "voice_anchor_text": "his daughter"})
+    await apply_collaborator_onboarding(state, _Deps(_FakePool(conn)))
+    executed = " ".join(sql for sql, _ in conn.calls)
+    assert "phase = 'active'" in executed, "FLIP_PHASE_IF_COMPLETE_SQL must have been executed"

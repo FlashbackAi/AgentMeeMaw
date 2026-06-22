@@ -56,7 +56,7 @@ class FakePhaseGate:
         self.next_raises = next_raises
         self.next_calls = 0
 
-    async def select_next_question(self, person_id, session_id, recently_asked_ids=None):
+    async def select_next_question(self, person_id, session_id, recently_asked_ids=None, active_theme_slug=None, last_seeded_source=None, current_user_id=None):
         self.next_calls += 1
         if self.next_raises:
             raise self.next_raises
@@ -173,7 +173,15 @@ async def _init_wm(app, session_id, person_id, user_id):
     )
 
 
-async def test_session_start_opens_without_question_selection(fake_redis, monkeypatch):
+async def test_session_start_starter_phase_selects_question_for_opener(fake_redis, monkeypatch):
+    """Starter-phase session start calls the phase gate once and seeds the
+    selected question into the LLM opener context as <seeded_question>.
+
+    The opener is still LLM-generated (not a hard-coded template), but the
+    gate's pick is passed as anchor context so the LLM can weave it in
+    naturally. Working Memory records the seeded question id for dedup on
+    subsequent turns.
+    """
     call = AsyncMock(return_value="Tell me about Maya.")
     monkeypatch.setattr(generator_module, "call_text", call)
     phase_gate = FakePhaseGate()
@@ -193,12 +201,19 @@ async def test_session_start_opens_without_question_selection(fake_redis, monkey
         )
 
     assert resp.status_code == 200
-    assert phase_gate.next_calls == 0
+    # select_starter_question calls the gate exactly once in starter phase.
+    assert phase_gate.next_calls == 1
+    # The selected question is rendered as <seeded_question> in the LLM
+    # context — not as a hard-coded template, but as anchor context for the
+    # LLM-generated opener.
     assert "<anchor_question" not in call.await_args.kwargs["user_message"]
-    assert "<seeded_question>" not in call.await_args.kwargs["user_message"]
+    assert "<seeded_question>" in call.await_args.kwargs["user_message"]
+    # Working Memory records the seeded question for downstream dedup.
     state = await app.state.working_memory.get_state(session_id)
-    assert state.last_seeded_question_id == ""
-    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == []
+    assert state.last_seeded_question_id == str(STEADY_Q)
+    assert await app.state.working_memory.get_recently_asked_question_ids(session_id) == [
+        str(STEADY_Q)
+    ]
 
 
 async def test_session_start_steady_opens_without_question_selection(fake_redis, monkeypatch):

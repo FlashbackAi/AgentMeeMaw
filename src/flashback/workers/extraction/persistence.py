@@ -34,6 +34,7 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.questions.scope import normalize_scope
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
 
@@ -811,6 +812,7 @@ def _insert_dropped_reference_questions(
         attrs = {
             "dropped_phrase": dr.dropped_phrase,
             "themes": list(dr.themes),
+            "scope": normalize_scope(getattr(dr, "scope", None)),
         }
         cursor.execute(
             """

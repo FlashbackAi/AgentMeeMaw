@@ -109,6 +109,7 @@ class P3LifePeriodGap:
                     text=item["text"],
                     themes=item["themes"],
                     attributes={"life_period": label},
+                    scope=item.get("scope", "personal"),
                 )
             )
         return ProducerResult(

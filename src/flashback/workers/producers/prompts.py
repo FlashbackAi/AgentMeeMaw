@@ -5,6 +5,18 @@ from __future__ import annotations
 from flashback.llm.tool_spec import ToolSpec
 
 
+SCOPE_RUBRIC = """
+SCOPE — label every question with exactly one sensitivity tier:
+- "public": general, shareable facts or shared experiences anyone close to the
+  subject could discuss (work, hobbies, public personality, shared events, places).
+- "personal": relationship-textured but not sensitive (home life, parenting,
+  family rituals, everyday character).
+- "private": intimate or sensitive (health, mental health, addiction, conflict,
+  money, grief, secrets — anything one would hesitate to share with acquaintances).
+When torn between two tiers, choose the more private one.
+"""
+
+
 P2_SYSTEM_PROMPT = """\
 You are Producer P2 for Flashback, a legacy conversation agent.
 Your job is to surface entities - people, places, objects, or
@@ -45,7 +57,7 @@ BAD:
 - "Tell me more about Madhav."
 
 Respond ONLY by calling the produce_p2_questions tool.
-"""
+""" + SCOPE_RUBRIC
 
 
 P3_SYSTEM_PROMPT = """\
@@ -68,7 +80,7 @@ CRITICAL CONSTRAINTS:
 - Avoid survey phrasing; invite memory, not a form answer.
 
 Respond ONLY by calling the produce_p3_questions tool.
-"""
+""" + SCOPE_RUBRIC
 
 
 P5_SYSTEM_PROMPT = """\
@@ -91,7 +103,7 @@ CRITICAL CONSTRAINTS:
 - Do not make the set feel like a survey.
 
 Respond ONLY by calling the produce_p5_questions tool.
-"""
+""" + SCOPE_RUBRIC
 
 
 def _themes_schema() -> dict:
@@ -120,8 +132,16 @@ P2_TOOL = ToolSpec(
                             "description": "Entity id from the input list.",
                         },
                         "themes": _themes_schema(),
+                        "scope": {
+                            "type": "string",
+                            "enum": ["public", "personal", "private"],
+                            "description": (
+                                "Sensitivity tier (see system prompt). "
+                                "Default to 'personal' if unsure."
+                            ),
+                        },
                     },
-                    "required": ["text", "targets_entity_id", "themes"],
+                    "required": ["text", "targets_entity_id", "themes", "scope"],
                     "additionalProperties": False,
                 },
             },
@@ -150,8 +170,16 @@ P3_TOOL = ToolSpec(
                             "description": "The input gap label this question covers.",
                         },
                         "themes": _themes_schema(),
+                        "scope": {
+                            "type": "string",
+                            "enum": ["public", "personal", "private"],
+                            "description": (
+                                "Sensitivity tier (see system prompt). "
+                                "Default to 'personal' if unsure."
+                            ),
+                        },
                     },
-                    "required": ["text", "life_period", "themes"],
+                    "required": ["text", "life_period", "themes", "scope"],
                     "additionalProperties": False,
                 },
             },
@@ -180,8 +208,16 @@ P5_TOOL = ToolSpec(
                             "description": "Universal dimension from the input list.",
                         },
                         "themes": _themes_schema(),
+                        "scope": {
+                            "type": "string",
+                            "enum": ["public", "personal", "private"],
+                            "description": (
+                                "Sensitivity tier (see system prompt). "
+                                "Default to 'personal' if unsure."
+                            ),
+                        },
                     },
-                    "required": ["text", "dimension", "themes"],
+                    "required": ["text", "dimension", "themes", "scope"],
                     "additionalProperties": False,
                 },
             },

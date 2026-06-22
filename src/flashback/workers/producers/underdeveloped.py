@@ -248,6 +248,7 @@ class P2Underdeveloped:
                     "supporting_entity": True,
                 },
                 targets_entity_id=target_id,
+                scope=item.get("scope", "personal"),
             )
             questions.append(q)
             per_entity_counts[target_id] = per_entity_counts.get(target_id, 0) + 1

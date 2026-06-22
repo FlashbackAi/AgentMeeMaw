@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.questions.scope import normalize_scope
 
 from .schema import ProducerResult
 
@@ -23,14 +24,21 @@ class PersistResult:
         return {"questions_written": self.questions_written}
 
 
+def build_question_attributes(q) -> dict:
+    """Compose the persisted attributes dict: the question's extra attributes, its themes, and its normalized scope."""
+    attributes = dict(q.attributes)
+    attributes["themes"] = list(q.themes)
+    attributes["scope"] = normalize_scope(getattr(q, "scope", None))
+    return attributes
+
+
 def persist_producer_result(
     cursor, *, result: ProducerResult, told_by_user_id: str | None = None
 ) -> PersistResult:
     """Insert all questions and P2 target edges for one producer run."""
     out = PersistResult()
     for q in result.questions:
-        attributes = dict(q.attributes)
-        attributes["themes"] = list(q.themes)
+        attributes = build_question_attributes(q)
         question_id = _insert_question(
             cursor,
             person_id=str(result.person_id),

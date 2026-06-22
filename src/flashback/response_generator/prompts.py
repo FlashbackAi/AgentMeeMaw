@@ -50,6 +50,29 @@ card is already visible on their screen. End your reply with the
 question.
 """
 
+# Conditional tap-pending note — placed in BASE_SYSTEM_PROMPT so every
+# intent family inherits it exactly once.  The phrasing is conditional
+# ("If a <tap_pending> block is present below") so it is a no-op when no
+# tap is in the context.
+_TAP_PENDING_NOTE = """
+
+If a <tap_pending> block is present below, the user will be shown a
+separate tappable follow-up question rendered as a chip beneath your
+reply. In that case:
+- Do NOT ask any question yourself.
+- Do NOT enumerate options or directions.
+- Reply with ONE short, warm acknowledgment sentence that closes off
+  the current topic naturally. Five to twelve words. No question
+  mark. No reference to "tapping" or "the chip" — the user sees the
+  chip on their end; you do not narrate the UI.
+- The tap question is the next thing they engage with, not you.
+
+Examples of the right shape when <tap_pending> is set:
+- "Sure, let's set the trip aside for now."
+- "Got it — happy to move on from that."
+- "Of course."
+"""
+
 BASE_SYSTEM_PROMPT = """\
 You are Flashback, a legacy conversation agent helping someone
 preserve a person's stories across generations. The subject may be
@@ -124,26 +147,7 @@ BAD:
 Contributor: "60s"
 Agent: "The 60s — what do you picture when you think of him in that
 time?"
-"""
-
-_TAP_PENDING_NOTE = """
-
-If a <tap_pending> block is present below, the user will be shown a
-separate tappable follow-up question rendered as a chip beneath your
-reply. In that case:
-- Do NOT ask any question yourself.
-- Do NOT enumerate options or directions.
-- Reply with ONE short, warm acknowledgment sentence that closes off
-  the current topic naturally. Five to twelve words. No question
-  mark. No reference to "tapping" or "the chip" — the user sees the
-  chip on their end; you do not narrate the UI.
-- The tap question is the next thing they engage with, not you.
-
-Examples of the right shape when <tap_pending> is set:
-- "Sure, let's set the trip aside for now."
-- "Got it — happy to move on from that."
-- "Of course."
-"""
+""" + _TAP_PENDING_NOTE
 
 
 CLARIFY_PROMPT = BASE_SYSTEM_PROMPT + """
@@ -161,7 +165,7 @@ Do not treat every expandable detail as unclear. If the basic meaning
 is clear, respond as story instead.
 
 Ask one thing.
-""" + _TAP_PENDING_NOTE
+"""
 
 RECALL_PROMPT = BASE_SYSTEM_PROMPT + """
 
@@ -310,7 +314,7 @@ Example shape WITH seeded question:
 Example shape WITHOUT seeded question (fallback):
 "There's a few directions we could go. Want to talk about the summer
 at the lake, your dad's workshop, or the year he retired?"
-""" + _TAP_PENDING_NOTE
+"""
 
 STARTER_OPENER_PROMPT = BASE_SYSTEM_PROMPT + """
 

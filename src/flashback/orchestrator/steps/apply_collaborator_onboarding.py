@@ -6,7 +6,7 @@ from datetime import datetime
 
 import structlog
 
-from flashback.collaborator_onboarding import upsert_onboarding
+from flashback.collaborator_onboarding import flip_phase_if_complete, upsert_onboarding
 from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.state import SessionStartState
@@ -40,6 +40,8 @@ async def apply_collaborator_onboarding(
 
         voice_anchor_text = (meta.get("voice_anchor_text") or "").strip() or None
         voice_anchored_at = _parse_ts(meta.get("voice_anchored_at"))
+        display_name_raw = meta.get("contributor_display_name")
+        display_name = str(display_name_raw).strip() or None if display_name_raw else None
         # The table CHECK requires both-or-neither; if we have text but no
         # timestamp (or vice versa), pass both or neither.
         if voice_anchor_text and voice_anchored_at is None:
@@ -57,6 +59,10 @@ async def apply_collaborator_onboarding(
                     voice_anchored_at=voice_anchored_at,
                     modal_answered_at=_parse_ts(meta.get("modal_answered_at")),
                     modal_dismissed_at=_parse_ts(meta.get("modal_dismissed_at")),
+                    display_name=display_name,
+                )
+                await flip_phase_if_complete(
+                    conn, person_id=state.person_id, user_id=state.user_id
                 )
                 await conn.commit()
         except Exception as exc:  # noqa: BLE001 - onboarding must not break session start

@@ -126,6 +126,7 @@ async def select_starter_question(
                 recently_asked_ids=[],
                 active_theme_slug=None,
                 last_seeded_source=None,
+                current_user_id=state.user_id,
             )
         except Exception as exc:  # noqa: BLE001
             # The opener must not fail just because question selection

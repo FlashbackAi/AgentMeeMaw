@@ -21,9 +21,9 @@ def test_tool_required_fields() -> None:
     p3_item = P3_TOOL.input_schema["properties"]["questions"]["items"]
     p5_item = P5_TOOL.input_schema["properties"]["questions"]["items"]
 
-    assert p2_item["required"] == ["text", "targets_entity_id", "themes"]
-    assert p3_item["required"] == ["text", "life_period", "themes"]
-    assert p5_item["required"] == ["text", "dimension", "themes"]
+    assert p2_item["required"] == ["text", "targets_entity_id", "themes", "scope"]
+    assert p3_item["required"] == ["text", "life_period", "themes", "scope"]
+    assert p5_item["required"] == ["text", "dimension", "themes", "scope"]
 
 
 def test_themes_min_items_on_all_tools() -> None:
