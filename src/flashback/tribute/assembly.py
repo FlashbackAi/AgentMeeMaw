@@ -23,6 +23,98 @@ from flashback.llm.tool_spec import ToolSpec
 log = structlog.get_logger("flashback.tribute.assembly")
 
 
+# Coarse life-stage ranking (0 = earliest). Matched as substrings against a
+# moment's time_anchor.life_period / .era, lower-cased. Longer/more specific
+# phrases are checked first so "young adult" beats "adult".
+_LIFE_RANK_TERMS: tuple[tuple[str, int], ...] = (
+    ("infancy", 0), ("infant", 0), ("newborn", 0), ("baby", 0),
+    ("young adult", 3), ("college", 3), ("university", 3),
+    ("middle age", 5), ("midlife", 5), ("mid-life", 5),
+    ("later life", 6), ("old age", 6), ("retirement", 6),
+    ("childhood", 1), ("child", 1), ("boyhood", 1), ("girlhood", 1),
+    ("adolescence", 2), ("teenage", 2), ("teen", 2), ("youth", 2),
+    ("twenties", 3),
+    ("adulthood", 4), ("adult", 4), ("thirties", 4), ("forties", 4),
+    ("fifties", 5), ("sixties", 6), ("elderly", 6), ("senior", 6),
+)
+
+
+def _life_rank(ta: dict[str, Any]) -> int | None:
+    """A coarse 0-6 life-stage rank from a time_anchor's life_period / era."""
+    text = " ".join(
+        str(ta.get(k) or "") for k in ("life_period", "era")
+    ).lower()
+    if not text.strip():
+        return None
+    for term, rank in _LIFE_RANK_TERMS:
+        if term in text:
+            return rank
+    return None
+
+
+def _year_from_anchor(ta: dict[str, Any]) -> int | None:
+    """A sortable year from a time_anchor's year, else its decade."""
+    year = ta.get("year")
+    if isinstance(year, int):
+        return year
+    if isinstance(year, str) and year.strip().isdigit():
+        return int(year.strip())
+    decade = ta.get("decade")
+    if isinstance(decade, str):
+        digits = "".join(ch for ch in decade if ch.isdigit())
+        if len(digits) >= 4:
+            return int(digits[:4])
+    return None
+
+
+def _when_label(ta: dict[str, Any]) -> str:
+    """A short human time label for the LLM, most specific field first."""
+    year = ta.get("year")
+    if isinstance(year, (int, str)) and str(year).strip():
+        return str(year).strip()
+    for k in ("decade", "life_period", "era"):
+        v = ta.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def chronological_sort(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order candidates along the subject's life so the assembler (and the
+    fallback) start from a coherent spine instead of reverse-extraction order.
+
+    Sort key: dated moments first, ordered by life stage then year; moments
+    with only a year (no life stage) trail the staged ones by year; fully
+    undated moments keep their original order at the tail. The subject's DOB
+    is deliberately not stored, so absolute year and relative life stage can't
+    be merged precisely -- this is a baseline hint; the assembler refines it
+    with the per-scene ``when`` labels it also receives.
+    """
+    def key(item: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int]:
+        idx, c = item
+        ta = c.get("time_anchor") or {}
+        rank = _life_rank(ta)
+        year = _year_from_anchor(ta)
+        undated = rank is None and year is None
+        return (
+            1 if undated else 0,
+            rank if rank is not None else 7,
+            year if year is not None else 9999,
+            idx,
+        )
+
+    return [c for _, c in sorted(enumerate(candidates), key=key)]
+
+
+def _scene_block(c: dict[str, Any]) -> str:
+    """Render one candidate as a <scene> block, carrying its time label so the
+    assembler can place it on the subject's timeline."""
+    when = _when_label(c.get("time_anchor") or {})
+    when_attr = f' when="{xml_text(when)}"' if when else ""
+    body = xml_text((c.get("narrative") or c.get("title") or "").strip())
+    return f'<scene id="{xml_text(c["id"])}"{when_attr}>{body}</scene>'
+
+
 @dataclass(frozen=True)
 class Scene:
     moment_id: str
@@ -90,9 +182,17 @@ Emotional impact -- this is the whole point, so earn it:
 
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
-  emotionally distinct moments; drop weak or redundant ones. Order them so
-  the story builds -- not strictly chronological, but emotionally coherent,
-  each page following naturally from the one before.
+  emotionally distinct moments; drop weak or redundant ones. ORDER it like a
+  film, not an archive. Anchor the spine in the subject's life chronology:
+  each scene carries a `when` attribute (a year, a decade, or a life stage),
+  and the candidates already arrive roughly in life order. Open on an
+  establishing beat, build through the middle of their life, and let the most
+  powerful beat land near the end. Deviate from chronological order ONLY for a
+  deliberate dramatic effect (a brief flash-back or flash-forward that earns
+  its place), never at random -- the reader, even one who never knew this
+  person, should feel a clear beginning, a build, and a close, never a
+  shuffle. Scenes without a `when` carry no fixed date: place them where they
+  make the most narrative sense.
 - A caption for each chosen scene: 1-2 SHORT sentences, about 15-35 words --
   no more. Say less and mean more: find the single truest image or feeling
   in the memory and let it land clean. Cut every word that merely explains,
@@ -185,8 +285,16 @@ Emotional impact -- this is the whole point, so earn it:
 
 Produce:
 - An ordered subset of scenes (3 to {max_scenes}). Pick the most vivid,
-  emotionally distinct moments; drop weak or redundant ones. Order them so the
-  story builds -- emotionally coherent, each page following from the one before.
+  emotionally distinct moments; drop weak or redundant ones. ORDER it like a
+  film, not an archive. Anchor the spine in his life chronology: each scene
+  carries a `when` attribute (a year, a decade, or a life stage), and the
+  candidates already arrive roughly in life order. Open on an establishing
+  beat, build through the middle of his life, and let the most powerful beat
+  land near the end. Deviate from chronological order ONLY for a deliberate
+  dramatic effect (a brief flash-back or flash-forward that earns its place),
+  never at random -- a listener who never knew him should feel a clear
+  beginning, a build, and a close, never a shuffle. Scenes without a `when`
+  carry no fixed date: place them where they make the most narrative sense.
 - A `caption` for each chosen scene: 1-2 SHORT sentences, maximum impact (aim
   ~12-30 words, never more). Concrete and specific over abstract or poetic.
   Strong page-to-page continuity still matters. Never invent facts.
@@ -349,18 +457,17 @@ async def assemble_tribute_script(
     usable = [c for c in candidates if c.get("id")]
     if not usable:
         return TributeScript([], "", "", message_text)
+    # Order candidates along the subject's life before anything downstream, so
+    # both the LLM prompt and the fallback start from a coherent spine instead
+    # of reverse-extraction order.
+    usable = chronological_sort(usable)
     if settings is None:
         return _fallback_script(
             usable, message_text=message_text, max_scenes=max_scenes
         )
 
     by_id = {c["id"]: c for c in usable}
-    scene_blocks = "\n".join(
-        f'<scene id="{xml_text(c["id"])}">'
-        f"{xml_text((c.get('narrative') or c.get('title') or '').strip())}"
-        f"</scene>"
-        for c in usable
-    )
+    scene_blocks = "\n".join(_scene_block(c) for c in usable)
     rel = (
         f' relationship="{xml_text(person_relationship)}"'
         if person_relationship
