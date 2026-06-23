@@ -17,11 +17,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+import structlog
 from PIL import Image
 
 from . import compose, style, video
-from .art import Artist
+from .art import Artist, GeminiError
 from .book import Beat, Book
+
+log = structlog.get_logger("flashback.tribute_video.render")
 
 DEFAULT_CONCURRENCY = 4
 # Sentinel: when the caller passes nothing, use the bundled backing track. A
@@ -45,18 +48,33 @@ def _generate_illustrations(
 
     The reference is built first (serial) so every beat anchors to the same
     figure; the independent page illustrations then run in a bounded thread
-    pool. Order is preserved. A failed page propagates (the worker redrives).
+    pool. Order is preserved. A failed SCENE propagates (the worker redrives);
+    a refused real-photo COVER falls back to the illustrated opener instead,
+    so one likeness refusal can't strand the whole tribute in 'failed'.
     """
     reference = artist.character_reference(
         name=subject_name, relationship=relationship, gt_context=gt_context)
 
-    def gen_opener() -> Image.Image:
-        if prime_photo is not None:
-            return artist.portrait_from_photo(
-                prime_photo, name=subject_name, gt_context=gt_context,
-                deage=deage, blend=blend)
+    def _illustrated_opener() -> Image.Image:
         return artist.illustrate(book.opener.art_direction, gt_context, blend,
                                  reference=reference)
+
+    def gen_opener() -> Image.Image:
+        if prime_photo is not None:
+            try:
+                return artist.portrait_from_photo(
+                    prime_photo, name=subject_name, gt_context=gt_context,
+                    deage=deage, blend=blend)
+            except GeminiError as exc:
+                # Gemini refuses to repaint some real photos (likeness filter).
+                # The cover is the ONLY page that reproduces a real face; rather
+                # than let one refused portrait strand the whole tribute in
+                # 'failed', fall back to the illustrated opener (figure from
+                # behind, no face -- the same safe path every scene uses).
+                log.warning("tribute_render.cover_likeness_refused",
+                            error=str(exc)[:200])
+                return _illustrated_opener()
+        return _illustrated_opener()
 
     def gen_beat(b: Beat) -> Image.Image:
         return artist.illustrate(b.art_direction, gt_context, blend,
