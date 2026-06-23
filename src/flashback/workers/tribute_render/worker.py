@@ -46,6 +46,7 @@ def assemble_book(ctx: RenderContext, *, settings) -> Book:
         candidates=ctx.candidates,
         message_text=ctx.message_text,
         archetype_leads=ctx.archetype_leads,
+        edit_instructions=ctx.edit_instructions,
         n_pages=ctx.n_pages,
     ))
 

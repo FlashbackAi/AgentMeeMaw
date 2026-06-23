@@ -22,11 +22,16 @@ from flashback.http.auth import require_service_token
 from flashback.http.deps import (
     get_artifact_generation_queue,
     get_db_pool,
+    get_http_config,
     get_tribute_render_queue,
 )
 from flashback.http.models import (
     TributeCampaignOut,
     TributeCampaignsResponse,
+    TributeEditRequest,
+    TributeEditSuggestion,
+    TributeEditSuggestionsRequest,
+    TributeEditSuggestionsResponse,
     TributeGenerateRequest,
     TributeGenerateResponse,
     TributeProgressResponse,
@@ -50,9 +55,11 @@ from flashback.tribute.repository import (
     write_tribute_generation_context_async,
 )
 from flashback.tribute_video.context import CONTEXT_KEY, build_context_dict
+from flashback.tribute_video.edit_suggestions import generate_edit_suggestions
 from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
 if TYPE_CHECKING:
+    from flashback.config import HttpConfig
     from flashback.queues.artifact_generation import (
         ArtifactGenerationQueueProducer,
     )
@@ -234,6 +241,72 @@ async def _generate_video(
         scene_count=min(len(candidates), STORYBOOK_MAX_PAGES))
 
 
+async def _reenqueue_tribute_render(
+    *,
+    tribute_id: UUID,
+    person_id: UUID,
+    stored: dict,
+    video_put_url: str,
+    pdf_put_url: str,
+    poster_put_url: str | None,
+    prime_photo_get_url: str | None,
+    edit_instructions: list[str],
+    db_pool: AsyncConnectionPool,
+    tribute_render_queue: "TributeRenderQueueProducer | None",
+) -> TributeGenerateResponse:
+    """Re-render a tribute_video from its stored inputs (shared by regenerate +
+    edit). Rebuilds the context through the canonical builder so the shape is
+    guaranteed and stray keys drop; only the URLs, ``edit_instructions``, and a
+    fresh ``composed_at`` change. The bumped ``composed_at`` makes any in-flight
+    older render go stale and skip."""
+    composed_at = datetime.now(timezone.utc).isoformat()
+    context = build_context_dict(
+        subject_name=stored.get("subject_name") or "",
+        relationship=stored.get("relationship"),
+        gt_context=stored.get("gt_context") or "",
+        candidates=list(stored.get("candidates") or []),
+        message_text=stored.get("message_text") or "",
+        archetype_leads=list(stored.get("archetype_leads") or []),
+        edit_instructions=edit_instructions,
+        n_pages=int(stored.get("n_pages") or STORYBOOK_MAX_PAGES),
+        blend=stored.get("blend") or "cream",
+        transition=stored.get("transition") or "bleed",
+        fps=int(stored.get("fps") or 30),
+        deage=bool(stored.get("deage") or False),
+        video_put_url=video_put_url,
+        pdf_put_url=pdf_put_url,
+        poster_put_url=poster_put_url or "",
+        prime_photo_get_url=prime_photo_get_url or "",
+        composed_at=composed_at,
+    )
+
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await write_tribute_generation_context_async(
+                    cur, tribute_id=tribute_id,
+                    artifact_kind=CONTEXT_KEY, context=context)
+                await set_status_async(
+                    cur, tribute_id=tribute_id, status="generating")
+
+    job_id = str(uuid4())
+    enqueued = False
+    if tribute_render_queue is not None:
+        try:
+            msg_id = await tribute_render_queue.push(
+                job_id=job_id, tribute_id=str(tribute_id),
+                person_id=str(person_id), composed_at=composed_at)
+            enqueued = msg_id is not None
+        except Exception:
+            log.warning("tribute.rerender_enqueue_failed",
+                        tribute_id=str(tribute_id), exc_info=True)
+
+    scene_count = min(len(context["candidates"]), STORYBOOK_MAX_PAGES)
+    return TributeGenerateResponse(
+        job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
+        enqueued=enqueued, percent=100, ready=True, scene_count=scene_count)
+
+
 @router.post(
     "/tributes/{tribute_id}/regenerate", response_model=TributeGenerateResponse
 )
@@ -275,53 +348,116 @@ async def regenerate_tribute(
             ),
         )
 
-    composed_at = datetime.now(timezone.utc).isoformat()
-    # Rebuild through the canonical builder so the shape is guaranteed and any
-    # stray keys are dropped; only the URLs + composed_at change.
-    context = build_context_dict(
-        subject_name=stored.get("subject_name") or "",
-        relationship=stored.get("relationship"),
-        gt_context=stored.get("gt_context") or "",
-        candidates=list(stored.get("candidates") or []),
-        message_text=stored.get("message_text") or "",
-        archetype_leads=list(stored.get("archetype_leads") or []),
-        n_pages=int(stored.get("n_pages") or STORYBOOK_MAX_PAGES),
-        blend=stored.get("blend") or "cream",
-        transition=stored.get("transition") or "bleed",
-        fps=int(stored.get("fps") or 30),
-        deage=bool(stored.get("deage") or False),
-        video_put_url=body.video_put_url,
-        pdf_put_url=body.pdf_put_url,
-        poster_put_url=body.poster_put_url or "",
-        prime_photo_get_url=body.prime_photo_get_url or "",
-        composed_at=composed_at,
-    )
+    # Reuse the stored edit instructions verbatim: regenerate re-rolls the
+    # CURRENT (possibly edited) state, it does not revert prior edits.
+    return await _reenqueue_tribute_render(
+        tribute_id=tribute_id, person_id=body.person_id, stored=stored,
+        video_put_url=body.video_put_url, pdf_put_url=body.pdf_put_url,
+        poster_put_url=body.poster_put_url,
+        prime_photo_get_url=body.prime_photo_get_url,
+        edit_instructions=list(stored.get("edit_instructions") or []),
+        db_pool=db_pool, tribute_render_queue=tribute_render_queue)
+
+
+@router.post("/tributes/{tribute_id}/edit", response_model=TributeGenerateResponse)
+async def edit_tribute(
+    tribute_id: UUID,
+    body: TributeEditRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    tribute_render_queue: "TributeRenderQueueProducer | None" = Depends(
+        get_tribute_render_queue
+    ),
+) -> TributeGenerateResponse:
+    """Re-render a tribute video with cumulative free-text adjustments.
+
+    Like moments' /edit: Node sends the full prior_instructions list each call;
+    the agent applies prior_instructions + [instructions] as the family's edit
+    requests, which shape both captions and art directions. Reuses the stored
+    inputs otherwise and overlays fresh presigned URLs (the old ones expired).
+    """
+    if not body.video_put_url or not body.pdf_put_url:
+        raise HTTPException(
+            status_code=400,
+            detail="video_put_url and pdf_put_url are required",
+        )
+    effective = [
+        s.strip()
+        for s in [*(body.prior_instructions or []), body.instructions or ""]
+        if s and s.strip()
+    ]
+    if not effective:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "instructions (or prior_instructions) required; "
+                "use /regenerate to re-render unchanged"
+            ),
+        )
 
     async with db_pool.connection() as conn:
-        async with conn.transaction():
-            async with conn.cursor() as cur:
-                await write_tribute_generation_context_async(
-                    cur, tribute_id=tribute_id,
-                    artifact_kind=CONTEXT_KEY, context=context)
-                await set_status_async(
-                    cur, tribute_id=tribute_id, status="generating")
+        async with conn.cursor() as cur:
+            fetched = await fetch_tribute_generation_context_async(
+                cur, tribute_id=tribute_id, artifact_kind=CONTEXT_KEY)
+    if fetched is None or fetched[0] != str(body.person_id):
+        raise HTTPException(status_code=404, detail="tribute not found")
+    stored = fetched[1]
+    if not stored:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "no prior tribute_video render to edit; call /generate first"
+            ),
+        )
 
-    job_id = str(uuid4())
-    enqueued = False
-    if tribute_render_queue is not None:
-        try:
-            msg_id = await tribute_render_queue.push(
-                job_id=job_id, tribute_id=str(tribute_id),
-                person_id=str(body.person_id), composed_at=composed_at)
-            enqueued = msg_id is not None
-        except Exception:
-            log.warning("tribute.regenerate_enqueue_failed",
-                        tribute_id=str(tribute_id), exc_info=True)
+    return await _reenqueue_tribute_render(
+        tribute_id=tribute_id, person_id=body.person_id, stored=stored,
+        video_put_url=body.video_put_url, pdf_put_url=body.pdf_put_url,
+        poster_put_url=body.poster_put_url,
+        prime_photo_get_url=body.prime_photo_get_url,
+        edit_instructions=effective,
+        db_pool=db_pool, tribute_render_queue=tribute_render_queue)
 
-    scene_count = min(len(context["candidates"]), STORYBOOK_MAX_PAGES)
-    return TributeGenerateResponse(
-        job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
-        enqueued=enqueued, percent=100, ready=True, scene_count=scene_count)
+
+@router.post(
+    "/tributes/{tribute_id}/edit-suggestions",
+    response_model=TributeEditSuggestionsResponse,
+)
+async def tribute_edit_suggestions(
+    tribute_id: UUID,
+    body: TributeEditSuggestionsRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    settings: "HttpConfig" = Depends(get_http_config),
+) -> TributeEditSuggestionsResponse:
+    """Contextual edit chips for a rendered tribute (small LLM, best-effort).
+
+    Reads the stored render inputs (memories + message + prior edits) and
+    proposes subject-specific nudges the user can tap; a tapped chip's
+    `instruction` is what Node sends to /edit. Falls back to a generic catalog
+    on LLM failure. 404 if the tribute was never generated.
+    """
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            fetched = await fetch_tribute_generation_context_async(
+                cur, tribute_id=tribute_id, artifact_kind=CONTEXT_KEY)
+    if fetched is None or fetched[0] != str(body.person_id):
+        raise HTTPException(status_code=404, detail="tribute not found")
+    stored = fetched[1]
+    if not stored:
+        raise HTTPException(
+            status_code=404,
+            detail="no prior tribute_video render; call /generate first",
+        )
+
+    suggestions = await generate_edit_suggestions(
+        settings=settings,
+        subject_name=stored.get("subject_name") or "",
+        relationship=stored.get("relationship"),
+        candidates=list(stored.get("candidates") or []),
+        message_text=stored.get("message_text") or "",
+        prior_instructions=list(stored.get("edit_instructions") or []),
+    )
+    return TributeEditSuggestionsResponse(
+        suggestions=[TributeEditSuggestion(**s) for s in suggestions])
 
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)

@@ -132,6 +132,47 @@ class TributeRegenerateRequest(BaseModel):
     prime_photo_get_url: str | None = None
 
 
+class TributeEditRequest(BaseModel):
+    """Re-render a tribute video with cumulative free-text adjustments.
+
+    Like the moments /edit contract: Node owns the edit history and sends the
+    full ``prior_instructions`` list each call; the agent applies
+    ``prior_instructions + [instructions]`` as the family's edit requests. A
+    tapped suggestion chip flows in as ``instructions`` text. Fresh presigned
+    URLs are required (the prior render's URLs have expired), same as
+    regenerate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    instructions: str | None = None
+    prior_instructions: list[str] = Field(default_factory=list)
+    video_put_url: str | None = None
+    pdf_put_url: str | None = None
+    poster_put_url: str | None = None
+    prime_photo_get_url: str | None = None
+
+
+class TributeEditSuggestionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+
+
+class TributeEditSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    instruction: str
+
+
+class TributeEditSuggestionsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestions: list[TributeEditSuggestion]
+
+
 class TributeCampaignOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

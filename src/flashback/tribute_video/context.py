@@ -29,6 +29,10 @@ class RenderContext:
     candidates: list[dict[str, Any]] = field(default_factory=list)
     message_text: str = ""
     archetype_leads: list[str] = field(default_factory=list)
+    # Cumulative free-text adjustments the family asked for after seeing a
+    # draft ("warmer", "more about his fishing trips"). Fed to the assembler
+    # as <family_edit_requests>; shapes both captions and art directions.
+    edit_instructions: list[str] = field(default_factory=list)
     n_pages: int = 15
     prime_photo_get_url: str = ""
     blend: str = "cream"
@@ -52,6 +56,7 @@ class RenderContext:
             candidates=list(d.get("candidates") or []),
             message_text=(d.get("message_text") or ""),
             archetype_leads=list(d.get("archetype_leads") or []),
+            edit_instructions=list(d.get("edit_instructions") or []),
             n_pages=int(d.get("n_pages") or 15),
             prime_photo_get_url=(d.get("prime_photo_get_url") or ""),
             blend=(d.get("blend") or "cream"),
@@ -73,6 +78,7 @@ def build_context_dict(
     poster_put_url: str = "",
     message_text: str = "",
     archetype_leads: list[str] | None = None,
+    edit_instructions: list[str] | None = None,
     n_pages: int = 15,
     prime_photo_get_url: str = "",
     blend: str = "cream",
@@ -92,6 +98,7 @@ def build_context_dict(
         "poster_put_url": poster_put_url,
         "message_text": message_text,
         "archetype_leads": archetype_leads or [],
+        "edit_instructions": edit_instructions or [],
         "n_pages": n_pages,
         "prime_photo_get_url": prime_photo_get_url,
         "blend": blend,

@@ -60,6 +60,14 @@ LEADS: the archetype answers are context for what to look for and how to open --
 weave them in only where a real memory supports them. They are NOT facts to
 state; never put a bare lead on a page.
 
+FAMILY EDIT REQUESTS: when <family_edit_requests> is present, the family saw a
+draft and asked for these adjustments. Honor them throughout -- tone, emphasis,
+which memories to feature or downplay, and the feel of the ART DIRECTION --
+while keeping every rule above. Later requests override earlier ones on
+conflict. Never invent facts to satisfy a request; if a request asks for
+something the memories don't support, lean the existing material toward its
+spirit rather than fabricating.
+
 LOGICAL FLOW: choose the {n} most vivid, distinct memories; drop weak/redundant
 ones. Order them as one connected life arc (early life + work -> family +
 character -> the late years) so each page follows from the one before.
@@ -119,7 +127,8 @@ def _xml(s: str) -> str:
 
 def _user_message(*, subject_name: str, relationship: str | None,
                   gt_context: str, candidates: list[dict[str, Any]],
-                  message_text: str, archetype_leads: list[str]) -> str:
+                  message_text: str, archetype_leads: list[str],
+                  edit_instructions: list[str]) -> str:
     rel = f' relationship="{_xml(relationship)}"' if relationship else ""
     blocks = []
     for m in candidates:
@@ -139,9 +148,16 @@ def _user_message(*, subject_name: str, relationship: str | None,
         "<leads>\n" + "\n".join(f"<lead>{_xml(l)}</lead>" for l in leads) + "\n</leads>\n"
         if leads else ""
     )
+    edits = [e for e in (edit_instructions or []) if e and e.strip()]
+    edits_block = (
+        "<family_edit_requests>\n"
+        + "\n".join(f"<request>{_xml(e)}</request>" for e in edits)
+        + "\n</family_edit_requests>\n"
+        if edits else ""
+    )
     return (
         f"<subject{rel}>{_xml(subject_name)}</subject>\n"
-        f"{gt_block}{msg_block}{leads_block}"
+        f"{gt_block}{msg_block}{leads_block}{edits_block}"
         f"<memories>\n" + "\n".join(blocks) + "\n</memories>"
     )
 
@@ -181,6 +197,7 @@ async def assemble_storybook_video(
     candidates: list[dict[str, Any]],
     message_text: str = "",
     archetype_leads: list[str] | None = None,
+    edit_instructions: list[str] | None = None,
     n_pages: int = 15,
 ) -> Book:
     usable = [c for c in candidates if c.get("id")]
@@ -191,7 +208,8 @@ async def assemble_storybook_video(
     user = _user_message(
         subject_name=subject_name, relationship=relationship,
         gt_context=gt_context, candidates=usable, message_text=message_text,
-        archetype_leads=archetype_leads or [])
+        archetype_leads=archetype_leads or [],
+        edit_instructions=edit_instructions or [])
     system = _SYSTEM.replace("{n}", str(n_pages)).replace(
         "{relationship}", relationship or "grandfather")
     try:
