@@ -397,12 +397,13 @@ authoritative time evidence: set `time_anchor` / `life_period_estimate` \
 on the moment(s) of the story it refers to.
 
 For `generation_prompt` fields: produce a one-sentence visual description in \
-present tense. Painterly realism leaning a touch more toward hand-painted oil \
-illustration than photography, in the style of Red Dead Redemption 2 \
-environment art — naturalistic lighting, rich earthen color palette, soft \
-volumetric atmosphere, visible oil-painted brushwork that keeps physical \
-detail. Avoid flat cartoon shading and avoid Pixar/Ghibli look. Stay clearly \
-short of full photorealism. No people's faces — but when a memory includes \
+present tense. Hand-painted oil illustration leaning well away from \
+photography, in the style of Red Dead Redemption 2 environment art — \
+naturalistic lighting, rich earthen color palette, soft volumetric \
+atmosphere, prominent visible oil-painted brushwork with softer, looser, \
+suggestive detail rather than crisp physical detail. It should clearly read \
+as a painting, not a photo. Avoid flat cartoon shading and avoid Pixar/Ghibli \
+look. Stay well short of photorealism. No people's faces — but when a memory includes \
 people, depict them as figures (turned away or at a distance) with the gender \
 presentation given in `<people_in_scenes>`, using a matching noun ("a man", "a \
 woman", "a young boy") rather than a neutral "figure". Focus on mood, color, \

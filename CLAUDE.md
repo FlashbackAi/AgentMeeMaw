@@ -24,10 +24,14 @@ rules flow from that:
   interviewer/archivist, not an impersonator.
 - We do **not** clone voices or generate photoreal video of the subject
   in v1.
-- We **do** generate painterly-realism artifacts in the visual register of
-  Red Dead Redemption 2 — naturalistic features and lighting with painterly
-  brushwork, sitting between full photorealism and cartoon (images for
-  persons / threads / entities, short videos for moments) for visual texture.
+- We **do** generate hand-painted-illustration artifacts in the visual
+  register of Red Dead Redemption 2 — naturalistic features and lighting with
+  prominent painterly brushwork and softer, suggestive detail, sitting
+  clearly on the painting side (well short of photorealism, but not cartoon —
+  the art should read as a painting, not a photo). This deliberately leans
+  away from photorealism so viewers don't scrutinize literal detail accuracy
+  (images for persons / threads / entities, short videos for moments) for
+  visual texture.
   Deepfake likeness of real specific living people remains negative-prompted.
 - The agent must never feel like a survey. Cold openers, dropped
   references, and emotional pacing all matter.

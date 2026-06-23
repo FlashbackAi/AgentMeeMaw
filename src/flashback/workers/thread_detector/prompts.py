@@ -48,11 +48,12 @@ You will be given the cluster's moments along with the contributor's \
 display name (in `<contributor_display_name>`, may be empty). Output a \
 `name` (≤ 80 chars), a `description` (1–2 sentences) that captures what \
 unifies them, and a `generation_prompt` — a one-sentence visual \
-description for the thread's stylized image in cinematic painterly \
-realism (Red Dead Redemption 2 environment-art aesthetic): naturalistic \
-lighting, earthen color palette, soft volumetric atmosphere, oil-painted \
-brushwork. Mood, color, light. No people's faces. Avoid flat cartoon \
-shading and avoid full photorealism.
+description for the thread's stylized image as a hand-painted oil \
+illustration (Red Dead Redemption 2 environment-art aesthetic): naturalistic \
+lighting, earthen color palette, soft volumetric atmosphere, prominent \
+oil-painted brushwork with softer, looser detail. It should clearly read as \
+a painting, not a photo. Mood, color, light. No people's faces. Avoid flat \
+cartoon shading and stay well short of photorealism.
 
 When `<contributor_display_name>` is non-empty, USE that name for any \
 first-person attribution to the contributor in the description ("Sarah's \
@@ -129,9 +130,10 @@ NAMING_TOOL = ToolSpec(
             "generation_prompt": {
                 "type": "string",
                 "description": (
-                    "One-sentence painterly-realism visual prompt in "
-                    "RDR2 environment-art style. No faces. Avoid cartoon "
-                    "shading and avoid full photorealism."
+                    "One-sentence hand-painted oil-illustration visual "
+                    "prompt in RDR2 environment-art style; reads as a "
+                    "painting, not a photo. No faces. Avoid cartoon "
+                    "shading and stay well short of photorealism."
                 ),
             },
             "theme_display_name": {
