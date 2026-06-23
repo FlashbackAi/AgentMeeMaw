@@ -11,6 +11,7 @@ import time
 
 from PIL import Image
 
+from flashback.tribute_video.art import GeminiError
 from flashback.tribute_video.book import Beat, Book
 from flashback.tribute_video.render import _generate_illustrations
 
@@ -78,6 +79,47 @@ def test_uses_prime_photo_for_opener_when_present():
         gt_context="", prime_photo=Image.new("RGB", (2, 2)), deage=True,
         blend="cream", concurrency=4)
     assert opener.info["label"] == "opener_portrait"
+
+
+class _RefusingPortraitArtist(_FakeArtist):
+    """portrait_from_photo always refuses (Gemini likeness filter)."""
+
+    def portrait_from_photo(self, photo, *, name, gt_context, deage, blend):
+        raise GeminiError("Gemini generation failed: no image in response")
+
+
+def test_cover_likeness_refusal_falls_back_to_illustrated_opener():
+    # A refused real-photo cover must NOT fail the whole render: the opener
+    # falls back to the illustrated path (figure from behind, no face).
+    artist = _RefusingPortraitArtist()
+    opener, beats, closing = _generate_illustrations(
+        artist=artist, book=_book(), subject_name="Dad", relationship="father",
+        gt_context="", prime_photo=Image.new("RGB", (2, 2)), deage=False,
+        blend="cream", concurrency=4)
+
+    assert opener.info["label"] == "illustrate:OPEN"  # fell back, no exception
+    assert [b.info["label"] for b in beats] == [
+        f"illustrate:B{i}" for i in range(5)]
+    assert closing.info["label"] == "illustrate:CLOSE"
+
+
+def test_scene_refusal_still_propagates():
+    # Only the cover gets the fallback; a refused SCENE must still fail the
+    # render so SQS redrives and the row is eventually marked 'failed'.
+    class _RefusingBeatArtist(_FakeArtist):
+        def illustrate(self, art_direction, gt_context, blend, *,
+                       reference=None, aspect=None):
+            if art_direction == "B2":
+                raise GeminiError("Gemini generation failed: no image in response")
+            return super().illustrate(art_direction, gt_context, blend,
+                                      reference=reference, aspect=aspect)
+
+    import pytest
+    with pytest.raises(GeminiError):
+        _generate_illustrations(
+            artist=_RefusingBeatArtist(), book=_book(), subject_name="Dad",
+            relationship="father", gt_context="", prime_photo=None,
+            deage=False, blend="cream", concurrency=4)
 
 
 def test_runs_pages_concurrently():
