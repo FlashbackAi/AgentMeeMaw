@@ -41,6 +41,8 @@ async def async_db_pool(schema_applied: str):
     finally:
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM moment_same_event_links")
+                await cur.execute("DELETE FROM moment_contradictions")
                 await cur.execute("DELETE FROM edges")
                 await cur.execute("DELETE FROM moment_history")
                 await cur.execute("DELETE FROM moments")

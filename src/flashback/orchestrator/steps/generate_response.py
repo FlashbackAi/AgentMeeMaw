@@ -55,6 +55,7 @@ async def build_turn_context(
             for turn in state.transcript
         ],
         related_moments=state.related_moments,
+        linked_account_moments=state.linked_account_moments,
         related_entities=state.related_entities,
         related_threads=state.related_threads,
         mentioned_entities=state.mentioned_entities,

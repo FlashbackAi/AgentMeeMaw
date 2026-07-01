@@ -34,10 +34,22 @@ async def list_suggestions_async(
                src.description AS source_entity_description,
                s.target_entity_id, tgt.name AS target_entity_name,
                tgt.description AS target_entity_description,
-               s.proposed_alias, s.reason, s.source, s.status, s.created_at
+               s.proposed_alias, s.reason, s.source, s.status, s.created_at,
+               (s.source_told_by_user_id IS DISTINCT FROM s.target_told_by_user_id)
+                   AS cross_contributor,
+               cos.display_name AS source_told_by_display_name,
+               cot.display_name AS target_told_by_display_name
           FROM identity_merge_suggestions s
           JOIN entities src ON src.id = s.source_entity_id
           JOIN entities tgt ON tgt.id = s.target_entity_id
+          LEFT JOIN collaborator_onboarding cos
+                ON cos.person_id = s.person_id
+               AND cos.user_id = s.source_told_by_user_id
+               AND cos.status = 'active'
+          LEFT JOIN collaborator_onboarding cot
+                ON cot.person_id = s.person_id
+               AND cot.user_id = s.target_told_by_user_id
+               AND cot.status = 'active'
          WHERE s.person_id = %s
            AND s.status = %s
            AND src.status = 'active'
@@ -62,6 +74,9 @@ async def list_suggestions_async(
             source=row[10],
             status=row[11],
             created_at=row[12],
+            cross_contributor=row[13],
+            source_told_by_display_name=row[14],
+            target_told_by_display_name=row[15],
         )
         for row in rows
     ]
@@ -162,6 +177,8 @@ async def auto_merge_async(
     push_embedding: Callable[..., str] | None,
     embedding_model: str,
     embedding_model_version: str,
+    source_told_by_user_id: str | None = None,
+    target_told_by_user_id: str | None = None,
 ) -> str | None:
     """Apply a high-confidence merge silently and record it for the user.
 
@@ -186,9 +203,10 @@ async def auto_merge_async(
         INSERT INTO identity_merge_suggestions
               (person_id, source_entity_id, target_entity_id,
                proposed_alias, reason, source, status,
-               confidence, notification_text, undo_snapshot, auto_merged_at)
+               confidence, notification_text, undo_snapshot, auto_merged_at,
+               source_told_by_user_id, target_told_by_user_id)
         VALUES (%s, %s, %s, %s, %s, 'scanner', 'auto_merged',
-                %s, %s, %s, now())
+                %s, %s, %s, now(), %s, %s)
         RETURNING id::text
         """,
         (
@@ -200,6 +218,8 @@ async def auto_merge_async(
             confidence,
             notification_text,
             Json(snapshot),
+            source_told_by_user_id,
+            target_told_by_user_id,
         ),
     )
     row = await cursor.fetchone()
@@ -230,9 +250,21 @@ async def list_auto_merged_async(
         SELECT s.id, s.person_id,
                s.source_entity_id, s.target_entity_id, tgt.name,
                s.notification_text, s.confidence, s.acknowledged,
-               s.auto_merged_at
+               s.auto_merged_at,
+               (s.source_told_by_user_id IS DISTINCT FROM s.target_told_by_user_id)
+                   AS cross_contributor,
+               cos.display_name AS source_told_by_display_name,
+               cot.display_name AS target_told_by_display_name
           FROM identity_merge_suggestions s
           JOIN entities tgt ON tgt.id = s.target_entity_id
+          LEFT JOIN collaborator_onboarding cos
+                ON cos.person_id = s.person_id
+               AND cos.user_id = s.source_told_by_user_id
+               AND cos.status = 'active'
+          LEFT JOIN collaborator_onboarding cot
+                ON cot.person_id = s.person_id
+               AND cot.user_id = s.target_told_by_user_id
+               AND cot.status = 'active'
          WHERE s.person_id = %s
            AND s.status = 'auto_merged'
            {ack_filter}
@@ -252,6 +284,9 @@ async def list_auto_merged_async(
             confidence=row[6],
             acknowledged=row[7],
             auto_merged_at=row[8],
+            cross_contributor=row[9],
+            source_told_by_display_name=row[10],
+            target_told_by_display_name=row[11],
         )
         for row in rows
     ]
@@ -316,8 +351,8 @@ async def unmerge_async(
         """
         INSERT INTO entities
               (person_id, kind, name, description, aliases, attributes,
-               generation_prompt)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+               generation_prompt, told_by_user_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id::text
         """,
         (
@@ -328,9 +363,17 @@ async def unmerge_async(
             list(source_row.get("aliases") or []),
             Json(source_row.get("attributes") or {}),
             source_row.get("generation_prompt"),
+            snapshot.get("source_told_by_user_id"),
         ),
     )
     new_entity_id = (await cursor.fetchone())[0]
+
+    # SP6b: revert the survivor's provenance to its pre-merge value (the merge
+    # may have rewritten it to the earliest introducer's told_by).
+    await cursor.execute(
+        "UPDATE entities SET told_by_user_id = %s WHERE id = %s",
+        (snapshot.get("survivor_prior_told_by_user_id"), target_id),
+    )
 
     # 2. Move the repointed edges off the survivor back onto the new entity.
     if repointed_ids:
@@ -445,7 +488,8 @@ async def _merge_entity_rows(
     """
     await cursor.execute(
         """
-        SELECT kind, name, description, aliases, attributes, generation_prompt
+        SELECT kind, name, description, aliases, attributes, generation_prompt,
+               told_by_user_id::text, created_at
           FROM entities
          WHERE id = %s
            AND person_id = %s
@@ -457,7 +501,7 @@ async def _merge_entity_rows(
     source = await cursor.fetchone()
     await cursor.execute(
         """
-        SELECT name, description, aliases
+        SELECT name, description, aliases, told_by_user_id::text, created_at
           FROM entities
          WHERE id = %s
            AND person_id = %s
@@ -470,8 +514,12 @@ async def _merge_entity_rows(
     if source is None or target is None:
         raise ValueError("source and target entities must both be active")
 
-    source_kind, source_name, source_description, source_aliases, source_attributes, source_generation_prompt = source
-    target_name, target_description, target_aliases = target
+    (
+        source_kind, source_name, source_description, source_aliases,
+        source_attributes, source_generation_prompt,
+        source_told_by, source_created_at,
+    ) = source
+    target_name, target_description, target_aliases, target_told_by, target_created_at = target
     aliases = _merge_aliases(
         target_name=target_name,
         existing=target_aliases or [],
@@ -508,6 +556,18 @@ async def _merge_entity_rows(
         (target_id, source_id),
     )
 
+    # SP6b: the merged identity carries the EARLIEST introducer's provenance
+    # (older created_at). On a tie the survivor keeps its own. Creator-era NULL
+    # is a valid value. Snapshot both originals so unmerge restores exactly.
+    survivor_told_by = target_told_by
+    if source_created_at < target_created_at:
+        survivor_told_by = source_told_by
+    if survivor_told_by != target_told_by:
+        await cursor.execute(
+            "UPDATE entities SET told_by_user_id = %s WHERE id = %s",
+            (survivor_told_by, target_id),
+        )
+
     return {
         "source_row": {
             "person_id": person_id,
@@ -518,6 +578,8 @@ async def _merge_entity_rows(
             "attributes": source_attributes or {},
             "generation_prompt": source_generation_prompt,
         },
+        "source_told_by_user_id": source_told_by,
+        "survivor_prior_told_by_user_id": target_told_by,
         "repointed_edge_ids": repointed_ids,
         "deleted_edges": deleted_edges,
     }

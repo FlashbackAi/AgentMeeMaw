@@ -43,6 +43,7 @@ class TestCreateHappyPath:
             "person_id",
             "name",
             "relationship",
+            "gender",
             "phase",
             "created_at",
         }

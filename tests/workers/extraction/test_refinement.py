@@ -30,6 +30,20 @@ def _vec(value: float) -> list[float]:
     return [value] * DIM
 
 
+def _unit0() -> list[float]:
+    v = [0.0] * DIM
+    v[0] = 1.0
+    return v
+
+
+def _angled() -> list[float]:
+    # cosine distance ~0.2 from _unit0 (sim = 0.8) — in the loose band
+    # (>= tight 0.15, < threshold 0.35).
+    v = [0.0] * DIM
+    v[0], v[1] = 0.8, 0.6
+    return v
+
+
 def _seed_existing_moment(
     db_pool, person_id: str, *, narrative: str, vector: list[float],
     entity_name: str = "Family kitchen",
@@ -101,12 +115,14 @@ def test_vector_search_finds_candidate_within_threshold(db_pool, make_person):
 def test_entity_overlap_filter_drops_candidates_without_shared_names(
     db_pool, make_person
 ):
+    # In the LOOSE band (distance >= tight threshold) the entity-overlap rule
+    # still applies: vector-close-ish but no shared entity -> dropped.
     person_id = make_person("Ref B")
     _seed_existing_moment(
         db_pool,
         person_id,
         narrative="They talked about the porch.",
-        vector=_vec(0.5),
+        vector=_unit0(),
         entity_name="Front porch",
     )
 
@@ -115,7 +131,7 @@ def test_entity_overlap_filter_drops_candidates_without_shared_names(
         narrative="They were in the kitchen.",
         generation_prompt="kitchen",
     )
-    voyage = StubVoyage(vector=_vec(0.5))
+    voyage = StubVoyage(vector=_angled())  # distance ~0.2 -> loose band
     candidates = find_refinement_candidates(
         new_moment=new_moment,
         new_moment_entity_names=["Garage"],  # no overlap
@@ -126,6 +142,40 @@ def test_entity_overlap_filter_drops_candidates_without_shared_names(
         embedding_model_version=VERSION,
     )
     assert candidates == []
+
+
+def test_tight_distance_admits_candidate_without_entity_overlap(
+    db_pool, make_person
+):
+    # SP5 follow-up: a near-identical narrative (distance < tight threshold) is
+    # admitted as a candidate even with NO shared entity — so obvious same-event
+    # pairs link even when one moment under-extracted its entities.
+    person_id = make_person("Ref Tight")
+    moment_id = _seed_existing_moment(
+        db_pool,
+        person_id,
+        narrative="David won 100m gold at the Asian Games.",
+        vector=_unit0(),
+        entity_name="Front porch",  # unrelated entity
+    )
+
+    new_moment = ExtractedMoment(
+        title="Asian Games gold",
+        narrative="David won the 100 metres at the Asian Games.",
+        generation_prompt="x",
+    )
+    voyage = StubVoyage(vector=_unit0())  # distance 0 -> tight path
+    candidates = find_refinement_candidates(
+        new_moment=new_moment,
+        new_moment_entity_names=["Garage"],  # no overlap
+        person_id=person_id,
+        voyage=voyage,
+        db_pool=db_pool,
+        embedding_model=MODEL,
+        embedding_model_version=VERSION,
+    )
+    assert len(candidates) == 1
+    assert candidates[0].id == moment_id
 
 
 def test_voyage_failure_returns_empty(db_pool, make_person):

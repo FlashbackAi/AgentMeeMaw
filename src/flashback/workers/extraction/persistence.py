@@ -34,6 +34,11 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.moment_links import (
+    insert_contradiction,
+    insert_same_event_link,
+    repoint_records_on_supersession,
+)
 from flashback.questions.scope import normalize_scope
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
@@ -55,14 +60,18 @@ class MomentDecision:
     one supersession per new moment.
 
     ``contradicts_ids`` is the (possibly empty) list of existing moments
-    the new one is in factual conflict with. Both rows are preserved;
-    we currently log the conflict and stop there (a future step will
-    surface it for review).
+    the new one is in factual conflict with. Both rows are preserved and a
+    ``moment_contradictions`` review row is written (SP5).
+
+    ``same_event_ids`` is the (possibly empty) list of existing moments the
+    new one describes the SAME event as (complementary, not superseding).
+    A ``moment_same_event_links`` row is auto-written for each (SP5).
     """
 
     moment: ExtractedMoment
     supersedes_id: str | None = None
     contradicts_ids: list[str] = field(default_factory=list)
+    same_event_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -252,11 +261,21 @@ def persist_extraction(
             )
             superseded_ids.append(decision.supersedes_id)
 
+        for cid in decision.same_event_ids:
+            insert_same_event_link(
+                cursor,
+                person_id=person.id,
+                moment_a_id=moment_id,
+                moment_b_id=cid,
+                reason=None,
+            )
         for cid in decision.contradicts_ids:
-            log.info(
-                "extraction.contradiction_logged",
-                new_moment_id=moment_id,
-                existing_moment_id=cid,
+            insert_contradiction(
+                cursor,
+                person_id=person.id,
+                moment_a_id=moment_id,
+                moment_b_id=cid,
+                reason=None,
             )
 
         _insert_moment_edges(
@@ -1102,6 +1121,12 @@ def _supersede_moment(
            AND from_id   = %s
         """,
         (old_moment_id,),
+    )
+
+    # SP5 (#28, extends #5): keep same-event links / pending contradictions
+    # pointing at the active moment after this supersession.
+    repoint_records_on_supersession(
+        cursor, old_id=old_moment_id, new_id=new_moment_id
     )
 
 

@@ -103,6 +103,7 @@ def _cmd_run(cfg: ExtractionConfig) -> int:
         redis_client=redis_client,
         refinement_distance_threshold=cfg.extraction_refinement_distance_threshold,
         refinement_candidate_limit=cfg.extraction_refinement_candidate_limit,
+        refinement_tight_distance_threshold=cfg.extraction_refinement_tight_distance_threshold,
         sqs_wait_seconds=cfg.sqs_wait_seconds,
         thread_detector_cadence=cfg.thread_detector_cadence,
     )

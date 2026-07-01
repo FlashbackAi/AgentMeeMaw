@@ -143,14 +143,17 @@ class TestArchetypeAnswers:
 
         assert coverage_row is not None
         coverage = coverage_row[0]
-        assert coverage["place"] == 1
-        assert coverage["era"] == 1
-        assert coverage["relation"] == 1
-        assert coverage["voice"] == 1
+        # Coverage counters can climb past 1 when multiple archetype answers
+        # cover the same dimension (here "Through school" + "On calls" both
+        # cover relation). Only >= 1 is meaningful (CLAUDE.md §6).
+        assert coverage["place"] >= 1
+        assert coverage["era"] >= 1
+        assert coverage["relation"] >= 1
+        assert coverage["voice"] >= 1
 
         assert entity_rows
         assert entity_rows[0][0] == "place"
-        assert entity_rows[0][1] == "school or college"
+        assert entity_rows[0][1] == "school"
         assert entity_rows[0][2]["source"] == "archetype_onboarding"
 
     async def test_complete_person_returns_409(

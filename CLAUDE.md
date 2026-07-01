@@ -239,6 +239,19 @@ Every piece of code touching the graph or queues must respect these.
     standalone entity** with its edges moved back. Auto-merges surface
     via `GET /identity_merges/auto_merged` (toast feed) and are cleared
     with `POST /identity_merges/{id}/acknowledge`.
+    **Cross-contributor merges (SP6b, migration 0035).** A merge collapses two
+    identities, so the survivor carries the **earliest introducer's**
+    `told_by_user_id` (older `created_at`; tie → survivor keeps its own;
+    creator-era NULL is valid) — merge-specific, distinct from the reuse-fold
+    no-restamp rule (#26); `_supersede`-style. `_merge_entity_rows` snapshots the
+    source's + the survivor's prior `told_by` so `unmerge` restores both exactly.
+    Both originals are captured on the suggestion row
+    (`source_told_by_user_id`/`target_told_by_user_id`) at creation; the
+    suggestion + auto-merge feeds expose `cross_contributor` (`IS DISTINCT
+    FROM`) + both introducers' `told_by_display_name` resolved live via
+    `collaborator_onboarding` (#20/#26 guard). Detection is unchanged
+    (name/alias). These feeds are per-legacy + audience-agnostic — Node picks
+    who sees them.
 18. **Traits are anchored, deduped, and behavior-described.** Three
     rules, applied in order by the Extraction Worker:
 
@@ -307,6 +320,16 @@ Every piece of code touching the graph or queues must respect these.
     cache-aside (reload from Postgres on miss) and DEL'd by the
     Extraction Worker after entity writes commit. This surface is
     free (no Voyage call) and orthogonal to invariant #19.
+    **Cross-contributor recognition (lite):** `get_entities_by_ids`
+    `LEFT JOIN`s `collaborator_onboarding` on the entity's
+    `told_by_user_id` (the first introducer — never restamped on reuse,
+    #26) to resolve `told_by_display_name` + `told_by_relationship`. The
+    `<mentioned_entities>` render adds a `told_by="…" relationship="…"`
+    attribution when a *different* contributor first introduced the entity
+    (same guard as moment attribution); the base prompt lets the agent
+    credit the source ("the one Ravi mentioned"). Recognition-only — no
+    merge (SP6), no scope gate (entities stay open; only questions are
+    gated, #27). Creator-era / unresolvable names render un-attributed.
 
 21. **Starter-question dedup uses the WM `asked` register, not just
     `answered_by` edges.** The graph-anchored dedup
@@ -493,6 +516,68 @@ Every piece of code touching the graph or queues must respect these.
     `public`. Relationship-based `personal` (close family of the subject) is
     deferred to a later sub-project.
 
+28. **Same-event linking + contradiction review are detected live, recorded,
+    and provenance-resolved at read time.** The compatibility LLM gains a 4th
+    verdict `same_event` alongside `refinement`/`contradiction`/`independent`,
+    on the per-new-moment refinement search (`worker.py` candidate loop). The
+    worker takes the first `refinement` and stops, but records ALL `same_event`
+    and ALL `contradiction` candidates. `same_event` → auto-write an active
+    `moment_same_event_links` row (notify + reversible `unlink`); `contradiction`
+    → write a pending `moment_contradictions` row (replacing the old log-only
+    path; resolution is non-destructive `dismiss` only this cycle — both moments
+    always coexist). Records store moment ids only; `told_by_*` is resolved LIVE
+    via JOIN to `moments` at read time (never snapshotted), so supersession
+    (which moves the active row's teller, foundation D4#4) never staleness-
+    poisons attribution. Supersession (`_supersede_moment`) repoints active links
+    / pending contradictions from the old id to the new id and re-canonicalizes
+    A/B order (extends #5); a repoint that would self-pair collapses the row
+    (`unlinked`/`dismissed`). Same-event links feed `recall` retrieval into a
+    `<linked_accounts>` block (cross-contributor framing via the #20/#26
+    attribution guard); contradictions never reach the agent. Module
+    `flashback.moment_links`; migration 0033. Endpoints: `GET /event_links`,
+    `POST /event_links/{id}/acknowledge|unlink`, `GET /contradictions`,
+    `POST /contradictions/{id}/dismiss`.
+    **Cross-contributor refinement guard:** a `refinement` verdict supersedes
+    (erases from active) the older moment, so it is allowed code-side only
+    within one voice — `refinement_supersede_allowed(new_told_by,
+    candidate_told_by)` permits supersession iff the candidate is creator-era
+    (NULL) or shares the new moment's `told_by_user_id`. A *different*
+    contributor's `refinement` is **demoted to `same_event`** (link, keep both)
+    so no contributor's account is silently erased by another's retelling. The
+    LLM still emits the verdict; the demotion is code (code over LLM, §10).
+    **Candidate gate:** `find_refinement_candidates` admits a pair to the
+    compatibility LLM if `vector_distance < distance_threshold` AND they share a
+    linked entity, OR `vector_distance < tight_distance_threshold` (default 0.15)
+    regardless of entity overlap — so an obvious same-event pair still links when
+    one moment under-extracted its entities. The entity-overlap rule still
+    governs the looser band; the LLM still judges every candidate (the tight path
+    widens what's *considered*, never auto-links). Tunable via
+    `EXTRACTION_REFINEMENT_TIGHT_DISTANCE_THRESHOLD`.
+
+29. **Collaborator removal is a reversible hide, never a delete.** `POST
+    /collaborators/remove` flips `status → 'removed'` on the contributor's
+    `collaborator_onboarding` row, their `moments` (`told_by_user_id`), and the
+    `entities` they introduced that **no surviving active moment references**
+    (orphaned-to-them; refines D4#1, which kept all entities). The `active_*`
+    views make all of it vanish from every read path — no retrieval/UI change.
+    Removal also **resurrects** the nearest *surviving-contributor* moment that a
+    removed moment had superseded (walk `superseded_by` back, recursing only
+    through the removed user's moments), so a departing contributor's retelling
+    never collateral-hides another's account; `superseded_by` is retained so
+    restore can re-supersede. Removal touches **only** `status` on those three
+    tables — never edges/traits/questions/facts/threads/themes. `'removed'` is
+    unique to this flow (vs `'superseded'`/`'merged'`), so `POST
+    /collaborators/restore` is its **exact inverse** — including a *recursive*
+    re-supersede that mirrors removal's chain-walk resurrection, so a buried
+    surviving ancestor resurrected 2+ hops behind the departing voice is
+    re-superseded on restore (not just direct predecessors). Re-invite is either
+    restore (same `user_id`) or fresh-start (Node issues a new `user_id`; no
+    agent work). Idempotent. Module `flashback.collaborators`; migration 0034.
+    Side effect: a *surviving* shared entity first introduced by the removed
+    contributor stays active but renders **un-attributed** while they're removed
+    (the `collaborator_onboarding` name JOIN is `status='active'`-gated);
+    restore reverses it.
+
 ---
 
 ## 5. Schema invariants
@@ -508,7 +593,9 @@ Every piece of code touching the graph or queues must respect these.
 - **`validate_edge()` in app code**, not DB constraints. Every write
   goes through it.
 - **Supersession via `status`** (`active` | `superseded` | `merged`),
-  not deletion.
+  not deletion. Moments/entities also carry a `'removed'` status (migration
+  0034, SP6a) for reversible collaborator removal (#29) — distinct from
+  supersession/merge so restore is unambiguous.
 - **Embeddings:** `vector(1024)` columns with `embedding_model` and
   `embedding_model_version` alongside, on every embedded row.
 - **Subject of a legacy** lives in `persons`. Never duplicate the
@@ -519,6 +606,13 @@ Every piece of code touching the graph or queues must respect these.
 - **Identity merge suggestions** live in `identity_merge_suggestions`.
   They are pending review records, not graph mutations. Extraction can
   propose source→target; only approval performs the merge.
+- **Same-event links + contradiction review items** (migration 0033) live in
+  their own tables `moment_same_event_links` (`status active|unlinked`) and
+  `moment_contradictions` (`status pending|dismissed`). Agent-owned; Node reads
+  them only via the SP5 endpoints, never writes directly. They store moment ids
+  only — `told_by_*` is resolved live via JOIN to `moments` (#28). A/B order is
+  canonicalized (smaller UUID first) with a partial unique index over the live
+  status. See invariant #28.
 - **Questions are first-class nodes.** Their relational data lives in
   `edges` via `motivated_by`, `targets`, `answered_by`. The questions
   `attributes` JSONB only holds non-relational fields:

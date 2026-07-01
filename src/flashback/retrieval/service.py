@@ -14,6 +14,7 @@ from flashback.retrieval.queries import (
     GET_ENTITIES_BY_KIND_SQL,
     GET_ENTITIES_SQL,
     GET_RELATED_MOMENTS_SQL,
+    GET_SAME_EVENT_LINKED_MOMENTS_SQL,
     GET_SESSION_SUMMARY_SQL,
     GET_THREADS_FOR_ENTITY_SQL,
     GET_THREADS_SQL,
@@ -138,6 +139,22 @@ class RetrievalService:
             {"person_id": person_id, "entity_ids": entity_ids},
         )
         return [EntityResult.model_validate(row) for row in rows]
+
+    async def get_same_event_linked_moments(
+        self, person_id: UUID, moment_ids: list[UUID]
+    ) -> list[MomentResult]:
+        """Active moments linked as the same event to any of ``moment_ids``.
+
+        Feeds the response generator's <linked_accounts> block on recall.
+        Excludes the input ids and unlinked links. No vector search.
+        """
+        if not moment_ids:
+            return []
+        rows = await self._fetch_all(
+            GET_SAME_EVENT_LINKED_MOMENTS_SQL,
+            {"person_id": person_id, "moment_ids": moment_ids},
+        )
+        return [MomentResult.model_validate(row) for row in rows]
 
     async def get_entities(
         self,

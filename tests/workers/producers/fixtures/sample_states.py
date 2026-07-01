@@ -7,7 +7,7 @@ def p2_result(entity_id: str) -> dict:
     return {
         "questions": [
             {
-                "text": "What did Uncle Raj do that made the kitchen feel alive?",
+                "text": "What did Uncle Raj teach them in the kitchen?",
                 "targets_entity_id": entity_id,
                 "themes": ["family", "place"],
                 "scope": "personal",

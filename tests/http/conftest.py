@@ -35,6 +35,7 @@ from flashback.working_memory import WorkingMemory
 
 
 SERVICE_TOKEN = "test-token"
+ADMIN_SERVICE_TOKEN = "test-admin-token"
 
 
 class FakeProfilePictureQueue:
@@ -64,11 +65,19 @@ class FakeProfilePictureQueue:
         return "fake-message-id"
 
 
+class FakeSQSClient:
+    """Health-check stub: every queue reports reachable."""
+
+    async def get_queue_attributes(self, queue_url, *args, **kwargs):
+        return {"ApproximateNumberOfMessages": "0"}
+
+
 def _make_test_config() -> HttpConfig:
     return HttpConfig(
         database_url="postgresql://unused-in-no-db-tests/x",
         valkey_url="redis://unused-in-tests/0",
         service_token=SERVICE_TOKEN,
+        admin_service_token=ADMIN_SERVICE_TOKEN,
         http_host="127.0.0.1",
         http_port=8000,
         working_memory_ttl_seconds=100,
@@ -278,6 +287,7 @@ async def app_with_db(
     )
     application.state.orchestrator = fake_orchestrator
     application.state.profile_picture_queue = fake_profile_picture_queue
+    application.state.sqs_client = FakeSQSClient()
     return application
 
 
@@ -295,6 +305,14 @@ async def client_with_db(app_with_db):
 
 def auth_headers(token: str = SERVICE_TOKEN) -> dict[str, str]:
     return {"X-Service-Token": token}
+
+
+def admin_auth_headers() -> dict[str, str]:
+    """Admin endpoints require BOTH the service token and the admin token."""
+    return {
+        "X-Service-Token": SERVICE_TOKEN,
+        "X-Admin-Service-Token": ADMIN_SERVICE_TOKEN,
+    }
 
 
 def new_uuids() -> tuple[str, str, str]:

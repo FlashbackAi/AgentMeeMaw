@@ -87,6 +87,11 @@ class FakeCursor:
         self.sql = sql
 
     async def fetchone(self):
+        # select_coverage_tap reads coverage_state; return a complete state so
+        # no coverage tap fires and the phase-gate flow proceeds (this query
+        # also matches "FROM persons", so check it first).
+        if "coverage_state" in self.sql:
+            return ({"sensory": 1, "voice": 1, "place": 1, "relation": 1, "era": 1},)
         if "FROM persons" in self.sql:
             return ("Maya", "mother", self.phase, "she", None)
         raise AssertionError(f"unexpected SQL: {self.sql}")

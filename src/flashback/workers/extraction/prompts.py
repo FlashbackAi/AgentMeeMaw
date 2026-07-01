@@ -404,15 +404,16 @@ COMPATIBILITY_TOOL = ToolSpec(
     name="judge_compatibility",
     description=(
         "Compare a newly-extracted moment against an existing one. Decide "
-        "whether they are the same memory (refinement), contradict each "
-        "other (contradiction), or are independent."
+        "whether they are the same memory (refinement), the same event told "
+        "from different angles (same_event), contradict each other "
+        "(contradiction), or are independent."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "verdict": {
                 "type": "string",
-                "enum": ["refinement", "contradiction", "independent"],
+                "enum": ["refinement", "same_event", "contradiction", "independent"],
             },
             "reasoning": {"type": "string"},
         },
@@ -430,6 +431,11 @@ Verdicts:
 - `refinement`: They describe the SAME underlying memory; the newer one adds \
 detail or corrects the older. The system will supersede the older with the \
 newer.
+- `same_event`: They describe the SAME real-world event or occasion from \
+different angles, and both accounts are valid and complementary (e.g. two \
+people recalling the same wedding). Neither supersedes the other; the system \
+links them so the other account can be surfaced. Prefer `independent` if you \
+are not confident they are one shared occasion.
 - `contradiction`: They describe overlapping but factually conflicting \
 memories that cannot both be true. Both are preserved; the conflict is \
 logged for later review.
@@ -437,7 +443,9 @@ logged for later review.
 entity or theme. Both stand on their own.
 
 When in doubt, prefer `independent`. False refinements lose information; \
-false contradictions are noise.
+false contradictions are noise. Use `same_event` only for one clearly-shared \
+occasion; use `contradiction` when accounts of one event conflict on a fact \
+(the conflict outranks the link).
 
 Respond ONLY by calling the `judge_compatibility` tool.\
 """

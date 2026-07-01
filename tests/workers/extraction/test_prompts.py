@@ -82,7 +82,12 @@ def test_extraction_tool_max_three_moments_three_dropped_references() -> None:
 
 def test_compatibility_verdict_enum() -> None:
     enum = COMPATIBILITY_TOOL.input_schema["properties"]["verdict"]["enum"]
-    assert sorted(enum) == ["contradiction", "independent", "refinement"]
+    assert sorted(enum) == [
+        "contradiction",
+        "independent",
+        "refinement",
+        "same_event",
+    ]
 
 
 def test_extraction_prompt_preserves_actor_attribution() -> None:

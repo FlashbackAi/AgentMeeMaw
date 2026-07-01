@@ -34,10 +34,12 @@ class _FakeVoyage:
 
 
 async def test_happy_path_returns_vector() -> None:
-    fake = _FakeVoyage(embeddings=[[0.3, 0.4]])
+    # The embedder enforces 1024-dim query vectors (invariant #3).
+    vec = [0.3] * 1024
+    fake = _FakeVoyage(embeddings=[vec])
     embedder = VoyageQueryEmbedder(fake, model="voyage-3-large", timeout=1)
 
-    assert await embedder.embed("porch") == [0.3, 0.4]
+    assert await embedder.embed("porch") == vec
     assert fake.calls == [
         {"texts": ["porch"], "model": "voyage-3-large", "input_type": "query"}
     ]

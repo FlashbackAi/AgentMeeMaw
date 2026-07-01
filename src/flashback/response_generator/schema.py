@@ -94,6 +94,10 @@ class TurnContext(BaseModel):
     prior_session_summary: str = ""
     recent_turns: list[Turn] = Field(default_factory=list)
     related_moments: list[MomentResult] = Field(default_factory=list)
+    # SP5 (#28): active same-event-linked moments for the retrieved set, on
+    # recall only. Rendered in <linked_accounts>; cross-contributor attribution
+    # reuses the same guard as <moments>.
+    linked_account_moments: list[MomentResult] = Field(default_factory=list)
     related_entities: list[EntityResult] = Field(default_factory=list)
     related_threads: list[ThreadResult] = Field(default_factory=list)
     mentioned_entities: list[EntityResult] = Field(default_factory=list)

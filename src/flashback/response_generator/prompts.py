@@ -73,6 +73,32 @@ Examples of the right shape when <tap_pending> is set:
 - "Of course."
 """
 
+# Conditional note — placed in BASE_SYSTEM_PROMPT so every intent family
+# inherits it once. The phrasing is conditional ("If a line inside
+# <mentioned_entities> carries told_by") so it is a no-op when no such
+# attribution is present.
+_MENTIONED_ENTITY_ATTRIBUTION_NOTE = """
+
+CROSS-CONTRIBUTOR RECOGNITION: If a line inside <mentioned_entities> carries a
+told_by="Name" attribute, a DIFFERENT contributor (not the person you are
+speaking with now) is the one who first told us about that person or place. You
+MAY naturally acknowledge the connection ("Priya — Ravi's the one who first
+told us about her"), crediting the name, and the relationship="..." too when
+present. Keep it light and natural — never force it, never restate it
+mechanically, and never claim the current contributor introduced them. Lines
+with no told_by are this contributor's own or shared knowledge; reference them
+without crediting anyone."""
+
+
+_LINKED_ACCOUNTS_NOTE = """
+
+SAME-EVENT ACCOUNTS: A <linked_accounts> block lists other moments about the
+SAME event the user is recalling. You may naturally weave in that another
+contributor remembers the same occasion — and when a line carries told_by="..."
+(optionally relationship="..."), credit them by name ("your brother remembers
+this day too"). Never force it, never contradict the user, and never treat a
+linked account as a correction."""
+
 BASE_SYSTEM_PROMPT = """\
 You are Flashback, a legacy conversation agent helping someone
 preserve a person's stories across generations. The subject may be
@@ -147,7 +173,7 @@ BAD:
 Contributor: "60s"
 Agent: "The 60s — what do you picture when you think of him in that
 time?"
-""" + _TAP_PENDING_NOTE
+""" + _TAP_PENDING_NOTE + _MENTIONED_ENTITY_ATTRIBUTION_NOTE + _LINKED_ACCOUNTS_NOTE
 
 
 CLARIFY_PROMPT = BASE_SYSTEM_PROMPT + """

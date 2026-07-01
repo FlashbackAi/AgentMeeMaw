@@ -25,7 +25,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-CompatibilityVerdict = Literal["refinement", "contradiction", "independent"]
+CompatibilityVerdict = Literal["refinement", "same_event", "contradiction", "independent"]
 
 
 # ---------------------------------------------------------------------------

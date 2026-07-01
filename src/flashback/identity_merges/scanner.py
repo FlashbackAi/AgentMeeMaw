@@ -33,6 +33,8 @@ class IdentityMergeCandidate:
     proposed_alias: str
     reason_kind: str
     embedding_distance: float | None
+    source_told_by_user_id: str | None = None
+    target_told_by_user_id: str | None = None
 
 
 async def scan_identity_merge_suggestions_async(
@@ -103,6 +105,8 @@ async def scan_identity_merge_suggestions_async(
                 push_embedding=push_embedding,
                 embedding_model=embedding_model,
                 embedding_model_version=embedding_model_version,
+                source_told_by_user_id=candidate.source_told_by_user_id,
+                target_told_by_user_id=candidate.target_told_by_user_id,
             )
             if merged_id:
                 suggestion_ids.append(merged_id)
@@ -169,7 +173,8 @@ async def _find_candidates(
                   AND b.description_embedding IS NOT NULL
                  THEN a.description_embedding <=> b.description_embedding
                  ELSE NULL
-               END AS embedding_distance
+               END AS embedding_distance,
+               a.told_by_user_id::text, b.told_by_user_id::text
           FROM entities a
           JOIN entities b
             ON b.person_id = a.person_id
@@ -241,9 +246,12 @@ def _orient_candidate(person_id: str, row: tuple[Any, ...]) -> IdentityMergeCand
         b_aliases,
         kind,
         embedding_distance,
+        a_told_by,
+        b_told_by,
     ) = row
     a_aliases = list(a_aliases or [])
     b_aliases = list(b_aliases or [])
+    told_by_by_id = {a_id: a_told_by, b_id: b_told_by}
 
     if _norm(a_name) == _norm(b_name):
         source, target = _source_target_by_detail(
@@ -285,6 +293,8 @@ def _orient_candidate(person_id: str, row: tuple[Any, ...]) -> IdentityMergeCand
         proposed_alias=source_name,
         reason_kind=reason_kind,
         embedding_distance=float(embedding_distance) if embedding_distance is not None else None,
+        source_told_by_user_id=told_by_by_id.get(source_id),
+        target_told_by_user_id=told_by_by_id.get(target_id),
     )
 
 
@@ -299,8 +309,9 @@ async def _insert_scanner_suggestion(
         """
         INSERT INTO identity_merge_suggestions
               (person_id, source_entity_id, target_entity_id,
-               proposed_alias, reason, source, confidence)
-        SELECT %s, %s, %s, %s, %s, 'scanner', %s
+               proposed_alias, reason, source, confidence,
+               source_told_by_user_id, target_told_by_user_id)
+        SELECT %s, %s, %s, %s, %s, 'scanner', %s, %s, %s
          WHERE NOT EXISTS (
                SELECT 1
                  FROM identity_merge_suggestions
@@ -322,6 +333,8 @@ async def _insert_scanner_suggestion(
             candidate.proposed_alias,
             _reason(candidate, verifier_reason),
             confidence,
+            candidate.source_told_by_user_id,
+            candidate.target_told_by_user_id,
             candidate.person_id,
             candidate.source_id,
             candidate.target_id,

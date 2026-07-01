@@ -108,3 +108,19 @@ def test_starter_prompt_has_voice_anchor_instruction():
     from flashback.response_generator.prompts import STARTER_OPENER_PROMPT
     p = STARTER_OPENER_PROMPT.lower()
     assert "voice_anchor" in p or "relationship to the subject" in p
+
+
+def test_base_prompt_has_mentioned_entity_attribution():
+    # The cross-contributor entity acknowledgment lives in BASE_SYSTEM_PROMPT
+    # so every intent family inherits it (mentioned_entities is intent-independent).
+    assert "mentioned_entities" in prompts.BASE_SYSTEM_PROMPT
+    for prompt in prompts.INTENT_TO_PROMPT.values():
+        assert "mentioned_entities" in prompt
+
+
+def test_base_prompt_mentions_linked_accounts():
+    # SP5: same-event linked-account guidance lives in BASE_SYSTEM_PROMPT so
+    # every intent family inherits it.
+    assert "linked_accounts" in prompts.BASE_SYSTEM_PROMPT
+    for prompt in prompts.INTENT_TO_PROMPT.values():
+        assert "linked_accounts" in prompt

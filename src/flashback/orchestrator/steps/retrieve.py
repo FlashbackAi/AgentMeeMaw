@@ -47,6 +47,17 @@ async def retrieve(state: TurnState, deps: OrchestratorDeps) -> None:
                         person_id=state.person_id,
                     ),
                 )
+                if state.related_moments:
+                    try:
+                        state.linked_account_moments = (
+                            await deps.retrieval.get_same_event_linked_moments(
+                                state.person_id,
+                                [m.id for m in state.related_moments],
+                            )
+                        )
+                    except Exception as exc:  # best-effort; never block the turn
+                        log.info("retrieval.linked_accounts_failed", error=str(exc))
+                        state.linked_account_moments = []
             elif intent == "switch":
                 state.related_entities, state.related_threads = await asyncio.gather(
                     deps.retrieval.get_entities(state.person_id),

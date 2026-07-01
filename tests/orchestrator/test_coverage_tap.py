@@ -185,7 +185,12 @@ async def test_bank_exhaustion_returns_empty_list(wm):
     assert state.taps == []
 
 
-async def test_no_tap_on_first_user_turn(wm):
+async def test_tap_fires_on_switch_with_coverage_gap(wm):
+    # The cooldown only suppresses taps shortly AFTER a prior tap
+    # (user_turns_since_last_tap defaults to 999); there is no special
+    # first-user-turn suppression. A switch turn with an open coverage gap
+    # therefore emits a tap from the first turn on. (CLAUDE.md §6: cap of 2
+    # per session + a 2-turn between-taps cooldown — no first-turn rule.)
     session_id = uuid4()
     person_id = uuid4()
     now = datetime.now(timezone.utc)
@@ -204,7 +209,7 @@ async def test_no_tap_on_first_user_turn(wm):
 
     await select_coverage_tap(state, _deps(wm, FakePool()))
 
-    assert state.taps == []
+    assert len(state.taps) == 1
 
 
 async def test_wm_counter_increments(wm):

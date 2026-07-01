@@ -173,6 +173,28 @@ def _candidate_question_ids(payload: ExtractionMessage) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Cross-contributor refinement guard (#28)
+# ---------------------------------------------------------------------------
+
+
+def refinement_supersede_allowed(
+    new_told_by: str | None, candidate_told_by: str | None
+) -> bool:
+    """Whether a ``refinement`` verdict may supersede the existing moment.
+
+    Supersession erases the older moment from the active legacy, so it must
+    stay within a single contributor's voice. A *different* contributor adding
+    detail must not erase the first contributor's account — that is demoted to
+    a ``same_event`` link (both voices survive). A creator-era (NULL) candidate
+    may still be refined: it is the single original voice, and enrichment of
+    cold-start moments is intended.
+    """
+    if candidate_told_by is None:
+        return True
+    return candidate_told_by == new_told_by
+
+
+# ---------------------------------------------------------------------------
 # Wired worker (dependency container)
 # ---------------------------------------------------------------------------
 
@@ -200,6 +222,10 @@ class ExtractionWorker:
     redis_client: object | None = None
     refinement_distance_threshold: float = 0.35
     refinement_candidate_limit: int = 3
+    # Near-identical narratives below this distance are compatibility-checked
+    # even without shared entities (SP5 follow-up). The entity-overlap rule
+    # still governs the band up to refinement_distance_threshold.
+    refinement_tight_distance_threshold: float = 0.15
     sqs_wait_seconds: int = 20
     visibility_timeout_seconds: int = 120
     visibility_heartbeat_interval_seconds: int = 45
@@ -365,7 +391,11 @@ class ExtractionWorker:
 
         # 3. Refinement detection (vector search + per-candidate compat call).
         decisions = self._build_moment_decisions(
-            extraction=extraction, person_id=str(payload.person_id)
+            extraction=extraction,
+            person_id=str(payload.person_id),
+            told_by_user_id=(
+                str(payload.told_by_user_id) if payload.told_by_user_id else None
+            ),
         )
 
         # 4. Single transaction.
@@ -650,7 +680,11 @@ class ExtractionWorker:
         return overrides
 
     def _build_moment_decisions(
-        self, *, extraction: ExtractionResult, person_id: str
+        self,
+        *,
+        extraction: ExtractionResult,
+        person_id: str,
+        told_by_user_id: str | None = None,
     ) -> list[MomentDecision]:
         decisions: list[MomentDecision] = []
         for moment in extraction.moments:
@@ -665,6 +699,7 @@ class ExtractionWorker:
                 embedding_model_version=self.embedding_model_version,
                 distance_threshold=self.refinement_distance_threshold,
                 candidate_limit=self.refinement_candidate_limit,
+                tight_distance_threshold=self.refinement_tight_distance_threshold,
             )
             decision = MomentDecision(moment=moment)
             for candidate in candidates:
@@ -675,10 +710,20 @@ class ExtractionWorker:
                     candidate=candidate,
                 )
                 if response.verdict == "refinement":
-                    decision.supersedes_id = candidate.id
-                    break  # take the first refinement match
+                    # Cross-contributor guard (#28): a different contributor's
+                    # account must not be superseded — demote to a same_event
+                    # link so both voices survive.
+                    if refinement_supersede_allowed(
+                        told_by_user_id, candidate.told_by_user_id
+                    ):
+                        decision.supersedes_id = candidate.id
+                        break  # take the first refinement match
+                    decision.same_event_ids.append(candidate.id)
+                    continue
                 if response.verdict == "contradiction":
                     decision.contradicts_ids.append(candidate.id)
+                if response.verdict == "same_event":
+                    decision.same_event_ids.append(candidate.id)
                 # independent — keep looking
             decisions.append(decision)
         return decisions

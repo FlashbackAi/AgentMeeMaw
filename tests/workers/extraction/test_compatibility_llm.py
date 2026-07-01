@@ -11,6 +11,22 @@ from flashback.workers.extraction.refinement import RefinementCandidate
 from flashback.workers.extraction.schema import ExtractedMoment
 
 
+def test_compatibility_verdict_includes_same_event():
+    from typing import get_args
+
+    from flashback.workers.extraction.schema import CompatibilityVerdict
+
+    assert "same_event" in get_args(CompatibilityVerdict)
+
+
+def test_compatibility_tool_enum_includes_same_event():
+    from flashback.workers.extraction.prompts import COMPATIBILITY_TOOL
+
+    enum = COMPATIBILITY_TOOL.input_schema["properties"]["verdict"]["enum"]
+    assert "same_event" in enum
+    assert set(enum) == {"refinement", "same_event", "contradiction", "independent"}
+
+
 def _stub_call(returns: dict, exception: Exception | None = None):
     async def _impl(**kwargs):
         if exception is not None:

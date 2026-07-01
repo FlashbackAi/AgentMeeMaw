@@ -531,6 +531,8 @@ Mixing rows across models gives garbage.
 | Traits | `active_traits` |
 | Open questions / "ask next" | `active_questions` (filtered by status / answered_by edges) |
 | Identity merge review | `identity_merge_suggestions` (the GET endpoint is more convenient) |
+| Same-event links (toast + unlink) | `moment_same_event_links` — read via `GET /event_links` |
+| Contradiction review queue | `moment_contradictions` — read via `GET /contradictions` |
 
 ### 6.5 Columns Node writes
 
@@ -826,6 +828,43 @@ Approval and auto-merge mutate the graph atomically (repoint edges, mark
 source `merged`, queue survivor re-embedding) and capture an undo snapshot.
 Treat each response as the final state; reverse via `/unmerge`, not a
 Node-side rollback.
+
+### Same-event links + contradictions (SP5)
+
+Produced automatically by the Extraction Worker — there is **no scan to
+trigger** (unlike identity merges). Detection rides the per-moment
+compatibility check, so links/items appear shortly after extraction commits.
+
+1. **Same-event toast.** Poll `GET /event_links?person_id=...` for
+   unacknowledged links; render "we connected these two memories" using the
+   two `moment_*_title`s (and `told_by_*_display_name` when a different
+   contributor told the linked side). Dismiss → `POST /event_links/{id}/
+   acknowledge`. "These aren't the same event" → `POST /event_links/{id}/unlink`.
+2. **Contradiction review.** Read `GET /contradictions?person_id=...`; render
+   both accounts (with live `told_by_*`); the only resolution this cycle is
+   "keep both" → `POST /contradictions/{id}/dismiss`. Both moments always stay
+   active — the agent never adjudicates the conflict.
+
+These are agent-owned tables; Node consumes them only via these endpoints and
+never writes them directly. `told_by_*` is resolved live, so it always reflects
+the current active moment (e.g. after a refinement supersession).
+
+### Collaborator removal (SP6a)
+
+Removal is agent-owned and **reversible** (a `status` flip, never a delete):
+
+- **Remove** → `POST /collaborators/remove {person_id, user_id}`. The
+  contributor's moments and the entities orphaned to them (referenced by no
+  surviving contributor's moment) stop surfacing; shared entities, traits,
+  questions, profile facts, threads and themes remain. The response counts what
+  changed. Removing an unknown/already-removed contributor is a zero-count no-op
+  (HTTP 200), so the call is safe to retry.
+- **Bring back, two ways:** **restore** the same identity →
+  `POST /collaborators/restore {person_id, user_id}` (their content returns
+  intact); or **fresh start** → just re-invite under a **new `user_id`** (no
+  agent call; the old removed content stays hidden).
+- Node never writes `status` directly. Do **not** issue a removal while the
+  contributor has a live session — Node owns session lifecycle.
 
 ---
 

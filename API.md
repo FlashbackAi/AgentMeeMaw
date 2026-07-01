@@ -122,6 +122,13 @@ rejected with `422`.
 | `GET` | `/identity_merges/auto_merged` | Feed of silently auto-merged entities (toast source) |
 | `POST` | `/identity_merges/{id}/acknowledge` | Dismiss an auto-merge notification |
 | `POST` | `/identity_merges/{id}/unmerge` | Reverse an auto/approved merge (resurrect as new entity) |
+| `GET` | `/event_links` | List same-event links for a person (toast feed) |
+| `POST` | `/event_links/{id}/acknowledge` | Dismiss a same-event link notification |
+| `POST` | `/event_links/{id}/unlink` | Reverse a same-event link |
+| `GET` | `/contradictions` | List pending contradiction review items |
+| `POST` | `/contradictions/{id}/dismiss` | Resolve a contradiction (keep both) |
+| `POST` | `/collaborators/remove` | Reversibly remove a contributor (hide their moments + orphaned entities) |
+| `POST` | `/collaborators/restore` | Restore a removed contributor's content |
 | `POST` | `/nodes/{node_type}/{node_id}/edit` | Generic edit for moments and entities |
 | `POST` | `/admin/reset_phase` | Force a person back to `starter` phase |
 
@@ -719,7 +726,10 @@ as an out-of-band review pane, not inside the memorial conversation.
     "reason": "string",
     "source": "string",
     "status": "pending | approved | rejected",
-    "created_at": "iso-8601"
+    "created_at": "iso-8601",
+    "cross_contributor": "bool",
+    "source_told_by_display_name": "string | null",
+    "target_told_by_display_name": "string | null"
   }
 ]
 ```
@@ -810,9 +820,19 @@ default `false`).
   "notification_text": "You mentioned Ishita again — combined with the earlier one.",
   "confidence": "high",
   "acknowledged": false,
-  "auto_merged_at": "2026-06-06T12:00:00Z"
+  "auto_merged_at": "2026-06-06T12:00:00Z",
+  "cross_contributor": true,
+  "source_told_by_display_name": "Ravi",
+  "target_told_by_display_name": "Priya"
 }
 ```
+
+`cross_contributor` is true when the two merged cards were introduced by
+different contributors (creator-era NULL vs a collaborator counts). The two
+`*_told_by_display_name` fields are resolved live from `collaborator_onboarding`
+(NULL = creator era), so the UI can render "Priya's Amma and Ravi's Amma are the
+same person — merged." These feeds are per-legacy; Node decides which member(s)
+see them.
 
 ### `POST /identity_merges/{suggestion_id}/acknowledge`
 
@@ -843,6 +863,111 @@ re-created. Pushes a re-embed for the resurrected entity.
 
 **Errors**
 - `404` — suggestion not in a reversible state (`auto_merged`/`approved`)
+
+---
+
+## 6b. Same-event links + contradictions (SP5)
+
+Two agent-owned review surfaces produced live by the Extraction Worker when a
+new moment is judged the **same event** as, or in **contradiction** with, an
+existing moment (compatibility verdict). Node reads these via the endpoints
+below and never writes the tables directly. Both `SameEventLink` and
+`ContradictionItem` resolve `told_by_*` **live** from the current active
+moments, so attribution always reflects the latest supersession.
+
+### `GET /event_links?person_id=…&include_acknowledged=false`
+
+Returns active same-event links (default: unacknowledged only). Each item:
+
+```json
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "moment_a_id": "uuid",
+  "moment_b_id": "uuid",
+  "reason": "string or null",
+  "status": "active",
+  "acknowledged_at": "iso-8601 or null",
+  "created_at": "iso-8601",
+  "moment_a_title": "string",
+  "moment_b_title": "string",
+  "told_by_a_user_id": "uuid or null",
+  "told_by_a_display_name": "string or null",
+  "told_by_b_user_id": "uuid or null",
+  "told_by_b_display_name": "string or null"
+}
+```
+
+### `POST /event_links/{link_id}/acknowledge`
+
+Dismiss the toast. Returns `{ "link_id": "uuid", "acknowledged": true }`.
+`404` if no active link with that id.
+
+### `POST /event_links/{link_id}/unlink`
+
+Reverse the link (`status → unlinked`). Returns
+`{ "link_id": "uuid", "unlinked": true }`. `404` if no active link with that id.
+
+### `GET /contradictions?person_id=…`
+
+Returns pending contradiction review items. Each item has the same shape as
+`SameEventLink` minus `acknowledged_at`, plus `resolved_at` and
+`status: "pending"`.
+
+### `POST /contradictions/{item_id}/dismiss`
+
+Resolve "keep both" (`status → dismissed`, stamps `resolved_at`). Both moments
+stay active; no graph mutation. Returns
+`{ "item_id": "uuid", "dismissed": true }`. `404` if no pending item with that
+id.
+
+---
+
+## 6c. Collaborator removal (SP6a)
+
+Reversible offboarding of a contributor. Removal flips `status → 'removed'` on
+the contributor's `collaborator_onboarding` row, their moments, and the entities
+they introduced that **no surviving contributor's moment references**; the
+`active_*` views then hide all of it. It also resurrects the nearest surviving
+contributor's moment that a removed moment had superseded. **Never deletes.**
+`role_id`, if sent, is tolerated and ignored (#26).
+
+### `POST /collaborators/remove`
+
+Body: `{ "person_id": "uuid", "user_id": "uuid" }`. Returns:
+
+```json
+{
+  "person_id": "uuid",
+  "user_id": "uuid",
+  "moments_removed": 3,
+  "entities_removed": 1,
+  "moments_resurrected": 1
+}
+```
+
+Idempotent: removing an already-removed contributor (or an unknown
+`(person_id, user_id)`) returns **zero counts, HTTP 200** — not a 404.
+
+### `POST /collaborators/restore`
+
+Body: `{ "person_id": "uuid", "user_id": "uuid" }`. Exact inverse — flips the
+contributor's `removed` moments/entities/onboarding back to `active` and
+re-supersedes any predecessor that removal resurrected. Returns:
+
+```json
+{
+  "person_id": "uuid",
+  "user_id": "uuid",
+  "moments_restored": 3,
+  "entities_restored": 1,
+  "moments_re_superseded": 1
+}
+```
+
+Restore is for "same `user_id`" re-invite. For a clean-slate re-invite, Node
+simply issues a **new `user_id`** (no agent call); the old removed content stays
+hidden.
 
 ---
 

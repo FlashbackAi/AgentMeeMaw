@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 
-from tests.http.conftest import auth_headers
+from tests.http.conftest import admin_auth_headers, auth_headers
 
 
 async def _make_steady_person(pool, name: str = "Steady Subject") -> str:
@@ -56,7 +56,7 @@ class TestResetPhase:
 
         resp = await client_with_db.post(
             "/admin/reset_phase",
-            headers=auth_headers(),
+            headers=admin_auth_headers(),
             json={"person_id": pid},
         )
         assert resp.status_code == 200, resp.text
@@ -83,7 +83,7 @@ class TestResetPhase:
         bogus = str(uuid4())
         resp = await client_with_db.post(
             "/admin/reset_phase",
-            headers=auth_headers(),
+            headers=admin_auth_headers(),
             json={"person_id": bogus},
         )
         assert resp.status_code == 404

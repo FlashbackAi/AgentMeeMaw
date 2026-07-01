@@ -76,8 +76,19 @@ def render_turn_context(ctx: TurnContext) -> str:
         lines = []
         for entity in ctx.mentioned_entities:
             description = entity.description or ""
+            attribution = ""
+            if (
+                ctx.current_user_id is not None
+                and entity.told_by_user_id is not None
+                and entity.told_by_user_id != ctx.current_user_id
+                and entity.told_by_display_name
+            ):
+                attribution = f' told_by="{xml_text(entity.told_by_display_name)}"'
+                if entity.told_by_relationship:
+                    attribution += f' relationship="{xml_text(entity.told_by_relationship)}"'
             lines.append(
                 f"- {entity.kind} {xml_text(entity.name)}: {xml_text(description)}".rstrip()
+                + attribution
             )
         attrs = ' ambiguous="true"' if ctx.ambiguous_mention else ""
         sections.append(
@@ -89,6 +100,24 @@ def render_turn_context(ctx: TurnContext) -> str:
                 ]
             )
         )
+
+    if ctx.linked_account_moments:
+        lines = []
+        for moment in ctx.linked_account_moments:
+            attribution = ""
+            if (
+                ctx.current_user_id is not None
+                and moment.told_by_user_id is not None
+                and moment.told_by_user_id != ctx.current_user_id
+                and moment.told_by_display_name
+            ):
+                attribution = f' told_by="{xml_text(moment.told_by_display_name)}"'
+                if moment.told_by_relationship:
+                    attribution += f' relationship="{xml_text(moment.told_by_relationship)}"'
+            lines.append(
+                f"- {xml_text(moment.title)}: {xml_text(moment.narrative)}{attribution}"
+            )
+        sections.append(_block("linked_accounts", "\n".join(lines)))
 
     if ctx.seeded_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.seeded_question_text)))

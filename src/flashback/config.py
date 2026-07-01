@@ -140,6 +140,7 @@ class ExtractionConfig:
 
     extraction_refinement_distance_threshold: float
     extraction_refinement_candidate_limit: int
+    extraction_refinement_tight_distance_threshold: float
     extraction_voyage_query_timeout_seconds: float
 
     thread_detector_cadence: int
@@ -233,6 +234,9 @@ class ExtractionConfig:
             ),
             extraction_refinement_candidate_limit=int(
                 os.environ.get("EXTRACTION_REFINEMENT_CANDIDATE_LIMIT", "3")
+            ),
+            extraction_refinement_tight_distance_threshold=float(
+                os.environ.get("EXTRACTION_REFINEMENT_TIGHT_DISTANCE_THRESHOLD", "0.15")
             ),
             extraction_voyage_query_timeout_seconds=float(
                 os.environ.get("EXTRACTION_VOYAGE_QUERY_TIMEOUT_SECONDS", "5")

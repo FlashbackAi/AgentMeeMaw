@@ -4,8 +4,10 @@ Structural test: the EMBEDDING_TARGETS registry must match the schema.
 Why this exists: every entry in EMBEDDING_TARGETS encodes a (table,
 vector_column) pair the worker writes to. If a future migration
 renames either, the worker would silently emit "no such column"
-errors at runtime. This test parses 0001_initial_schema.up.sql and
-asserts both names exist for every registry entry.
+errors at runtime. This test parses every ``*.up.sql`` migration and
+asserts both names exist for every registry entry. (Parsing all
+migrations, not just 0001, is required because tables like
+``profile_facts`` are introduced in later migrations.)
 
 We do *not* validate ``source_column`` for thread/trait because their
 source is a SQL expression, not a single column. We validate the
@@ -22,7 +24,7 @@ import pytest
 from flashback.db.embedding_targets import EMBEDDING_TARGETS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_FILE = REPO_ROOT / "migrations" / "0001_initial_schema.up.sql"
+MIGRATIONS_DIR = REPO_ROOT / "migrations"
 
 
 def _table_columns(sql: str) -> dict[str, set[str]]:
@@ -33,7 +35,7 @@ def _table_columns(sql: str) -> dict[str, set[str]]:
     """
     tables: dict[str, set[str]] = {}
     pattern = re.compile(
-        r"CREATE\s+TABLE\s+(\w+)\s*\((.*?)\n\)\s*;",
+        r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\n\)\s*;",
         re.DOTALL | re.IGNORECASE,
     )
     for match in pattern.finditer(sql):
@@ -56,13 +58,18 @@ def _table_columns(sql: str) -> dict[str, set[str]]:
 
 @pytest.fixture(scope="module")
 def schema_columns() -> dict[str, set[str]]:
-    assert SCHEMA_FILE.exists(), f"missing schema file: {SCHEMA_FILE}"
-    return _table_columns(SCHEMA_FILE.read_text(encoding="utf-8"))
+    up_files = sorted(MIGRATIONS_DIR.glob("*.up.sql"))
+    assert up_files, f"no migrations under {MIGRATIONS_DIR}"
+    merged: dict[str, set[str]] = {}
+    for path in up_files:
+        for table, cols in _table_columns(path.read_text(encoding="utf-8")).items():
+            merged.setdefault(table, set()).update(cols)
+    return merged
 
 
-def test_registry_covers_five_record_types() -> None:
+def test_registry_covers_record_types() -> None:
     assert set(EMBEDDING_TARGETS) == {
-        "moment", "entity", "thread", "trait", "question",
+        "moment", "entity", "thread", "trait", "question", "profile_fact",
     }
 
 

@@ -95,6 +95,7 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
     detector = SequenceDetector()
     queue = CapturingExtractionQueue()
     app.state.redis = fake_redis
+    app.state.db_pool = FakeDbPool()
     app.state.working_memory = wm
     app.state.orchestrator = Orchestrator(
         OrchestratorDeps(
@@ -128,7 +129,6 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
                 json={
                     "session_id": str(session_id),
                     "person_id": str(person_id),
-                    "role_id": str(role_id),
                     "message": f"Memory detail {i}",
                 },
             )

@@ -45,6 +45,7 @@ class TurnState:
     effective_intent: Intent = "story"
     effective_temperature: Temperature = "medium"
     related_moments: list[MomentResult] = field(default_factory=list)
+    linked_account_moments: list[MomentResult] = field(default_factory=list)
     related_entities: list[EntityResult] = field(default_factory=list)
     related_threads: list[ThreadResult] = field(default_factory=list)
     mentioned_entities: list[EntityResult] = field(default_factory=list)

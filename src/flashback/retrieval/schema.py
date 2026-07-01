@@ -36,6 +36,9 @@ class EntityResult(BaseModel):
     attributes: dict
     created_at: datetime
     similarity_score: float | None = None
+    told_by_user_id: UUID | None = None
+    told_by_display_name: str | None = None
+    told_by_relationship: str | None = None
 
 
 class ThreadResult(BaseModel):

@@ -46,6 +46,20 @@ class QuestionDecisionInput(BaseModel):
     action: Literal["skip", "suppress", "defer"]
 
 
+# --- /collaborators/remove|restore (SP6a) ----------------------------------
+
+
+class CollaboratorActionRequest(BaseModel):
+    """Remove or restore a contributor. ``role_id`` (if sent) is ignored
+    (#26 transition window); declared so ``extra='forbid'`` doesn't 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    user_id: UUID
+    role_id: UUID | None = None
+
+
 # --- /session/start --------------------------------------------------------
 
 

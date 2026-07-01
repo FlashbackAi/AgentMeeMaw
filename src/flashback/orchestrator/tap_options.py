@@ -22,6 +22,18 @@ from flashback.llm.prompt_safety import xml_text
 
 log = structlog.get_logger("flashback.tap_options")
 
+# Subject gender -> pronoun string for the option-chip prompt. Unknown / "they"
+# yields gender-neutral chips (we must not assume he/she for the subject).
+_PRONOUNS = {
+    "he": "he/him/his",
+    "she": "she/her/hers",
+    "they": "they/them/theirs",
+}
+
+
+def _pronoun_phrase(gender: str | None) -> str:
+    return _PRONOUNS.get((gender or "they").strip().lower(), "they/them/theirs")
+
 
 _TAP_OPTIONS_SYSTEM = """\
 You generate 4 short tappable answer chips for a follow-up question
@@ -36,8 +48,14 @@ or other loved one. Think "what would a real person blurt out", not
 Rules:
 - Output EXACTLY 4 chips. No more, no fewer.
 - Each chip is 2-6 words. Read like a memory fragment, not a label.
-- Use first-person register where it fits ("His quiet laugh",
-  "Always on the phone", "Cooking for everyone").
+- PRONOUNS — read the subject's pronouns from <subject pronouns="...">. Use
+  ONLY those. If the pronouns are "they/them/theirs" (gender unknown or
+  non-binary), keep EVERY chip strictly gender-neutral: never use
+  he/him/his/she/her/hers — phrase the memory without a gendered pronoun
+  ("Laughing on the couch", "Singing along in the car", "Rolling their eyes
+  but smiling") or use they/them. NEVER guess a gender.
+- Use a natural register where it fits ("Quiet laugh", "Always on the phone",
+  "Cooking for everyone").
 - Sensory detail beats abstraction. Concrete beats generic. Verbs
   beat nouns when natural.
 - Don't enumerate exhaustive categories. Pick 4 that feel emotionally
@@ -79,6 +97,10 @@ Question: "What did weekends look like?"
 Dimension: era
 Output: ["Long mornings at home", "Out the door early", "Cooking the whole day", "Visiting family"]
 
+(The example pronouns above match each example's own subject. For YOUR output,
+use only the pronouns given for THIS subject — and when they are they/them,
+keep the chips gender-neutral, like the era example, which uses none.)
+
 Bad output (do not produce):
 - ["Friendly greeting", "Asking a casual question", "Making a joke", "Shared interests"]  ← taxonomic
 - ["Specific catchphrase", "Particular laugh", "Unique voice", "Way of telling stories"]  ← labels
@@ -118,15 +140,22 @@ async def generate_tap_options(
     person_name: str,
     person_relationship: str | None,
     dimension: str,
+    person_gender: str | None = None,
 ) -> list[str]:
-    """Best-effort LLM-driven option chips. Returns ``[]`` on any failure."""
+    """Best-effort LLM-driven option chips. Returns ``[]`` on any failure.
+
+    ``person_gender`` (he/she/they; None -> they) controls the pronouns the
+    chips may use — unknown/they yields gender-neutral chips so we never
+    address the subject as a gender we don't know.
+    """
 
     if settings is None or not question_text:
         return []
 
     rel_attr = f' relationship="{xml_text(person_relationship)}"' if person_relationship else ""
+    pronouns = _pronoun_phrase(person_gender)
     user_block = (
-        f"<subject{rel_attr}>{xml_text(person_name)}</subject>\n"
+        f'<subject{rel_attr} pronouns="{pronouns}">{xml_text(person_name)}</subject>\n'
         f"<dimension>{xml_text(dimension) if dimension else 'general'}</dimension>\n"
         f"<question>{xml_text(question_text)}</question>"
     )
@@ -178,6 +207,7 @@ async def generate_onboarding_tap(
     settings,
     person_name: str,
     relationship: str | None,
+    person_gender: str | None = None,
 ) -> tuple[str, list[str]]:
     """Indirect 'defining memory' onboarding prompt + 4 chips.
 
@@ -192,5 +222,6 @@ async def generate_onboarding_tap(
         person_name=person_name,
         person_relationship=relationship,
         dimension="",
+        person_gender=person_gender,
     )
     return text, options

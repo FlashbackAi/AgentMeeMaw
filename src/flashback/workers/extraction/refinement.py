@@ -34,6 +34,10 @@ class RefinementCandidate:
     title: str
     narrative: str
     distance: float
+    # Provenance of the candidate (the EXISTING moment). Used by the
+    # cross-contributor refinement guard: a different contributor's account
+    # must not be superseded (SP5 #28). NULL = creator era.
+    told_by_user_id: str | None = None
 
 
 def find_refinement_candidates(
@@ -47,6 +51,7 @@ def find_refinement_candidates(
     embedding_model_version: str,
     distance_threshold: float = 0.35,
     candidate_limit: int = 3,
+    tight_distance_threshold: float = 0.15,
 ) -> list[RefinementCandidate]:
     """
     Return zero or more refinement candidates for ``new_moment``.
@@ -62,7 +67,8 @@ def find_refinement_candidates(
 
     sql = """
         SELECT id::text, title, narrative,
-               (narrative_embedding <=> %(qv)s::vector) AS distance
+               (narrative_embedding <=> %(qv)s::vector) AS distance,
+               told_by_user_id::text
         FROM   active_moments
         WHERE  person_id              = %(person_id)s
           AND  embedding_model         = %(model)s
@@ -89,16 +95,39 @@ def find_refinement_candidates(
         return []
 
     new_names = {n.lower() for n in new_moment_entity_names if n}
-    if not new_names:
-        # No entities on the new moment means the entity-overlap filter
-        # admits nothing. Return early.
-        return []
 
     candidates: list[RefinementCandidate] = []
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             for row in rows:
-                moment_id, title, narrative, distance = row
+                moment_id, title, narrative, distance, cand_told_by = row
+                distance = float(distance)
+
+                def _admit() -> None:
+                    candidates.append(
+                        RefinementCandidate(
+                            id=moment_id,
+                            title=title,
+                            narrative=narrative,
+                            distance=distance,
+                            told_by_user_id=cand_told_by,
+                        )
+                    )
+
+                # Tight path: a near-identical narrative is admitted regardless
+                # of shared entities. This widens what reaches the compatibility
+                # LLM (which still judges every candidate — nothing auto-links);
+                # it does NOT loosen the entity-overlap rule, which still governs
+                # the looser band below. Catches obvious same-event pairs where
+                # one moment under-extracted its entities.
+                if distance < tight_distance_threshold:
+                    _admit()
+                    continue
+
+                # Looser band (tight_distance_threshold .. distance_threshold):
+                # the original rule — require >=1 shared linked entity.
+                if not new_names:
+                    continue
                 cur.execute(
                     """
                     SELECT lower(e.name)
@@ -114,14 +143,7 @@ def find_refinement_candidates(
                 )
                 existing_names = {r[0] for r in cur.fetchall()}
                 if new_names & existing_names:
-                    candidates.append(
-                        RefinementCandidate(
-                            id=moment_id,
-                            title=title,
-                            narrative=narrative,
-                            distance=float(distance),
-                        )
-                    )
+                    _admit()
 
     log.info(
         "refinement.candidates",

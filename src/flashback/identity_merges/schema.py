@@ -28,6 +28,10 @@ class IdentityMergeSuggestion(BaseModel):
     source: str
     status: MergeStatus
     created_at: datetime
+    # SP6b: cross-contributor context (resolved live from collaborator_onboarding).
+    cross_contributor: bool = False
+    source_told_by_display_name: str | None = None
+    target_told_by_display_name: str | None = None
 
 
 class IdentityMergeActionResponse(BaseModel):
@@ -54,6 +58,10 @@ class AutoMergeNotification(BaseModel):
     confidence: str | None = None
     acknowledged: bool
     auto_merged_at: datetime | None = None
+    # SP6b: cross-contributor context (resolved live from collaborator_onboarding).
+    cross_contributor: bool = False
+    source_told_by_display_name: str | None = None
+    target_told_by_display_name: str | None = None
 
 
 class UnmergeResponse(BaseModel):

@@ -37,6 +37,12 @@ async def select_coverage_tap(state: TurnState, deps: OrchestratorDeps) -> None:
             "clarify",
         }:
             return
+        if deps.db_pool is None:
+            # Coverage state lives in Postgres; with no pool configured the
+            # step cannot run. Degrade gracefully (mirrors entity_mention_scan's
+            # "not_configured" no-op) rather than crashing the turn.
+            log.info("coverage_tap.skipped", reason="not_configured")
+            return
 
         transcript = state.transcript or await deps.working_memory.get_transcript(
             str(state.session_id)
@@ -107,6 +113,7 @@ async def select_coverage_tap(state: TurnState, deps: OrchestratorDeps) -> None:
             person_name=name,
             person_relationship=relationship,
             dimension=dimension,
+            person_gender=gender,
         )
         tap = Tap(
             question_id=question_id,

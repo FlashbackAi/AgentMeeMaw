@@ -59,11 +59,19 @@ ORDER  BY created_at DESC
 """
 
 GET_ENTITIES_BY_IDS_SQL = """
-SELECT id, person_id, kind, name, description, aliases, attributes, created_at
-FROM   active_entities
-WHERE  person_id = %(person_id)s
-  AND  id        = ANY(%(entity_ids)s)
-ORDER  BY created_at DESC
+SELECT e.id, e.person_id, e.kind, e.name, e.description, e.aliases,
+       e.attributes, e.created_at,
+       e.told_by_user_id,
+       co.display_name      AS told_by_display_name,
+       co.voice_anchor_text AS told_by_relationship
+FROM   active_entities e
+LEFT JOIN collaborator_onboarding co
+       ON co.person_id = e.person_id
+      AND co.user_id   = e.told_by_user_id
+      AND co.status    = 'active'
+WHERE  e.person_id = %(person_id)s
+  AND  e.id        = ANY(%(entity_ids)s)
+ORDER  BY e.created_at DESC
 """
 
 GET_ENTITIES_BY_KIND_SQL = """
@@ -93,6 +101,33 @@ WHERE  ent.id        = %(entity_id)s
   AND  ent.person_id = %(person_id)s
 ORDER  BY m.created_at DESC
 LIMIT  %(limit)s
+"""
+
+GET_SAME_EVENT_LINKED_MOMENTS_SQL = """
+WITH partner_ids AS (
+    SELECT CASE WHEN moment_a_id = ANY(%(moment_ids)s) THEN moment_b_id
+                ELSE moment_a_id END AS partner_id
+    FROM   moment_same_event_links
+    WHERE  person_id = %(person_id)s
+      AND  status    = 'active'
+      AND  (moment_a_id = ANY(%(moment_ids)s) OR moment_b_id = ANY(%(moment_ids)s))
+)
+SELECT DISTINCT
+    m.id, m.person_id, m.title, m.narrative, m.time_anchor,
+    m.life_period_estimate, m.sensory_details, m.emotional_tone,
+    m.contributor_perspective, m.created_at,
+    m.told_by_user_id, m.told_by_display_name,
+    co.voice_anchor_text AS told_by_relationship,
+    NULL::double precision AS similarity_score
+FROM   active_moments m
+JOIN   partner_ids p ON p.partner_id = m.id
+LEFT JOIN collaborator_onboarding co
+       ON co.person_id = m.person_id
+      AND co.user_id   = m.told_by_user_id
+      AND co.status    = 'active'
+WHERE  m.person_id = %(person_id)s
+  AND  m.id <> ALL(%(moment_ids)s)
+ORDER  BY m.created_at DESC
 """
 
 GET_THREADS_SQL = """

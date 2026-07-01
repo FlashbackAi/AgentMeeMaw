@@ -60,7 +60,7 @@ async def select_collaborator_onboarding_tap(
         if st is None or st.phase != "onboarding" or st.has_memory:
             return
 
-        name, _gender = await _read_name(deps, state.person_id)
+        name, gender = await _read_name(deps, state.person_id)
         async with deps.db_pool.connection() as conn:
             relationship = await get_voice_anchor(
                 conn, person_id=state.person_id, user_id=state.user_id
@@ -68,7 +68,10 @@ async def select_collaborator_onboarding_tap(
         # Do NOT fall back to state.person_relationship — that is the
         # subject's relationship descriptor, not this contributor's bond.
         text, options = await generate_onboarding_tap(
-            settings=deps.settings, person_name=name, relationship=relationship
+            settings=deps.settings,
+            person_name=name,
+            relationship=relationship,
+            person_gender=gender,
         )
         tap = Tap(question_id=uuid4(), text=text, dimension="onboarding", options=options)
         state.taps = [tap]
