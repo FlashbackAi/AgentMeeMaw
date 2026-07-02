@@ -657,6 +657,19 @@ class StorybookScope(BaseModel):
     life_period: str | None = Field(default=None, max_length=120)
 
 
+class StorybookCollectionInfo(BaseModel):
+    """One row of ``GET /storybook-collections`` -- the chooser surface.
+
+    ``page_count`` tells Node how many page PUT URLs to mint
+    (cover + page_count pages + the PDF).
+    """
+
+    slug: str
+    display_name: str
+    layout: str  # "grid" | "chapter"
+    page_count: int
+
+
 class StorybookGenerateRequest(BaseModel):
     """Body for ``POST /storybooks`` -- mint a new on-demand storybook."""
 

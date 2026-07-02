@@ -64,3 +64,4 @@ filterwarnings = [
 [tool.setuptools.package-data]
 flashback = ["py.typed"]
 "flashback.tribute_video" = ["assets/*.jpg", "assets/fonts/*.ttf", "assets/audio/*.mp3"]
+"flashback.storybook" = ["assets/*/*.png"]

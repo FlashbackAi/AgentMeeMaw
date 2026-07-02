@@ -32,11 +32,13 @@ from flashback.http.deps import (
     get_http_config,
 )
 from flashback.http.models import (
+    StorybookCollectionInfo,
     StorybookEditRequest,
     StorybookGenerateRequest,
     StorybookJobResponse,
     StorybookRegenerateRequest,
 )
+from flashback.storybook.collections import public_collections
 from flashback.storybook.generation import (
     StorybookGenerationResult,
     StorybookNotFound,
@@ -81,6 +83,14 @@ def _to_response(
         scene_count=result.scene_count,
         enqueued=result.enqueued,
     )
+
+
+@router.get(
+    "/storybook-collections", response_model=list[StorybookCollectionInfo]
+)
+async def list_storybook_collections() -> list[StorybookCollectionInfo]:
+    """The fixed collection registry (chooser + presigned-URL mint counts)."""
+    return [StorybookCollectionInfo(**c) for c in public_collections()]
 
 
 @router.post("/storybooks", response_model=StorybookJobResponse)
