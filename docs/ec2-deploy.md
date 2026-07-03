@@ -272,6 +272,27 @@ sudo systemctl enable --now flashback-agent-worker@tribute_render
 > sudo journalctl -u flashback-agent-worker@tribute_render -f
 > ```
 
+The storybook render worker is the tribute's sibling (Gemini image gen ×22+
+per book, plus a gpt-5.1 lettering verifier) — same template, same
+one-at-a-time drop-in. It needs `STORYBOOK_RENDER_QUEUE_URL` and
+`OPENAI_API_KEY` in the env file (queue visibility timeout **≥ 30 min**;
+redrive `maxReceiveCount=3` to match `MAX_RENDER_ATTEMPTS`):
+
+```bash
+sudo mkdir -p /etc/systemd/system/flashback-agent-worker@storybook_render.service.d
+sudo tee /etc/systemd/system/flashback-agent-worker@storybook_render.service.d/override.conf >/dev/null <<'EOF'
+[Service]
+Environment=SQS_MAX_MESSAGES=1
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now flashback-agent-worker@storybook_render
+```
+
+> Same stranding gotcha as tributes: the API *enqueues* and the worker
+> *drains* off the same `STORYBOOK_RENDER_QUEUE_URL`. Unset → `/storybooks`
+> returns `enqueued: false` and the row sits in `status='generating'`
+> forever. Set the var + deploy the worker + restart the API together.
+
 The producers have subcommands, so give them dedicated services:
 
 ```bash
