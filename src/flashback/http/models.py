@@ -674,8 +674,15 @@ class _StorybookRenderUrls(BaseModel):
 
 
 class StorybookGenerateRequest(_StorybookRenderUrls):
-    """Body for ``POST /storybooks`` -- mint a new collection storybook."""
+    """Body for ``POST /storybooks`` -- mint a new collection storybook.
 
+    ``storybook_id`` is CALLER-SUPPLIED (Node generates it, like Phase-5
+    session ids): the row doesn't exist when Node mints the presigned PUT
+    URLs, and its completion listener re-derives the S3 keys from the id
+    with no persistence -- so the id must be known at mint time.
+    """
+
+    storybook_id: UUID
     collection: str = Field(min_length=1, max_length=64)
 
 

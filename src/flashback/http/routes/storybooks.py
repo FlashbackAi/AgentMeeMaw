@@ -36,6 +36,7 @@ from flashback.storybook.collections import public_collections
 from flashback.storybook.generation import (
     BadPageUrls,
     StorybookGenerationResult,
+    StorybookIdConflict,
     StorybookNotFound,
     StorybookTooThin,
     UnknownCollection,
@@ -95,12 +96,13 @@ async def create_storybook(
             cover_put_url=body.cover_put_url,
             page_put_urls=body.page_put_urls,
             anchor_photo_get_url=body.anchor_photo_get_url,
+            storybook_id=str(body.storybook_id),
         )
     except (UnknownCollection, BadPageUrls) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    except StorybookTooThin as exc:
+    except (StorybookTooThin, StorybookIdConflict) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc

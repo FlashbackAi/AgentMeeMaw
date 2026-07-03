@@ -26,6 +26,7 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from psycopg.errors import UniqueViolation
 from psycopg_pool import AsyncConnectionPool
 
 from flashback.ground_truth.render import render_ground_truth_block
@@ -79,6 +80,13 @@ class StorybookTooThin(Exception):
 class StorybookNotFound(Exception):
     """Raised when a generate/regenerate/edit targets a missing person or
     a missing/unowned storybook."""
+
+
+class StorybookIdConflict(Exception):
+    """Raised when the caller-supplied storybook_id already exists."""
+
+    def __init__(self, storybook_id: str) -> None:
+        super().__init__(f"storybook_id {storybook_id} already exists")
 
 
 @dataclass(frozen=True)
@@ -201,8 +209,14 @@ async def generate_storybook(
     cover_put_url: str,
     page_put_urls: list[str],
     anchor_photo_get_url: str | None = None,
+    storybook_id: str | None = None,
 ) -> StorybookGenerationResult:
-    """Mint a new collection storybook: context on the row, then enqueue."""
+    """Mint a new collection storybook: context on the row, then enqueue.
+
+    ``storybook_id`` is caller-supplied (Node generates it so the presigned
+    S3 keys it minted embed a known id; its completion listener re-derives
+    keys from the id with no persistence).
+    """
     _validate(collection, page_put_urls)
     person, moments, gt_context = await _fetch_inputs(db_pool, person_id)
     ctx, composed_at = _context(
@@ -216,19 +230,23 @@ async def generate_storybook(
         anchor_photo_get_url=anchor_photo_get_url,
     )
     # Context to Postgres FIRST; the SQS message is a trigger only (§3).
-    async with db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            storybook_id = await insert_storybook_async(
-                cur,
-                person_id=person_id,
-                title=None,  # worker writes it from the assembled script
-                script={},
-                scene_moment_ids=[],
-                moments_count=len(moments),
-                context={CONTEXT_KEY: ctx},
-                tags=[],
-                collection=collection,
-            )
+    try:
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                storybook_id = await insert_storybook_async(
+                    cur,
+                    person_id=person_id,
+                    title=None,  # worker writes it from the assembled script
+                    script={},
+                    scene_moment_ids=[],
+                    moments_count=len(moments),
+                    context={CONTEXT_KEY: ctx},
+                    tags=[],
+                    collection=collection,
+                    storybook_id=storybook_id,
+                )
+    except UniqueViolation as exc:
+        raise StorybookIdConflict(str(storybook_id)) from exc
     job_id, enqueued = await _enqueue(
         queue,
         storybook_id=storybook_id,

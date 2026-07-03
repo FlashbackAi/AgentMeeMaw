@@ -59,10 +59,11 @@ The agent holds **no S3 credentials** and never writes URL columns.
 
 ```
 user picks a collection (GET /storybook-collections drives the chooser)
+  →  Node GENERATES the storybook_id (uuid) and embeds it in the S3 keys
   →  Node mints presigned URLs: pdf PUT, cover PUT, 7 page PUTs,
      anchor-photo GET (conditional, see §4)
-  →  POST /storybooks {person_id, collection, urls...}
-     agent: floor-check → context on the row → enqueue storybook_render
+  →  POST /storybooks {storybook_id, person_id, collection, urls...}
+     agent: floor-check → row created WITH YOUR id → context → enqueue
   →  worker: curate + write the book (Sonnet) → illustrate (Gemini,
      verified lettering, consistent subject) → PUT pdf + cover + pages
   →  transactional NOTIFY storybook_render_complete
@@ -74,6 +75,14 @@ Endpoint details + error semantics (`400` / `404` / `409` "keep sharing
 memories" empty-state): `API.md` §7c. Show the 409 detail as the prompt to
 tell more stories — that is the eligibility gate.
 
+- **`storybook_id` is caller-supplied** (like Phase-5 session ids): the row
+  doesn't exist at mint time and your listener re-derives keys from the id
+  with no persistence, so you generate the uuid, embed it in the keys you
+  sign, and send it in the body. The agent creates the row with exactly that
+  id; a duplicate id → **409** (mint a fresh id + URLs, retry). Confirmed
+  wire fields: `storybook_id`, `person_id`, `collection`, `pdf_put_url`,
+  `cover_put_url`, `page_put_urls[]`, `anchor_photo_get_url?`. The
+  collections feed is a **bare JSON array** (no envelope object).
 - **Content types:** PDF `application/pdf`; cover + pages `image/png`.
 - **Expiry ≥ 24h** (queue latency + render + retries).
 - `page_put_urls` is **ordered** — page 1 first. `pages_present` in the

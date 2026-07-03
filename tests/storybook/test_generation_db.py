@@ -17,6 +17,7 @@ from flashback.storybook.collections import PAGE_COUNT
 from flashback.storybook.context import CONTEXT_KEY
 from flashback.storybook.generation import (
     BadPageUrls,
+    StorybookIdConflict,
     StorybookNotFound,
     StorybookTooThin,
     UnknownCollection,
@@ -176,6 +177,35 @@ async def test_edit_accumulates_instructions(async_pool) -> None:
     ctx = row[2][CONTEXT_KEY]
     assert ctx["edit_instructions"] == ["more about the pond", "warmer"]
     assert ctx["reuse_script"] is False
+
+
+async def test_caller_supplied_id_is_used(async_pool) -> None:
+    """Node generates the id (its presigned S3 keys embed it) — the row must
+    be created with exactly that id."""
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    supplied = "11111111-2222-3333-4444-555555555555"
+    result = await generate_storybook(
+        db_pool=async_pool, queue=None, person_id=pid,
+        collection="childhood", storybook_id=supplied, **_urls(),
+    )
+    assert result.storybook_id == supplied
+    assert await _fetch_row(async_pool, supplied) is not None
+
+
+async def test_duplicate_caller_supplied_id_conflicts(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    supplied = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    await generate_storybook(
+        db_pool=async_pool, queue=None, person_id=pid,
+        collection="childhood", storybook_id=supplied, **_urls(),
+    )
+    with pytest.raises(StorybookIdConflict):
+        await generate_storybook(
+            db_pool=async_pool, queue=None, person_id=pid,
+            collection="nostalgia", storybook_id=supplied, **_urls(),
+        )
 
 
 async def test_regenerate_unknown_storybook_raises(async_pool) -> None:

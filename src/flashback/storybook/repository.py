@@ -165,21 +165,30 @@ async def insert_storybook_async(
     context: dict[str, Any],
     tags: list[str],
     collection: str | None = None,
+    storybook_id: UUID | str | None = None,
 ) -> str:
-    """Insert a fresh ``generating`` storybook; return its id."""
+    """Insert a fresh ``generating`` storybook; return its id.
+
+    ``storybook_id`` is caller-supplied on the Python render pipeline (Node
+    generates it so its presigned S3 keys embed a known id); when omitted the
+    DB default mints one. A duplicate id raises psycopg's UniqueViolation --
+    the caller maps it to a conflict.
+    """
     await cur.execute(
         """
         INSERT INTO storybooks (
-            person_id, title, script, scene_moment_ids, moments_count,
+            id, person_id, title, script, scene_moment_ids, moments_count,
             status, latest_generation_context, tags, collection
         )
         VALUES (
+            COALESCE(%(id)s::uuid, gen_random_uuid()),
             %(person_id)s, %(title)s, %(script)s, %(scene_ids)s, %(moments_count)s,
             'generating', %(ctx)s, %(tags)s, %(collection)s
         )
         RETURNING id::text
         """,
         {
+            "id": str(storybook_id) if storybook_id else None,
             "person_id": str(person_id),
             "title": title,
             "script": Json(script),
