@@ -37,6 +37,7 @@ SERVICES=(
   flashback-agent-worker@trait_synthesizer
   flashback-agent-worker@profile_summary
   flashback-agent-worker@tribute_render
+  flashback-agent-worker@storybook_render
   flashback-agent-producers-per-session
   flashback-agent-producers-weekly
 )
@@ -161,7 +162,7 @@ main() {
   echo
   if [[ ${#failed[@]} -gt 0 ]]; then
     warn "deploy finished with ${#failed[@]} unit(s) needing attention: ${failed[*]}"
-    warn "if flashback-agent-worker@tribute_render is new, create its drop-in + enable it (see docs/ec2-deploy.md), then re-run."
+    warn "if flashback-agent-worker@tribute_render or @storybook_render is new, create its SQS_MAX_MESSAGES=1 drop-in + enable it (see docs/ec2-deploy.md), then re-run."
   else
     ok "deploy complete — all units restarted"
   fi
