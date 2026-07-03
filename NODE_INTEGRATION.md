@@ -671,6 +671,74 @@ shape: `API.md` §7b. This is the **meter only** — render status (`video_url` 
 
 ---
 
+## 7c. Storybooks — now rendered by the agent (NOT via artifact_generation)
+
+The standalone `/storybooks` keepsake feature moved off Node's renderer onto
+the same Python-render pattern as tributes (spec
+`docs/superpowers/specs/2026-06-29-storybooks-python-render-design.md`). A
+storybook is now one of **six fixed collections** rendered as a
+**cover + 7 page PNGs + a PDF**. Node-side work order:
+**`docs/STORYBOOK_PYTHON_NODE_PROMPT.md`**.
+
+### What Node STOPS doing
+
+- **Do not** consume `artifact_generation` messages for storybooks — the agent
+  no longer pushes them from `/storybooks` (moment / entity / thread / person
+  jobs are unchanged, §7).
+- Retire the Node storybook renderer (templates / compositor / image calls)
+  and the emotional-tag → template mapping (`storybooks.tags` is dormant).
+
+### The new handshake — Node mints presigned URLs; the agent renders
+
+1. `GET /storybook-collections` returns the fixed registry:
+   `[{slug, display_name, layout, page_count}]` (page_count is 7 for all six).
+   Drive the chooser from it and mint URLs per its counts.
+2. `POST /storybooks` with `{person_id, collection, pdf_put_url,
+   cover_put_url, page_put_urls[7], anchor_photo_get_url?}`:
+   - `pdf_put_url` — presigned **PUT** (`application/pdf`)
+   - `cover_put_url` — presigned **PUT** (`image/png`)
+   - `page_put_urls` — exactly **7** presigned **PUT**s (`image/png`), in page
+     order
+   - `anchor_photo_get_url` — presigned **GET** for the subject's real photo.
+     **Mint it from `persons.latest_generation_context` when its `mode` is
+     `with_reference`** (sign that context's `reference_s3_key`); omit when
+     `no_reference`. The latest generation context is the source of truth — a
+     deliberate regenerate without a photo means "don't use the old photo".
+   Expiry ≥ 24h. Unknown collection / wrong URL count → **400**; person not
+   found → **404**; too few qualifying moments → **409** with a user-facing
+   "keep sharing memories" detail (show it as the empty-state prompt).
+3. The agent stores the render context on the row (`status='generating'`,
+   `collection` set) and enqueues `storybook_render`
+   (env: `STORYBOOK_RENDER_QUEUE_URL`). Response:
+   `{job_id, storybook_id, person_id, collection, status, source,
+   moments_count, enqueued}`.
+4. The worker curates + writes the book (Sonnet), renders illustrations
+   (Gemini, one consistent age-controlled subject; lettering verified), PUTs
+   the PDF + cover + 7 pages to your URLs, and writes `title` + `script` on
+   the row. **No AWS credentials live in the agent.**
+5. `POST /storybooks/{id}/regenerate` (same URL bundle) redraws the art with
+   the stored script; `POST /storybooks/{id}/edit` adds
+   `{instructions, prior_instructions[]}` (you keep the cumulative history,
+   as with artifact edits) and re-assembles the text.
+
+### Completion — listen, don't poll (mirrors `tribute_render_complete`)
+
+- Transactional `NOTIFY` on channel **`storybook_render_complete`**:
+  ```json
+  {"event":"storybook_render_complete","storybook_id":"…","person_id":"…",
+   "collection":"childhood","status":"complete","pdf_present":true,
+   "pages_present":7,"cover_present":true}
+  ```
+- On that signal, **Node writes** `storybooks.pdf_url`, `storybooks.page_urls`
+  (ordered JSONB array of the `pages_present` page keys you minted) and — when
+  `cover_present` — `image_url`/`thumbnail_url` from the cover key. The
+  `active_storybooks` view now exposes `collection`, `pdf_url`, `page_urls`,
+  `rendered_at` for the gallery + flip-through.
+- `status` goes `generating → complete`, or `failed` (+`render_error`) when
+  retries exhaust — the DLQ path emits **no** NOTIFY; fall back to a timeout.
+
+---
+
 ## 8. Async timing — gotchas Node needs to know
 
 ### 8.1 Embeddings are not synchronous
