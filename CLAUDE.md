@@ -85,8 +85,8 @@ External dependencies we **call** but do not own: the Node Backend
 - **All writes** to Postgres canonical graph (persons, moments,
   entities, threads, traits, questions, edges, history tables).
 - **Working Memory** in Valkey (per-session ephemeral state).
-- **Pushing jobs** onto all three SQS queues (extraction, embedding,
-  artifact_generation).
+- **Pushing jobs** onto the SQS queues (extraction, embedding,
+  artifact_generation, tribute_render, storybook_render).
 - The **embedding worker** that drains the embedding queue and writes
   vector columns back to Postgres.
 
@@ -126,6 +126,18 @@ External dependencies we **call** but do not own: the Node Backend
   showing a stray mid-video text frame. The tribute *storybook* artifact is retired (video + PDF only);
   the standalone `/storybooks` feature is separate. Spec:
   `docs/superpowers/specs/2026-06-20-tribute-video-pipeline-design.md`.
+- **Storybooks are rendered by the agent too**
+  (`flashback.workers.storybook_render`), the tribute's sibling. Six
+  fixed collections (5 curated grid + the `wisdom` chapter lens), each a
+  cover + 7 page PNGs + a PDF composited into the collection's template
+  with one consistent, age-controlled subject likeness (anchored to the
+  user's uploaded photo when the person's latest profile-picture
+  generation context is `with_reference` — Node mints the GET URL).
+  Same presigned-URL rules as tributes: no S3 creds, never the URL
+  columns; Node LISTENs `storybook_render_complete` and writes
+  `storybooks.pdf_url` / `page_urls` / cover `image_url`+`thumbnail_url`.
+  `/storybooks` no longer pushes `artifact_generation`. Spec:
+  `docs/superpowers/specs/2026-06-29-storybooks-python-render-design.md`.
 - **We never write to Node-owned tables** (users, future
   `person_roles`, etc.). In v1 onboarding state is stored on the
   agent-owned `persons` row because there is only one contributor per

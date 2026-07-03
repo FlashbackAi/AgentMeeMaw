@@ -164,21 +164,31 @@ async def insert_storybook_async(
     moments_count: int,
     context: dict[str, Any],
     tags: list[str],
+    collection: str | None = None,
+    storybook_id: UUID | str | None = None,
 ) -> str:
-    """Insert a fresh ``generating`` storybook; return its id."""
+    """Insert a fresh ``generating`` storybook; return its id.
+
+    ``storybook_id`` is caller-supplied on the Python render pipeline (Node
+    generates it so its presigned S3 keys embed a known id); when omitted the
+    DB default mints one. A duplicate id raises psycopg's UniqueViolation --
+    the caller maps it to a conflict.
+    """
     await cur.execute(
         """
         INSERT INTO storybooks (
-            person_id, title, script, scene_moment_ids, moments_count,
-            status, latest_generation_context, tags
+            id, person_id, title, script, scene_moment_ids, moments_count,
+            status, latest_generation_context, tags, collection
         )
         VALUES (
+            COALESCE(%(id)s::uuid, gen_random_uuid()),
             %(person_id)s, %(title)s, %(script)s, %(scene_ids)s, %(moments_count)s,
-            'generating', %(ctx)s, %(tags)s
+            'generating', %(ctx)s, %(tags)s, %(collection)s
         )
         RETURNING id::text
         """,
         {
+            "id": str(storybook_id) if storybook_id else None,
             "person_id": str(person_id),
             "title": title,
             "script": Json(script),
@@ -186,10 +196,42 @@ async def insert_storybook_async(
             "moments_count": moments_count,
             "ctx": json.dumps(context),
             "tags": list(tags),
+            "collection": collection,
         },
     )
     (storybook_id,) = await cur.fetchone()
     return storybook_id
+
+
+async def update_storybook_for_rerender_async(
+    cur,
+    *,
+    storybook_id: UUID | str,
+    person_id: UUID | str,
+    context: dict[str, Any],
+) -> bool:
+    """Write a fresh render context + flip status back to ``generating``.
+
+    Used by regenerate (reuse_script) and edit (re-assemble) on the Python
+    render pipeline. Owned-check inline; returns False when no active row
+    matched (missing / unowned / superseded).
+    """
+    await cur.execute(
+        """
+        UPDATE storybooks
+           SET latest_generation_context = %(ctx)s,
+               status = 'generating',
+               render_error = NULL,
+               updated_at = now()
+         WHERE id = %(id)s AND person_id = %(pid)s AND status <> 'superseded'
+        """,
+        {
+            "id": str(storybook_id),
+            "pid": str(person_id),
+            "ctx": json.dumps(context),
+        },
+    )
+    return cur.rowcount > 0
 
 
 async def fetch_storybook_for_regen_async(
@@ -202,7 +244,7 @@ async def fetch_storybook_for_regen_async(
     """
     await cur.execute(
         """
-        SELECT title, script, scene_moment_ids, tags, moments_count
+        SELECT title, script, scene_moment_ids, tags, moments_count, collection
           FROM storybooks
          WHERE id = %(id)s AND person_id = %(pid)s AND status <> 'superseded'
         """,
@@ -217,6 +259,7 @@ async def fetch_storybook_for_regen_async(
         "scene_moment_ids": [str(s) for s in (row[2] or [])],
         "tags": list(row[3] or []),
         "moments_count": row[4],
+        "collection": row[5],
     }
 
 

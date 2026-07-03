@@ -140,3 +140,9 @@ Thumbs.db
 local/
 *.sqlite
 *.db
+
+# Local harness settings
+.claude/settings.json
+
+# Validation spikes (kept local; production code lives in src/flashback)
+scripts/storybook_comic_prototype/
