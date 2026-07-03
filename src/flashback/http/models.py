@@ -640,21 +640,7 @@ class ArtifactJobResponse(BaseModel):
     enqueued: bool
 
 
-# --- /storybooks -----------------------------------------------------------
-
-
-class StorybookScope(BaseModel):
-    """Optional pool narrowing for an on-demand storybook.
-
-    No scope (or an all-null scope) = the whole qualifying pool. ``theme_id``
-    restricts to moments tagged to that theme; ``life_period`` to an exact
-    ``life_period_estimate`` match. Both may be combined.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    theme_id: UUID | None = None
-    life_period: str | None = Field(default=None, max_length=120)
+# --- /storybooks (Python render pipeline, spec 2026-06-29) ------------------
 
 
 class StorybookCollectionInfo(BaseModel):
@@ -670,45 +656,44 @@ class StorybookCollectionInfo(BaseModel):
     page_count: int
 
 
-class StorybookGenerateRequest(BaseModel):
-    """Body for ``POST /storybooks`` -- mint a new on-demand storybook."""
+class _StorybookRenderUrls(BaseModel):
+    """The Node-minted presigned URLs every storybook render needs.
 
-    model_config = ConfigDict(extra="forbid")
-
-    person_id: UUID
-    scope: StorybookScope | None = None
-    preset: str | None = Field(default=None, max_length=64)
-
-
-class StorybookRegenerateRequest(BaseModel):
-    """Body for ``POST /storybooks/{id}/regenerate`` -- re-render, text kept.
-
-    ``tags`` (registry slugs) optionally overrides the stored emotional tags
-    for Node's template selection; unknown slugs are dropped server-side.
+    ``anchor_photo_get_url`` follows the latest-profile-picture-context rule:
+    minted from ``persons.latest_generation_context.reference_s3_key`` when
+    its ``mode`` is ``with_reference``; omitted when ``no_reference``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     person_id: UUID
-    preset: str | None = Field(default=None, max_length=64)
-    tags: list[str] | None = Field(default=None, max_length=3)
+    pdf_put_url: str = Field(min_length=1)
+    cover_put_url: str = Field(min_length=1)
+    page_put_urls: list[str] = Field(min_length=1, max_length=32)
+    anchor_photo_get_url: str | None = None
 
 
-class StorybookEditRequest(BaseModel):
-    """Body for ``POST /storybooks/{id}/edit`` -- reshape text + scenes.
+class StorybookGenerateRequest(_StorybookRenderUrls):
+    """Body for ``POST /storybooks`` -- mint a new collection storybook."""
+
+    collection: str = Field(min_length=1, max_length=64)
+
+
+class StorybookRegenerateRequest(_StorybookRenderUrls):
+    """Body for ``POST /storybooks/{id}/regenerate`` -- redraw the art,
+    keep the stored script."""
+
+
+class StorybookEditRequest(_StorybookRenderUrls):
+    """Body for ``POST /storybooks/{id}/edit`` -- re-assemble the script
+    honouring cumulative edit requests, then re-render.
 
     Mirrors :class:`ArtifactEditRequest`: ``instructions`` is the newest edit,
-    ``prior_instructions`` the cumulative history Node tracks in Dynamo. When
-    ``tags`` is supplied the prose is re-toned to that register.
+    ``prior_instructions`` the cumulative history Node tracks in Dynamo.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
-    person_id: UUID
     instructions: str = Field(min_length=1, max_length=500)
     prior_instructions: list[str] = Field(default_factory=list, max_length=50)
-    preset: str | None = Field(default=None, max_length=64)
-    tags: list[str] | None = Field(default=None, max_length=3)
 
     @field_validator("instructions", mode="before")
     @classmethod
@@ -739,11 +724,10 @@ class StorybookJobResponse(BaseModel):
     job_id: str
     storybook_id: UUID
     person_id: UUID
+    collection: str
     status: Literal["generating"]
     source: Literal["manual", "regenerate", "edit"]
-    tags: list[str]
     moments_count: int
-    scene_count: int
     enqueued: bool
 
 
