@@ -48,7 +48,8 @@ ORDER BY
 
 _MOMENT_COLUMNS = (
     "m.id::text, m.title, m.narrative, "
-    "m.generation_prompt, m.sensory_details, m.time_anchor"
+    "m.generation_prompt, m.sensory_details, m.time_anchor, "
+    "m.life_period_estimate"
 )
 
 
@@ -60,6 +61,7 @@ def _moment_row(r: tuple) -> dict[str, Any]:
         "generation_prompt": r[3],
         "sensory_details": r[4],
         "time_anchor": r[5],
+        "life_period": r[6],
     }
 
 

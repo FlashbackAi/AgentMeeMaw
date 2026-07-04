@@ -106,12 +106,15 @@ def _validate(collection: str, page_put_urls: list[str]) -> None:
 
 
 def _moments_payload(moments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The compact per-moment payload the context carries (title + narrative
-    are what curation + assembly consume)."""
+    """The compact per-moment payload the context carries. ``life_period`` +
+    ``time_anchor`` ride along so the assembler can place events on the
+    subject's timeline and state everyone's age (the age-drift fix)."""
     return [
         {
             "title": m.get("title") or "",
             "narrative": m.get("narrative") or "",
+            "life_period": m.get("life_period") or "",
+            "time_anchor": m.get("time_anchor") or None,
         }
         for m in moments
     ]

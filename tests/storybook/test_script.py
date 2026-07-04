@@ -18,6 +18,10 @@ _SETTINGS = SimpleNamespace(
 def _raw(pages: int = 7, panels: int = 3) -> dict:
     return {
         "cover_title": "T",
+        "characters": [
+            {"name": "Mokshith", "who": "his son",
+             "appearance": "short black hair, slim, clean-shaven"}
+        ],
         "pages": [
             {
                 "panels": [
@@ -40,7 +44,23 @@ def test_round_trip() -> None:
     assert len(s.pages) == 7
     assert len(s.pages[0].panels) == 3
     assert s.pages[0].panels[0].age_stage == "mid"
+    assert s.characters[0].name == "Mokshith"
+    assert s.characters[0].appearance.startswith("short black hair")
     assert BookScript.from_dict(s.to_dict()).to_dict() == s.to_dict()
+
+
+def test_stored_script_without_characters_still_loads() -> None:
+    d = _raw()
+    del d["characters"]
+    s = BookScript.from_dict(d)
+    assert s.characters == []
+    assert len(s.pages) == 7
+
+
+def test_nameless_character_entries_are_dropped() -> None:
+    d = _raw()
+    d["characters"].append({"name": "  ", "who": "x", "appearance": "y"})
+    assert len(BookScript.from_dict(d).characters) == 1
 
 
 def test_bad_age_stage_rejected() -> None:
@@ -85,6 +105,36 @@ async def test_assemble_returns_seven_page_script() -> None:
     assert "final IMAGE, not a moral" in sys_prompt
     assert "THROUGHLINE" in sys_prompt
     assert "age_stage" in sys_prompt
+    # The age-consistency rules (prod age-drift fix).
+    assert "CAST" in sys_prompt
+    assert "AGES" in sys_prompt
+    assert "EVERY person present" in sys_prompt
+    assert "'young', NOT 'mid'" in sys_prompt
+
+
+async def test_moment_when_labels_reach_the_prompt() -> None:
+    with patch(
+        "flashback.storybook.script.call_with_tool",
+        new=AsyncMock(return_value=_raw()),
+    ) as llm:
+        await assemble_script(
+            settings=_SETTINGS,
+            collection=COLLECTIONS["childhood"],
+            subject_name="S",
+            relationship=None,
+            gt_context="",
+            moments=[
+                {"title": "exam", "narrative": "n",
+                 "life_period": "Late teens / college entrance age"},
+                {"title": "year", "narrative": "n",
+                 "time_anchor": {"year": 1997}},
+                {"title": "undated", "narrative": "n"},
+            ],
+        )
+    user = llm.call_args.kwargs["user_message"]
+    assert 'when="Late teens / college entrance age"' in user
+    assert 'when="1997"' in user
+    assert '<m><t>undated</t>' in user
 
 
 async def test_gentle_tone_injects_child_safety_rules() -> None:

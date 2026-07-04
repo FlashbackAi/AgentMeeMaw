@@ -41,6 +41,28 @@ _TOOL = ToolSpec(
         "type": "object",
         "properties": {
             "cover_title": {"type": "string", "maxLength": 60},
+            "characters": {
+                "type": "array",
+                "maxItems": 4,
+                "description": (
+                    "Every person OTHER than the subject who recurs in the "
+                    "story. 'appearance' is ONE stable, AGE-NEUTRAL visual "
+                    "description (hair, face shape, build) reused whenever "
+                    "they appear, at whatever age the scene states -- it "
+                    "keeps them recognisable across panels and clearly "
+                    "distinct from the subject."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "maxLength": 60},
+                        "who": {"type": "string", "maxLength": 80},
+                        "appearance": {"type": "string", "maxLength": 200},
+                    },
+                    "required": ["name", "who", "appearance"],
+                    "additionalProperties": False,
+                },
+            },
             "pages": {
                 "type": "array",
                 "items": {
@@ -65,10 +87,12 @@ _TOOL = ToolSpec(
                                             "panel, so he or she is drawn at "
                                             "the right age: 'child' (~10, "
                                             "their own childhood), 'young' "
-                                            "(~30, early adulthood), 'mid' "
-                                            "(~60, grandparent -- the "
-                                            "default), 'old' (~75, final "
-                                            "years)."
+                                            "(~30, early adulthood -- their "
+                                            "own children still young), 'mid' "
+                                            "(~60, children grown / "
+                                            "grandparent), 'old' (~75, final "
+                                            "years). Judge from the scene's "
+                                            "time cues."
                                         ),
                                     },
                                 },
@@ -82,7 +106,7 @@ _TOOL = ToolSpec(
                 },
             },
         },
-        "required": ["cover_title", "pages"],
+        "required": ["cover_title", "characters", "pages"],
         "additionalProperties": False,
     },
 )
@@ -102,13 +126,27 @@ class BookPage:
 
 
 @dataclass(frozen=True)
+class Character:
+    """A recurring non-subject person with one stable, age-neutral look."""
+
+    name: str
+    who: str
+    appearance: str
+
+
+@dataclass(frozen=True)
 class BookScript:
     cover_title: str
     pages: list[BookPage] = field(default_factory=list)
+    characters: list[Character] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "cover_title": self.cover_title,
+            "characters": [
+                {"name": c.name, "who": c.who, "appearance": c.appearance}
+                for c in self.characters
+            ],
             "pages": [
                 {
                     "panels": [
@@ -146,7 +184,21 @@ class BookScript:
                     )
                 )
             pages.append(BookPage(panels=panels))
-        return cls(cover_title=(d.get("cover_title") or "").strip(), pages=pages)
+        # Stored scripts predating the roster load fine with no characters.
+        characters = [
+            Character(
+                name=(c.get("name") or "").strip(),
+                who=(c.get("who") or "").strip(),
+                appearance=(c.get("appearance") or "").strip(),
+            )
+            for c in d.get("characters") or []
+            if (c.get("name") or "").strip()
+        ]
+        return cls(
+            cover_title=(d.get("cover_title") or "").strip(),
+            pages=pages,
+            characters=characters,
+        )
 
 
 def _text_rule(chapter: bool) -> str:
@@ -255,14 +307,52 @@ def _sys_prompt(
         f"dialogue.\n"
         f"- Stay anchored to THESE memories; draw every page from the "
         f"candidate material and never invent facts beyond it.\n"
+        f"- CAST: fill `characters` with every person other than {name} who "
+        f"recurs in the story (at most 4): their name, who they are to "
+        f"{name}, and ONE stable appearance (hair, face shape, build, "
+        f"typical clothing) that must NOT mention age -- the same "
+        f"description is reused whenever they appear, at whatever age that "
+        f"scene states. This is what keeps them recognisable and clearly "
+        f"distinct from {name} in the art.\n"
+        f"- AGES: panels are illustrated INDEPENDENTLY, so every scene "
+        f"description must state the apparent age of EVERY person present "
+        f"('his son, now about seventeen', 'a girl of ten') -- an unstated "
+        f"age WILL be drawn wrong. Keep each person's age identical across "
+        f"all panels of the same event, keep it consistent with that "
+        f"memory's when-label, and never give an event an age the memory "
+        f"contradicts.\n"
         f"- On EVERY panel set `age_stage` to how old {name} is in that "
         f"scene so they are drawn at the right age (the story may span a "
         f"whole life): 'child' (~10, their own childhood), 'young' (~30, "
-        f"early adulthood), 'mid' (~60, grandparent -- use this for most "
-        f"scenes with grandchildren and when unsure), 'old' (~75, their "
-        f"final years). Judge from the memory's time cues.\n"
+        f"early adulthood), 'mid' (~60, grandparent), 'old' (~75, their "
+        f"final years). Judge from each memory's when-label AND from who "
+        f"shares the scene: when {name}'s own child appears as a young "
+        f"child or teenager, {name} is 'young', NOT 'mid'; 'mid' fits "
+        f"scenes with grown children or grandchildren. Do not fall back to "
+        f"one stage on every panel when the when-labels show the story "
+        f"spans years.\n"
         f"- Page i must have EXACTLY counts[i] panels. Call `comic` once."
     )
+
+
+def _when_attr(m: dict[str, Any]) -> str:
+    """The memory's time label as a ``when`` attribute, where one is known.
+
+    Prefers the extraction's ``life_period`` estimate ("Late teens / college
+    entrance age"), falling back to the ``time_anchor`` fields. This is what
+    lets the assembler place events on the timeline and state ages instead of
+    guessing them.
+    """
+    label = (m.get("life_period") or "").strip()
+    if not label:
+        ta = m.get("time_anchor") or {}
+        if isinstance(ta, dict):
+            for k in ("life_period", "year", "decade", "era"):
+                v = ta.get(k)
+                if v is not None and str(v).strip():
+                    label = str(v).strip()
+                    break
+    return f' when="{xml_text(label)}"' if label else ""
 
 
 async def assemble_script(
@@ -284,7 +374,7 @@ async def assemble_script(
     counts = [1 if chapter else 3] * PAGE_COUNT
     name = xml_text(subject_name)
     blocks = "\n".join(
-        f"<m><t>{xml_text(m.get('title') or '')}</t>"
+        f"<m{_when_attr(m)}><t>{xml_text(m.get('title') or '')}</t>"
         f"<n>{xml_text((m.get('narrative') or '')[:400])}</n></m>"
         for m in moments
     )
