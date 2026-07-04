@@ -30,7 +30,11 @@ from flashback.storybook.compose import (
     overlay_chapter_text,
     panel_boxes,
 )
-from flashback.storybook.refs import DEFAULT_GEMINI_IMAGE_MODEL, MasterRefs
+from flashback.storybook.refs import (
+    DEFAULT_GEMINI_IMAGE_MODEL,
+    MasterRefs,
+    cast_rule,
+)
 from flashback.storybook.scenes import (
     gen_chapter_art,
     gen_cover_art,
@@ -68,6 +72,7 @@ def render_storybook(
     adir = asset_dir(collection.slug)
     chapter = collection.layout == "chapter"
     role = relationship or "the subject"
+    cast = cast_rule(script.characters, subject_name)
 
     cover_art = gen_cover_art(
         gemini_client,
@@ -112,6 +117,7 @@ def render_storybook(
                 gemini_aspect(art_box),
                 subject=subject_name,
                 role=role,
+                cast=cast,
                 model=model,
             )
             if art is None:
@@ -132,6 +138,7 @@ def render_storybook(
                     kind=p.kind,
                     subject=subject_name,
                     role=role,
+                    cast=cast,
                     verifier=verifier,
                     model=model,
                 )

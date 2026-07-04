@@ -18,6 +18,10 @@ def _script(panels: int) -> BookScript:
     return BookScript.from_dict(
         {
             "cover_title": "A Test Book",
+            "characters": [
+                {"name": "Mokshith", "who": "his son",
+                 "appearance": "short black hair, slim"}
+            ],
             "pages": [
                 {
                     "panels": [
@@ -66,6 +70,48 @@ def test_grid_book_renders_cover_pages_and_pdf(tmp_path) -> None:
     assert all(os.path.exists(p) for p in out.page_paths)
     assert os.path.exists(out.pdf_path)
     assert out.blank_panels == []
+
+
+def test_grid_book_passes_cast_to_every_panel(tmp_path) -> None:
+    with patch(
+        "flashback.storybook.render.gen_scene", return_value=_ART
+    ) as g, patch(
+        "flashback.storybook.render.gen_cover_art", return_value=_ART
+    ):
+        render_storybook(
+            script=_script(3),
+            collection=COLLECTIONS["childhood"],
+            subject_name="Subject",
+            relationship="Grand Father",
+            gt_context="gt",
+            master_refs=_refs(),
+            gemini_client=MagicMock(),
+            out_dir=str(tmp_path),
+        )
+    for call in g.call_args_list:
+        assert "Mokshith (his son): short black hair, slim" in call.kwargs[
+            "cast"
+        ]
+
+
+def test_chapter_book_passes_cast(tmp_path) -> None:
+    with patch(
+        "flashback.storybook.render.gen_chapter_art", return_value=_ART
+    ) as g, patch(
+        "flashback.storybook.render.gen_cover_art", return_value=_ART
+    ):
+        render_storybook(
+            script=_script(1),
+            collection=COLLECTIONS["wisdom"],
+            subject_name="Subject",
+            relationship=None,
+            gt_context="gt",
+            master_refs=_refs(),
+            gemini_client=MagicMock(),
+            out_dir=str(tmp_path),
+        )
+    for call in g.call_args_list:
+        assert "Mokshith" in call.kwargs["cast"]
 
 
 def test_chapter_book_renders(tmp_path) -> None:

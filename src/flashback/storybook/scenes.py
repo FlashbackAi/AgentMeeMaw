@@ -52,15 +52,18 @@ def lettering_ok(openai_client, img: Image.Image, expected: str,
                             "type": "text",
                             "text": (
                                 "An illustration is supposed to contain this "
-                                "exact lettering:\n"
+                                "exact lettering, rendered EXACTLY ONCE:\n"
                                 f'"{expected}"\n'
                                 "Look at the image. Reply with ONLY 'OK' if "
                                 "the lettering shown matches those words "
                                 "exactly -- correctly spelled, in order, with "
                                 "NO missing words, NO extra words, and NO "
-                                "garbled/nonsense letter strings. If anything "
-                                "is misspelled, garbled, doubled, cut off, or "
-                                "different, reply ONLY 'BAD'."
+                                "garbled/nonsense letter strings -- and the "
+                                "text appears exactly once. If anything is "
+                                "misspelled, garbled, cut off, or different, "
+                                "or the text / its banner or bubble is "
+                                "rendered more than once anywhere in the "
+                                "image, reply ONLY 'BAD'."
                             ),
                         },
                         {
@@ -101,6 +104,7 @@ def gen_scene(
     tries: int = 3,
     subject: str = "",
     role: str = "the subject",
+    cast: str = "",
     verifier=None,
     model: str = DEFAULT_GEMINI_IMAGE_MODEL,
 ) -> Image.Image | None:
@@ -132,8 +136,10 @@ def gen_scene(
             )
         text_rule += (
             "This text MUST be present and rendered completely and fully "
-            "visible, never cut off or running off any edge. Spell every "
-            "word EXACTLY as written, no extra or missing words, no "
+            "visible, never cut off or running off any edge -- and rendered "
+            "EXACTLY ONCE, in ONE single banner or bubble: never draw a "
+            "second banner and never repeat the sentence anywhere. Spell "
+            "every word EXACTLY as written, no extra or missing words, no "
             "gibberish letters. Use a clear, even, legible serif typeface, "
             "dark ink, well-kerned, large enough to read comfortably. The "
             "lettering must be the ONLY text in the image."
@@ -148,7 +154,7 @@ def gen_scene(
         f"margin. Compose so there is ONE calm area of negative space (open "
         f"sky, plain wall, water, or empty ground) along an edge or corner, "
         f"away from faces and the main action, where the text can rest. "
-        f"{_ident(subject, role)}{text_rule}"
+        f"{_ident(subject, role)}{cast}{text_rule}"
     )
     parts: list = [prompt]
     if ref is not None:
@@ -181,6 +187,7 @@ def gen_chapter_art(
     *,
     subject: str = "",
     role: str = "the subject",
+    cast: str = "",
     model: str = DEFAULT_GEMINI_IMAGE_MODEL,
 ) -> Image.Image | None:
     """Single chapter illustration painted to fade into warm paper edges."""
@@ -189,8 +196,8 @@ def gen_chapter_art(
         f"composition; the scene sits on a soft, uncluttered painterly "
         f"background that fades gently to pale warm cream parchment at all "
         f"four edges (a soft vignette into paper, no hard border). "
-        f"{_ident(subject, role)}Draw NO text, NO lettering, NO frame or "
-        f"border anywhere -- pure illustration only."
+        f"{_ident(subject, role)}{cast}Draw NO text, NO lettering, NO frame "
+        f"or border anywhere -- pure illustration only."
     )
     parts: list = [prompt]
     if ref is not None:
