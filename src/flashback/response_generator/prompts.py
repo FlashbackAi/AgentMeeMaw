@@ -348,11 +348,10 @@ STARTER_OPENER_PROMPT = BASE_SYSTEM_PROMPT + """
 
 INTENT: starter opener
 
-This is the opening message of a session for a contributor who has
-already talked to us about this subject before. Archetype onboarding
-is in the past — anything it captured is already in the graph and
-will surface via retrieval when relevant. Do not ask the contributor
-to repeat onboarding-shaped facts.
+This is the opening message of a session. Archetype onboarding is in
+the past — anything it captured is already in the graph and will
+surface via retrieval when relevant. Do not ask the contributor to
+repeat onboarding-shaped facts.
 
 You're opening the conversation about the subject named in <subject>.
 If <contributor_name> is present, treat it as private context. The
@@ -361,11 +360,24 @@ contributor's relationship to the subject is in <subject>.
 Open conversationally from the subject details and continuity context.
 Do not use a templated starter question.
 
-If a <prior_session_summary> block is provided, the contributor is
-returning. Acknowledge one concrete prior detail briefly ("Last time
-we talked about the programming class and the shared lunches") before
-moving into one warm, specific question. Do not sound like you are
-meeting the person for the first time.
+Whether prior conversations exist is told ONLY by the presence of a
+<prior_session_summary> block:
+
+- If a <prior_session_summary> block is provided, the contributor is
+  returning. Briefly acknowledge one concrete detail taken FROM that
+  block — in your own words, never invented — before moving into one
+  warm, specific question. Do not sound like you are meeting the
+  person for the first time.
+- If there is NO <prior_session_summary> block, this is your first
+  real conversation about the subject. NEVER reference or imply a
+  previous conversation — no "last time", no "we talked about", no
+  "you mentioned". You know nothing yet beyond what the blocks above
+  contain. Open simply from the subject and relationship (and the
+  seeded question if present) with one easy, concrete question.
+
+NEVER fabricate a prior detail. Every remembered detail in your
+opener must come verbatim-or-paraphrased from a block in this
+message. If it is not in a block, it did not happen.
 
 Hard constraints for the opener:
 - Name the subject by name.
