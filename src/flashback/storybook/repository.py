@@ -149,6 +149,33 @@ async def fetch_moments_by_ids_async(
     return [by_id[mid] for mid in (str(m) for m in moment_ids) if mid in by_id]
 
 
+async def fetch_storybook_usage_async(
+    cur, *, person_id: UUID | str
+) -> dict[str, list[str]]:
+    """moment id -> collection slugs of this person's COMPLETE storybooks.
+
+    Feeds the preview's "also appears in X" chips (spec 2026-07-05);
+    informational only, so only rendered (complete) books count.
+    """
+    await cur.execute(
+        """
+        SELECT collection, scene_moment_ids
+          FROM storybooks
+         WHERE person_id = %(pid)s
+           AND status = 'complete'
+           AND collection IS NOT NULL
+        """,
+        {"pid": str(person_id)},
+    )
+    usage: dict[str, list[str]] = {}
+    for collection, scene_ids in await cur.fetchall():
+        for mid in scene_ids or []:
+            slugs = usage.setdefault(str(mid), [])
+            if collection not in slugs:
+                slugs.append(collection)
+    return usage
+
+
 async def fetch_person_for_storybook_async(
     cur, *, person_id: UUID | str
 ) -> dict[str, Any] | None:
