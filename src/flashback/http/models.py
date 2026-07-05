@@ -656,6 +656,36 @@ class StorybookCollectionInfo(BaseModel):
     page_count: int
 
 
+class StorybookPreviewRequest(BaseModel):
+    """Body for ``POST /storybooks/preview`` -- the curation preview."""
+
+    person_id: UUID
+    collection: str = Field(min_length=1, max_length=64)
+
+
+class StorybookPreviewBounds(BaseModel):
+    min_select: int
+    max_select: int
+
+
+class StorybookPreviewMoment(BaseModel):
+    id: UUID
+    title: str
+    snippet: str
+    life_period: str
+    picked: bool
+    suggested_collection: str | None = None
+    used_in: list[str] = Field(default_factory=list)
+
+
+class StorybookPreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    collection: str
+    bounds: StorybookPreviewBounds
+    moments: list[StorybookPreviewMoment]
+
+
 class _StorybookRenderUrls(BaseModel):
     """The Node-minted presigned URLs every storybook render needs.
 
@@ -684,6 +714,9 @@ class StorybookGenerateRequest(_StorybookRenderUrls):
 
     storybook_id: UUID
     collection: str = Field(min_length=1, max_length=64)
+    # Optional user-confirmed moment selection from the preview flow.
+    # Absent = auto-curate exactly as before (spec 2026-07-05).
+    moment_ids: list[UUID] | None = Field(default=None, max_length=64)
 
 
 class StorybookRegenerateRequest(_StorybookRenderUrls):

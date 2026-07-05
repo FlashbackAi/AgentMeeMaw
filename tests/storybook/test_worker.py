@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from flashback.storybook.context import StorybookRenderContext
+from flashback.workers.storybook_render import worker
 from flashback.workers.storybook_render.worker import (
     handle_failure,
     process_one,
@@ -104,3 +106,62 @@ def test_select_moments_chapter_lenses_whole_pool() -> None:
         collection="wisdom", moments=[{"i": 0}, {"i": 1}]
     )
     assert select_moments(ctx, {}) == ctx.moments
+
+
+# --- user-curated contexts (spec 2026-07-05) ---------------------------------
+
+
+def _ctx(collection: str, *, user_curated: bool) -> StorybookRenderContext:
+    return StorybookRenderContext(
+        storybook_id="sb1", person_id="p1", collection=collection,
+        subject_name="Dad", relationship="father", gt_context="",
+        pdf_put_url="u", cover_put_url="u", page_put_urls=["u"] * 7,
+        moments=[{"id": f"m-{i}", "title": f"t{i}", "narrative": "n"}
+                 for i in range(6)],
+        user_curated=user_curated,
+    )
+
+
+def test_select_moments_returns_all_for_user_curated() -> None:
+    ctx = _ctx("childhood", user_curated=True)
+    got = worker.select_moments(ctx, {"childhood": [0, 1]})
+    assert got == ctx.moments
+
+
+async def test_curate_and_assemble_skips_llm_curation_when_user_curated(
+    monkeypatch,
+) -> None:
+    async def _boom(**_kwargs):
+        raise AssertionError("must not curate a user-curated book")
+
+    captured: dict = {}
+
+    async def _fake_assemble(**kwargs):
+        captured.update(kwargs)
+        return "SCRIPT"
+
+    monkeypatch.setattr(worker, "curate_moments", _boom)
+    monkeypatch.setattr(worker, "assemble_script", _fake_assemble)
+    ctx = _ctx("childhood", user_curated=True)
+    got = await worker._curate_and_assemble(ctx, settings=object())
+    assert got == "SCRIPT"
+    assert captured["moments"] == ctx.moments
+
+
+async def test_curate_and_assemble_still_curates_auto_books(
+    monkeypatch,
+) -> None:
+    calls: list[int] = []
+
+    async def _fake_curate(**kwargs):
+        calls.append(1)
+        return {"childhood": [1, 3]}
+
+    async def _fake_assemble(**kwargs):
+        return "SCRIPT"
+
+    monkeypatch.setattr(worker, "curate_moments", _fake_curate)
+    monkeypatch.setattr(worker, "assemble_script", _fake_assemble)
+    ctx = _ctx("childhood", user_curated=False)
+    await worker._curate_and_assemble(ctx, settings=object())
+    assert calls == [1]

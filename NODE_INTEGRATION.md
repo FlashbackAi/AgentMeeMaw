@@ -693,8 +693,29 @@ storybook is now one of **six fixed collections** rendered as a
 1. `GET /storybook-collections` returns the fixed registry:
    `[{slug, display_name, layout, page_count}]` (page_count is 7 for all six).
    Drive the chooser from it and mint URLs per its counts.
+1b. **Optional pick-your-moments preview** (spec 2026-07-05). Before
+   minting anything, `POST /storybooks/preview` with
+   `{person_id, collection}` returns
+   `{collection, bounds:{min_select,max_select}, moments:[{id, title,
+   snippet, life_period, picked, suggested_collection, used_in}]}` —
+   picked first in curation-rank order, then the rest of the qualifying
+   pool. Render it as a checklist with `picked` pre-selected;
+   `suggested_collection` is a hint chip ("suggested for Adventures");
+   `used_in` is an "also appears in X" **warning** chip (another rendered
+   book uses the moment) — informational, never blocking. Enforce
+   `bounds` client-side (disable confirm outside min/max). The call is
+   **stateless and read-only**: nothing persists until create. The first
+   call per pool snapshot pays one ~15s LLM curation; repeats (any
+   collection) hit the Valkey cache and are instant. Errors: 400 unknown
+   collection, 404 person, 409 too thin, 502 curation LLM failure.
+   Skipping this step entirely keeps the old auto-curate flow.
 2. `POST /storybooks` with `{person_id, collection, pdf_put_url,
-   cover_put_url, page_put_urls[7], anchor_photo_get_url?}`:
+   cover_put_url, page_put_urls[7], anchor_photo_get_url?, moment_ids?}`:
+   - `moment_ids` — the confirmed selection from step 1b (≤64, deduped;
+     ids must come from the preview's pool else **400**; count within
+     `bounds` else **409**). Omit it to auto-curate exactly as before.
+     When present the worker renders from exactly this slice (no
+     re-curation) and regenerate/edit preserve it.
    - `pdf_put_url` — presigned **PUT** (`application/pdf`)
    - `cover_put_url` — presigned **PUT** (`image/png`)
    - `page_put_urls` — exactly **7** presigned **PUT**s (`image/png`), in page

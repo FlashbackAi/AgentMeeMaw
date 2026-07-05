@@ -24,20 +24,31 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 
 from flashback.http.auth import require_service_token
-from flashback.http.deps import get_db_pool, get_storybook_render_queue
+from flashback.http.deps import (
+    get_db_pool,
+    get_http_config,
+    get_redis,
+    get_storybook_render_queue,
+)
 from flashback.http.models import (
     StorybookCollectionInfo,
     StorybookEditRequest,
     StorybookGenerateRequest,
     StorybookJobResponse,
+    StorybookPreviewRequest,
+    StorybookPreviewResponse,
     StorybookRegenerateRequest,
 )
+from flashback.llm.errors import LLMError
 from flashback.storybook.collections import public_collections
+from flashback.storybook.preview import build_preview
 from flashback.storybook.generation import (
     BadPageUrls,
+    StorybookBadMomentIds,
     StorybookGenerationResult,
     StorybookIdConflict,
     StorybookNotFound,
+    StorybookSelectionOutOfBounds,
     StorybookTooThin,
     UnknownCollection,
     edit_storybook,
@@ -78,6 +89,48 @@ async def list_storybook_collections() -> list[StorybookCollectionInfo]:
     return [StorybookCollectionInfo(**c) for c in public_collections()]
 
 
+@router.post(
+    "/storybooks/preview", response_model=StorybookPreviewResponse
+)
+async def preview_storybook(
+    body: StorybookPreviewRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    redis=Depends(get_redis),
+    cfg=Depends(get_http_config),
+) -> StorybookPreviewResponse:
+    """Curation preview: picks pre-selected + the rest of the pool.
+
+    Read-only -- nothing is minted or enqueued until POST /storybooks
+    confirms (optionally carrying ``moment_ids``).
+    """
+    try:
+        payload = await build_preview(
+            db_pool=db_pool,
+            redis=redis,
+            settings=cfg,
+            person_id=str(body.person_id),
+            collection=body.collection,
+        )
+    except UnknownCollection as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except StorybookNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except StorybookTooThin as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except LLMError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"curation failed: {exc}",
+        ) from exc
+    return StorybookPreviewResponse(**payload)
+
+
 @router.post("/storybooks", response_model=StorybookJobResponse)
 async def create_storybook(
     body: StorybookGenerateRequest,
@@ -97,12 +150,21 @@ async def create_storybook(
             page_put_urls=body.page_put_urls,
             anchor_photo_get_url=body.anchor_photo_get_url,
             storybook_id=str(body.storybook_id),
+            moment_ids=(
+                [str(m) for m in body.moment_ids]
+                if body.moment_ids is not None
+                else None
+            ),
         )
-    except (UnknownCollection, BadPageUrls) as exc:
+    except (
+        UnknownCollection, BadPageUrls, StorybookBadMomentIds
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    except (StorybookTooThin, StorybookIdConflict) as exc:
+    except (
+        StorybookTooThin, StorybookIdConflict, StorybookSelectionOutOfBounds
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc

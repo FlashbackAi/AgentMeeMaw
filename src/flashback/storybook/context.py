@@ -41,6 +41,9 @@ class StorybookRenderContext:
     edit_instructions: list[str] = field(default_factory=list)
     # True on regenerate: keep the stored script, redraw the art.
     reuse_script: bool = False
+    # True when the family confirmed the moment slice in the preview;
+    # the worker must NOT re-curate (spec 2026-07-05).
+    user_curated: bool = False
     composed_at: str = ""
 
     @classmethod
@@ -62,6 +65,7 @@ class StorybookRenderContext:
             anchor_photo_get_url=(d.get("anchor_photo_get_url") or ""),
             edit_instructions=list(d.get("edit_instructions") or []),
             reuse_script=bool(d.get("reuse_script") or False),
+            user_curated=bool(d.get("user_curated") or False),
             composed_at=(d.get("composed_at") or ""),
         )
 
@@ -80,6 +84,7 @@ def build_context_dict(
     anchor_photo_get_url: str = "",
     edit_instructions: list[str] | None = None,
     reuse_script: bool = False,
+    user_curated: bool = False,
     composed_at: str = "",
 ) -> dict[str, Any]:
     """The dict stored under latest_generation_context['storybook']."""
@@ -96,5 +101,6 @@ def build_context_dict(
         "anchor_photo_get_url": anchor_photo_get_url,
         "edit_instructions": edit_instructions or [],
         "reuse_script": reuse_script,
+        "user_curated": user_curated,
         "composed_at": composed_at,
     }

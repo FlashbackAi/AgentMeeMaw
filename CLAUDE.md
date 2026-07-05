@@ -992,6 +992,14 @@ We expose an HTTP service. Node calls us; we never call Node.
   unlock flow. Returns `{ saved, answered, total }`. 404 if no
   matching active theme for that person; 409 if the theme is
   already unlocked.
+- `POST /storybooks/preview` — body: `{ person_id, collection }`. Returns
+  curation's picked moments (pre-selected, rank order) + the rest of the
+  qualifying pool with `suggested_collection` / `used_in` chip data and
+  the selection bounds (min 5 — relaxed to 3 on pools under 5 — max 25).
+  Read-only; the curation assignment is cached in Valkey per pool
+  fingerprint. Confirm by passing the optional `moment_ids` on
+  `POST /storybooks` (absent = auto-curate as before); the worker then
+  skips curation and regenerate/edit preserve the confirmed slice.
 - `GET /artifact-presets` — returns the public list of artifact style/mood
   presets in display order (default first). Slugs are part of the
   agent ↔ Node contract; labels/descriptions are user-facing.

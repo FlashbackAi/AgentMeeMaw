@@ -59,3 +59,27 @@ def test_missing_optionals_default() -> None:
     ctx = StorybookRenderContext.from_dict(d, storybook_id="s", person_id="p")
     assert ctx.anchor_photo_get_url == ""
     assert ctx.gender is None
+
+
+def test_context_user_curated_defaults_false_on_old_dicts() -> None:
+    """A context written before this feature deserializes unchanged."""
+    ctx = StorybookRenderContext.from_dict(
+        {"collection": "childhood", "subject_name": "Dad"},
+        storybook_id="sb1",
+        person_id="p1",
+    )
+    assert ctx.user_curated is False
+
+
+def test_context_round_trips_user_curated_and_ids() -> None:
+    d = _dict(
+        moments=[{"id": "m-1", "title": "t", "narrative": "n",
+                  "life_period": "", "time_anchor": None}],
+        user_curated=True,
+    )
+    assert d["user_curated"] is True
+    ctx = StorybookRenderContext.from_dict(
+        d, storybook_id="sb1", person_id="p1"
+    )
+    assert ctx.user_curated is True
+    assert ctx.moments[0]["id"] == "m-1"

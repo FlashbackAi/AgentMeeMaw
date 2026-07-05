@@ -45,8 +45,11 @@ def select_moments(ctx: StorybookRenderContext,
 
     Grid collections use their curated slice (falling back to the whole pool
     if curation returned nothing usable — a short book beats no book); the
-    chapter collection lenses the whole pool.
+    chapter collection lenses the whole pool. User-curated contexts carry
+    exactly the confirmed slice and pass through untouched.
     """
+    if getattr(ctx, "user_curated", False):
+        return ctx.moments
     if ctx.collection not in CURATED_SLUGS:
         return ctx.moments
     idxs = [i for i in curation.get(ctx.collection, [])
@@ -57,7 +60,7 @@ def select_moments(ctx: StorybookRenderContext,
 async def _curate_and_assemble(ctx: StorybookRenderContext, *,
                                settings) -> BookScript:
     collection = COLLECTIONS[ctx.collection]
-    if ctx.collection in CURATED_SLUGS:
+    if ctx.collection in CURATED_SLUGS and not ctx.user_curated:
         curation = await curate_moments(
             settings=settings,
             subject_name=ctx.subject_name,

@@ -25,6 +25,19 @@ STORYBOOK_MIN_MOMENTS = 3
 # holds so the LLM has a real pool to curate from.
 STORYBOOK_CANDIDATE_LIMIT = 40
 
+# User-confirmed selection bounds (preview flow, spec 2026-07-05). The min
+# relaxes to the pool floor when the whole qualifying pool is under 5 so
+# thin legacies are not locked out of the preview.
+STORYBOOK_MIN_SELECT = 5
+STORYBOOK_MAX_SELECT = 25
+
+
+def effective_min_select(pool_size: int) -> int:
+    """Minimum confirmable selection for a pool of ``pool_size``."""
+    if pool_size >= STORYBOOK_MIN_SELECT:
+        return STORYBOOK_MIN_SELECT
+    return STORYBOOK_MIN_MOMENTS
+
 # Qualifying predicate, shared by every selector below.
 _QUALIFYING = """\
 m.sensory_details IS NOT NULL
@@ -136,6 +149,33 @@ async def fetch_moments_by_ids_async(
     return [by_id[mid] for mid in (str(m) for m in moment_ids) if mid in by_id]
 
 
+async def fetch_storybook_usage_async(
+    cur, *, person_id: UUID | str
+) -> dict[str, list[str]]:
+    """moment id -> collection slugs of this person's COMPLETE storybooks.
+
+    Feeds the preview's "also appears in X" chips (spec 2026-07-05);
+    informational only, so only rendered (complete) books count.
+    """
+    await cur.execute(
+        """
+        SELECT collection, scene_moment_ids
+          FROM storybooks
+         WHERE person_id = %(pid)s
+           AND status = 'complete'
+           AND collection IS NOT NULL
+        """,
+        {"pid": str(person_id)},
+    )
+    usage: dict[str, list[str]] = {}
+    for collection, scene_ids in await cur.fetchall():
+        for mid in scene_ids or []:
+            slugs = usage.setdefault(str(mid), [])
+            if collection not in slugs:
+                slugs.append(collection)
+    return usage
+
+
 async def fetch_person_for_storybook_async(
     cur, *, person_id: UUID | str
 ) -> dict[str, Any] | None:
@@ -242,11 +282,14 @@ async def fetch_storybook_for_regen_async(
     """Return a storybook's script + scene ids + tags for regen/edit, owned-check.
 
     Returns None when the storybook does not exist, is not owned by this
-    person, or has been superseded.
+    person, or has been superseded. ``context`` is the raw
+    ``latest_generation_context`` JSONB (may be None) -- the rerender path
+    reads ``user_curated`` + the confirmed moment ids from it.
     """
     await cur.execute(
         """
-        SELECT title, script, scene_moment_ids, tags, moments_count, collection
+        SELECT title, script, scene_moment_ids, tags, moments_count,
+               collection, latest_generation_context
           FROM storybooks
          WHERE id = %(id)s AND person_id = %(pid)s AND status <> 'superseded'
         """,
@@ -262,6 +305,7 @@ async def fetch_storybook_for_regen_async(
         "tags": list(row[3] or []),
         "moments_count": row[4],
         "collection": row[5],
+        "context": row[6],
     }
 
 
