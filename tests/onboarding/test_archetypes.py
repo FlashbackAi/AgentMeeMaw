@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from flashback.onboarding.archetypes import (
     archetype_for_relationship,
+    merge_implies,
     public_questions_for_relationship,
     render_archetype_answers_natural_language,
+    resolve_options,
     sanitize_implies,
 )
 
@@ -92,6 +96,107 @@ def test_archetype_answers_render_as_opener_context() -> None:
     assert "How did you two first meet? Through school." in rendered
     assert "What did you usually do together? We would talk for hours." in rendered
     assert "friend_shared_place" not in rendered
+
+
+def test_public_questions_carry_allow_multiple_flag() -> None:
+    _, questions = public_questions_for_relationship("best friend")
+    by_id = {q["id"]: q for q in questions}
+
+    # Relationship + universal questions are multi-select.
+    assert by_id["friend_meet"]["allow_multiple"] is True
+    assert by_id["universal_their_work"]["allow_multiple"] is True
+    # The ground-truth pair stays single-choice (writes ONE value into
+    # persons.ground_truth).
+    assert by_id["gt_region"]["allow_multiple"] is False
+    assert by_id["gt_birth_era"]["allow_multiple"] is False
+    # ground_truth_field stays server-only.
+    assert "ground_truth_field" not in by_id["gt_region"]
+
+
+def test_resolve_options_multi_select_and_dedup() -> None:
+    question, options = resolve_options(
+        relationship="friend",
+        question_id="friend_meet",
+        option_ids=["school", "work", "school"],
+    )
+    assert question["id"] == "friend_meet"
+    assert [o["id"] for o in options] == ["school", "work"]
+
+
+def test_resolve_options_rejects_multi_on_ground_truth() -> None:
+    with pytest.raises(ValueError, match="single option"):
+        resolve_options(
+            relationship="friend",
+            question_id="gt_region",
+            option_ids=["same_place", "abroad"],
+        )
+
+
+def test_resolve_options_rejects_unknown_option() -> None:
+    with pytest.raises(ValueError, match="unknown option_id"):
+        resolve_options(
+            relationship="friend",
+            question_id="friend_meet",
+            option_ids=["school", "nonsense"],
+        )
+
+
+def test_merge_implies_unions_coverage_and_dedupes_entities() -> None:
+    merged = merge_implies(
+        [
+            {
+                "coverage": ["place", "relation"],
+                "entities": [{"type": "place", "name": "school"}],
+            },
+            {
+                "coverage": ["relation", "voice"],
+                "entities": [
+                    {"type": "place", "name": "School"},
+                    {"type": "person", "name": "mutual friends"},
+                ],
+            },
+        ]
+    )
+    assert merged["coverage"] == ["place", "relation", "voice"]
+    assert [e["name"] for e in merged["entities"]] == ["school", "mutual friends"]
+
+
+def test_merge_implies_drops_conflicting_life_periods() -> None:
+    merged = merge_implies(
+        [
+            {"coverage": ["place"], "life_period_estimate": "school years"},
+            {"coverage": ["era"], "life_period_estimate": "working years"},
+        ]
+    )
+    assert "life_period_estimate" not in merged
+
+    agreed = merge_implies(
+        [
+            {"coverage": ["place"], "life_period_estimate": "school years"},
+            {"coverage": ["relation"], "life_period_estimate": "school years"},
+        ]
+    )
+    assert agreed["life_period_estimate"] == "school years"
+    assert "era" in agreed["coverage"]
+
+
+def test_archetype_answers_render_multi_labels_with_free_text() -> None:
+    rendered = render_archetype_answers_natural_language(
+        [
+            {
+                "question_id": "friend_usual_activity",
+                "option_ids": ["talk", "eat"],
+                "labels": ["Talk for hours", "Eat together"],
+                "free_text": "played carrom on Sundays",
+            },
+        ],
+        "friend",
+    )
+
+    assert (
+        "What did you usually do together? Talk for hours, Eat together — "
+        'and in their own words: "played carrom on Sundays".' in rendered
+    )
 
 
 def test_archetype_answers_render_pronouned_question_and_label() -> None:

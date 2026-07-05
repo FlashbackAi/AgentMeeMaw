@@ -403,6 +403,9 @@ class ArchetypeAnswerInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_id: str = Field(min_length=1, max_length=120)
+    # Multi-select shape. Legacy single `option_id` stays accepted and is
+    # treated as a one-element list; chips and free_text may combine.
+    option_ids: list[str] | None = Field(default=None, max_length=12)
     option_id: str | None = Field(default=None, max_length=120)
     free_text: str | None = Field(default=None, max_length=500)
     skipped: bool = False
@@ -412,6 +415,13 @@ class ArchetypeAnswerInput(BaseModel):
     def _strip_optional(cls, value):
         if isinstance(value, str):
             return value.strip()
+        return value
+
+    @field_validator("option_ids", mode="before")
+    @classmethod
+    def _strip_option_ids(cls, value):
+        if isinstance(value, list):
+            return [v.strip() if isinstance(v, str) else v for v in value]
         return value
 
 

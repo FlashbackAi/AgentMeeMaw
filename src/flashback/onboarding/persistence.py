@@ -135,6 +135,8 @@ async def _upsert_entity(
     attributes["question_id"] = answer.get("question_id")
     if answer.get("option_id"):
         attributes["option_id"] = answer.get("option_id")
+    if answer.get("option_ids"):
+        attributes["option_ids"] = list(answer["option_ids"])
 
     await cur.execute(
         """
