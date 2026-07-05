@@ -111,6 +111,7 @@ def _moments_payload(moments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     subject's timeline and state everyone's age (the age-drift fix)."""
     return [
         {
+            "id": str(m.get("id") or ""),
             "title": m.get("title") or "",
             "narrative": m.get("narrative") or "",
             "life_period": m.get("life_period") or "",
