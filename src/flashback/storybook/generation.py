@@ -38,6 +38,7 @@ from flashback.storybook.repository import (
     STORYBOOK_MAX_SELECT,
     STORYBOOK_MIN_MOMENTS,
     effective_min_select,
+    fetch_moments_by_ids_async,
     fetch_person_for_storybook_async,
     fetch_scope_scene_moments_async,
     fetch_storybook_for_regen_async,
@@ -365,6 +366,33 @@ async def _rerender(
     collection = row.get("collection") or ""
     _validate(collection, page_put_urls)
     person, moments, gt_context = await _fetch_inputs(db_pool, person_id)
+    # A user-curated book keeps its confirmed slice across regenerate /
+    # edit; superseded ids fall out of fetch_moments_by_ids. If that
+    # guts the slice below the floor, fall back to the full pool (auto)
+    # rather than stranding the edit -- there is no post-render re-pick
+    # surface (spec 2026-07-05 §5).
+    stored_ctx = ((row.get("context") or {}).get(CONTEXT_KEY)) or {}
+    user_curated = bool(stored_ctx.get("user_curated"))
+    if user_curated:
+        kept_ids = [
+            str(m["id"])
+            for m in (stored_ctx.get("moments") or [])
+            if m.get("id")
+        ]
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                selected = await fetch_moments_by_ids_async(
+                    cur, person_id=person_id, moment_ids=kept_ids
+                )
+        if len(selected) >= STORYBOOK_MIN_MOMENTS:
+            moments = selected
+        else:
+            log.warning(
+                "storybook.selection_below_floor_fallback",
+                storybook_id=storybook_id,
+                kept=len(selected),
+            )
+            user_curated = False
     ctx, composed_at = _context(
         collection=collection,
         person=person,
@@ -376,6 +404,7 @@ async def _rerender(
         anchor_photo_get_url=anchor_photo_get_url,
         edit_instructions=edit_instructions,
         reuse_script=reuse_script,
+        user_curated=user_curated,
     )
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:

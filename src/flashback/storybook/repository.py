@@ -282,11 +282,14 @@ async def fetch_storybook_for_regen_async(
     """Return a storybook's script + scene ids + tags for regen/edit, owned-check.
 
     Returns None when the storybook does not exist, is not owned by this
-    person, or has been superseded.
+    person, or has been superseded. ``context`` is the raw
+    ``latest_generation_context`` JSONB (may be None) -- the rerender path
+    reads ``user_curated`` + the confirmed moment ids from it.
     """
     await cur.execute(
         """
-        SELECT title, script, scene_moment_ids, tags, moments_count, collection
+        SELECT title, script, scene_moment_ids, tags, moments_count,
+               collection, latest_generation_context
           FROM storybooks
          WHERE id = %(id)s AND person_id = %(pid)s AND status <> 'superseded'
         """,
@@ -302,6 +305,7 @@ async def fetch_storybook_for_regen_async(
         "tags": list(row[3] or []),
         "moments_count": row[4],
         "collection": row[5],
+        "context": row[6],
     }
 
 

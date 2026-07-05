@@ -319,3 +319,73 @@ async def test_no_moment_ids_keeps_auto_path(async_pool) -> None:
     ctx = row[2][CONTEXT_KEY]
     assert ctx["user_curated"] is False
     assert result.moments_count == 6
+
+
+async def test_edit_preserves_user_selection(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 8)
+    ids = await _pool_ids(async_pool, pid)
+    chosen = ids[:5]
+    minted = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", moment_ids=chosen, **_urls(),
+    )
+    result = await edit_storybook(
+        db_pool=async_pool, queue=_queue(),
+        storybook_id=minted.storybook_id, person_id=pid,
+        instructions="warmer colours", prior_instructions=[],
+        **_urls(),
+    )
+    assert result.moments_count == 5
+    row = await _fetch_row(async_pool, minted.storybook_id)
+    ctx = row[2][CONTEXT_KEY]
+    assert ctx["user_curated"] is True
+    assert [m["id"] for m in ctx["moments"]] == chosen
+
+
+async def test_edit_falls_back_to_pool_when_selection_guts(
+    async_pool,
+) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 8)
+    ids = await _pool_ids(async_pool, pid)
+    chosen = ids[:5]
+    minted = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", moment_ids=chosen, **_urls(),
+    )
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE moments SET status = 'superseded' "
+                "WHERE id = ANY(%s::uuid[])",
+                (chosen[:3],),
+            )
+    result = await edit_storybook(
+        db_pool=async_pool, queue=_queue(),
+        storybook_id=minted.storybook_id, person_id=pid,
+        instructions="warmer colours", prior_instructions=[],
+        **_urls(),
+    )
+    row = await _fetch_row(async_pool, minted.storybook_id)
+    ctx = row[2][CONTEXT_KEY]
+    assert ctx["user_curated"] is False  # fell back to auto
+    assert result.moments_count == 5  # 8-moment pool minus 3 superseded
+
+
+async def test_edit_on_auto_book_still_uses_whole_pool(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 6)
+    minted = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", **_urls(),
+    )
+    result = await edit_storybook(
+        db_pool=async_pool, queue=_queue(),
+        storybook_id=minted.storybook_id, person_id=pid,
+        instructions="warmer colours", prior_instructions=[],
+        **_urls(),
+    )
+    assert result.moments_count == 6
+    row = await _fetch_row(async_pool, minted.storybook_id)
+    assert row[2][CONTEXT_KEY]["user_curated"] is False
