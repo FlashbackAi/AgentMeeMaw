@@ -35,7 +35,9 @@ from flashback.queues.storybook_render import StorybookRenderQueueProducer
 from flashback.storybook.collections import COLLECTIONS, PAGE_COUNT
 from flashback.storybook.context import CONTEXT_KEY, build_context_dict
 from flashback.storybook.repository import (
+    STORYBOOK_MAX_SELECT,
     STORYBOOK_MIN_MOMENTS,
+    effective_min_select,
     fetch_person_for_storybook_async,
     fetch_scope_scene_moments_async,
     fetch_storybook_for_regen_async,
@@ -87,6 +89,56 @@ class StorybookIdConflict(Exception):
 
     def __init__(self, storybook_id: str) -> None:
         super().__init__(f"storybook_id {storybook_id} already exists")
+
+
+class StorybookBadMomentIds(Exception):
+    """Raised when a confirmed selection contains ids outside the pool."""
+
+    def __init__(self, bad_ids: list[str]) -> None:
+        self.bad_ids = list(bad_ids)
+        shown = ", ".join(self.bad_ids[:5])
+        super().__init__(f"unknown or non-qualifying moment ids: {shown}")
+
+
+class StorybookSelectionOutOfBounds(Exception):
+    """Raised when a confirmed selection misses the min/max bounds."""
+
+    def __init__(self, got: int, min_select: int, max_select: int) -> None:
+        super().__init__(
+            f"pick between {min_select} and {max_select} moments "
+            f"(got {got})"
+        )
+
+
+def _resolve_selection(
+    pool: list[dict[str, Any]], moment_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Dedupe + resolve the confirmed ids against the qualifying pool.
+
+    Pool membership is the validation (person-scoping falls out of it);
+    unknown ids raise rather than silently dropping -- an explicit user
+    choice must never be quietly ignored.
+    """
+    by_id = {str(m["id"]): m for m in pool}
+    seen: set[str] = set()
+    ordered: list[dict[str, Any]] = []
+    bad: list[str] = []
+    for mid in (str(m) for m in moment_ids):
+        if mid in seen:
+            continue
+        seen.add(mid)
+        if mid in by_id:
+            ordered.append(by_id[mid])
+        else:
+            bad.append(mid)
+    if bad:
+        raise StorybookBadMomentIds(bad)
+    lo = effective_min_select(len(pool))
+    if not (lo <= len(ordered) <= STORYBOOK_MAX_SELECT):
+        raise StorybookSelectionOutOfBounds(
+            len(ordered), lo, STORYBOOK_MAX_SELECT
+        )
+    return ordered
 
 
 @dataclass(frozen=True)
@@ -156,6 +208,7 @@ def _context(
     anchor_photo_get_url: str | None,
     edit_instructions: list[str] | None = None,
     reuse_script: bool = False,
+    user_curated: bool = False,
 ) -> tuple[dict[str, Any], str]:
     composed_at = datetime.now(timezone.utc).isoformat()
     ctx = build_context_dict(
@@ -171,6 +224,7 @@ def _context(
         anchor_photo_get_url=anchor_photo_get_url or "",
         edit_instructions=edit_instructions,
         reuse_script=reuse_script,
+        user_curated=user_curated,
         composed_at=composed_at,
     )
     return ctx, composed_at
@@ -214,15 +268,22 @@ async def generate_storybook(
     page_put_urls: list[str],
     anchor_photo_get_url: str | None = None,
     storybook_id: str | None = None,
+    moment_ids: list[str] | None = None,
 ) -> StorybookGenerationResult:
     """Mint a new collection storybook: context on the row, then enqueue.
 
     ``storybook_id`` is caller-supplied (Node generates it so the presigned
     S3 keys it minted embed a known id; its completion listener re-derives
     keys from the id with no persistence).
+
+    ``moment_ids`` is the optional user-confirmed selection from the
+    preview flow (spec 2026-07-05). Absent = auto-curate as before.
     """
     _validate(collection, page_put_urls)
     person, moments, gt_context = await _fetch_inputs(db_pool, person_id)
+    user_curated = moment_ids is not None
+    if user_curated:
+        moments = _resolve_selection(moments, moment_ids)
     ctx, composed_at = _context(
         collection=collection,
         person=person,
@@ -232,6 +293,7 @@ async def generate_storybook(
         cover_put_url=cover_put_url,
         page_put_urls=page_put_urls,
         anchor_photo_get_url=anchor_photo_get_url,
+        user_curated=user_curated,
     )
     # Context to Postgres FIRST; the SQS message is a trigger only (§3).
     try:
@@ -242,7 +304,11 @@ async def generate_storybook(
                     person_id=person_id,
                     title=None,  # worker writes it from the assembled script
                     script={},
-                    scene_moment_ids=[],
+                    scene_moment_ids=(
+                        [str(m["id"]) for m in moments]
+                        if user_curated
+                        else []
+                    ),
                     moments_count=len(moments),
                     context={CONTEXT_KEY: ctx},
                     tags=[],

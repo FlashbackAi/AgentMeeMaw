@@ -25,6 +25,19 @@ STORYBOOK_MIN_MOMENTS = 3
 # holds so the LLM has a real pool to curate from.
 STORYBOOK_CANDIDATE_LIMIT = 40
 
+# User-confirmed selection bounds (preview flow, spec 2026-07-05). The min
+# relaxes to the pool floor when the whole qualifying pool is under 5 so
+# thin legacies are not locked out of the preview.
+STORYBOOK_MIN_SELECT = 5
+STORYBOOK_MAX_SELECT = 25
+
+
+def effective_min_select(pool_size: int) -> int:
+    """Minimum confirmable selection for a pool of ``pool_size``."""
+    if pool_size >= STORYBOOK_MIN_SELECT:
+        return STORYBOOK_MIN_SELECT
+    return STORYBOOK_MIN_MOMENTS
+
 # Qualifying predicate, shared by every selector below.
 _QUALIFYING = """\
 m.sensory_details IS NOT NULL

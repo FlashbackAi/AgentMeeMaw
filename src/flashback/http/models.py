@@ -684,6 +684,9 @@ class StorybookGenerateRequest(_StorybookRenderUrls):
 
     storybook_id: UUID
     collection: str = Field(min_length=1, max_length=64)
+    # Optional user-confirmed moment selection from the preview flow.
+    # Absent = auto-curate exactly as before (spec 2026-07-05).
+    moment_ids: list[UUID] | None = Field(default=None, max_length=64)
 
 
 class StorybookRegenerateRequest(_StorybookRenderUrls):

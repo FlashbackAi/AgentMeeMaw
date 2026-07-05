@@ -17,8 +17,10 @@ from flashback.storybook.collections import PAGE_COUNT
 from flashback.storybook.context import CONTEXT_KEY
 from flashback.storybook.generation import (
     BadPageUrls,
+    StorybookBadMomentIds,
     StorybookIdConflict,
     StorybookNotFound,
+    StorybookSelectionOutOfBounds,
     StorybookTooThin,
     UnknownCollection,
     edit_storybook,
@@ -217,3 +219,103 @@ async def test_regenerate_unknown_storybook_raises(async_pool) -> None:
             storybook_id="00000000-0000-0000-0000-000000000009",
             person_id=pid, **_urls(),
         )
+
+
+# --- user-confirmed selection (spec 2026-07-05) ------------------------------
+
+
+async def _pool_ids(pool, person_id: str) -> list[str]:
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id::text FROM moments WHERE person_id = %s "
+                "ORDER BY created_at",
+                (person_id,),
+            )
+            return [r[0] for r in await cur.fetchall()]
+
+
+async def test_confirmed_selection_filters_context_and_seeds_scene_ids(
+    async_pool,
+) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 8)
+    ids = await _pool_ids(async_pool, pid)
+    chosen = ids[:5]
+    result = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", moment_ids=chosen, **_urls(),
+    )
+    assert result.moments_count == 5
+    row = await _fetch_row(async_pool, result.storybook_id)
+    ctx = row[2][CONTEXT_KEY]
+    assert ctx["user_curated"] is True
+    assert [m["id"] for m in ctx["moments"]] == chosen
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT scene_moment_ids FROM storybooks WHERE id = %s",
+                (result.storybook_id,),
+            )
+            scene_ids = (await cur.fetchone())[0]
+    assert [str(s) for s in scene_ids] == chosen
+
+
+async def test_selection_with_non_pool_id_rejected(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 6)
+    ids = await _pool_ids(async_pool, pid)
+    from uuid import uuid4
+    with pytest.raises(StorybookBadMomentIds):
+        await generate_storybook(
+            db_pool=async_pool, queue=None, person_id=pid,
+            collection="childhood",
+            moment_ids=ids[:4] + [str(uuid4())], **_urls(),
+        )
+
+
+async def test_selection_bounds_enforced(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 8)
+    ids = await _pool_ids(async_pool, pid)
+    with pytest.raises(StorybookSelectionOutOfBounds):
+        await generate_storybook(
+            db_pool=async_pool, queue=None, person_id=pid,
+            collection="childhood", moment_ids=ids[:4], **_urls(),
+        )
+
+
+async def test_thin_pool_relaxes_min_to_floor(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 4)
+    ids = await _pool_ids(async_pool, pid)
+    result = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", moment_ids=ids[:3], **_urls(),
+    )
+    assert result.moments_count == 3
+
+
+async def test_selection_deduped_before_bounds(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 8)
+    ids = await _pool_ids(async_pool, pid)
+    result = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood",
+        moment_ids=ids[:5] + [ids[0]], **_urls(),
+    )
+    assert result.moments_count == 5
+
+
+async def test_no_moment_ids_keeps_auto_path(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 6)
+    result = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", **_urls(),
+    )
+    row = await _fetch_row(async_pool, result.storybook_id)
+    ctx = row[2][CONTEXT_KEY]
+    assert ctx["user_curated"] is False
+    assert result.moments_count == 6
