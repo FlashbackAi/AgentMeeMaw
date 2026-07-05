@@ -227,6 +227,7 @@ person_id=uuid
       "text": "How did you two first meet?",
       "allow_free_text": true,
       "allow_skip": true,
+      "allow_multiple": true,
       "options": [
         { "id": "school", "label": "At school or college" }
       ]
@@ -236,6 +237,9 @@ person_id=uuid
 ```
 
 The server-side `implies` blocks are deliberately omitted.
+`allow_multiple` is `true` on every question except the two
+ground-truth questions (`gt_region`, `gt_birth_era`), which write a
+single value into `persons.ground_truth` and stay single-choice.
 
 **Errors**
 - `404` -- person not found
@@ -256,21 +260,35 @@ embeddings when configured, and return the first session id.
 {
   "person_id": "uuid",
   "answers": [
-    { "question_id": "friend_meet", "option_id": "school" },
     {
-      "question_id": "friend_first_impression",
-      "option_id": null,
-      "free_text": "He was quietly confident"
+      "question_id": "friend_meet",
+      "option_ids": ["school", "work"],
+      "free_text": "and later became neighbors"
     },
+    { "question_id": "friend_kind", "option_id": "funny" },
     { "question_id": "friend_shared_place", "skipped": true }
   ]
 }
 ```
 
-Each answer must choose exactly one of `option_id`, `free_text`, or
-`skipped`. The answers array must cover every question returned by
+Chips are multi-select: `option_ids` carries any number of selected
+options and may combine with `free_text` on the same answer. The
+legacy single `option_id` shape stays accepted and is treated as a
+one-element list. `skipped: true` stands alone — a skipped answer
+cannot also carry chips or free text. Single-choice questions
+(`allow_multiple: false` — the ground-truth pair) keep the old
+exactly-one rule: one chip OR free text, never both and never
+multiple chips.
+
+The selected options' `implies` blocks merge per answer: coverage
+dimensions union, entities dedupe by `(type, name)`, and
+`life_period_estimate` survives only when every selected option
+agrees. Free text is parsed by the small LLM and its implications
+merge in the same way.
+
+The answers array must cover every question returned by
 `archetype-questions` exactly once — including `gt_region` and
-`gt_birth_era` (3-8 answers accepted). Ground-truth answers are written
+`gt_birth_era` (3-12 answers accepted). Ground-truth answers are written
 to `persons.ground_truth` with `provenance='onboarding'`; they do not
 seed entities or coverage.
 

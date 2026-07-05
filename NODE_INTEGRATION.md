@@ -319,12 +319,16 @@ legacy creation flow:
    `persons` row. Do not collect DOB / DOD; lifespan emerges from
    stories and time anchors later.
 3. Call `GET /api/v1/onboarding/archetype-questions?person_id=...` and
-   show the returned 2-3 tappable questions. The response does not
-   expose server-side `implies` blocks.
+   show the returned tappable questions. The response does not
+   expose server-side `implies` blocks. Questions with
+   `allow_multiple: true` (all except the two ground-truth questions)
+   render toggleable chips — the user can pick several.
 4. Call `POST /api/v1/onboarding/archetype-answers` with `person_id`
-   and one answer
-   per returned question. Each answer chooses exactly one of
-   `option_id`, `free_text`, or `skipped`.
+   and one answer per returned question. Chips go in `option_ids`
+   (any number) and may combine with `free_text` on the same answer;
+   the legacy single `option_id` is still accepted. `skipped: true`
+   stands alone. Questions with `allow_multiple: false` keep the old
+   exactly-one-of rule.
 5. Use the returned `session_id` for the immediate `/session/start`
    call. The agent stores `persons.archetype_answers` and uses it for
    the first opener without requiring Node to maintain a role table.

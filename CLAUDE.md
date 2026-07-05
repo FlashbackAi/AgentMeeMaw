@@ -914,7 +914,10 @@ We expose an HTTP service. Node calls us; we never call Node.
   Memory and run the Response Generator; `metadata.taps` is always empty.
   `session_metadata` accepts optional `theme_id` (UUID) and
   `archetype_answers` (list of `{question_id, question_text,
-  option_id?, option_label?, free_text?}`). When `theme_id` is
+  option_ids?, option_labels?, option_id?, option_label?,
+  free_text?}` — chips are multi-select and may combine with free
+  text; the legacy single option_id/option_label shape stays
+  accepted as a one-element list). When `theme_id` is
   present, the `apply_theme_unlock` orchestrator step flips the
   theme `locked → unlocked` atomically and stamps
   `current_theme_*` on Working Memory so the producer ranker can
@@ -986,8 +989,10 @@ We expose an HTTP service. Node calls us; we never call Node.
   `/session/start` when `theme_id` is carried in `session_metadata`.
   Repeat calls return cached payload at no LLM cost.
 - `POST /themes/{theme_id}/archetype_progress` — body:
-  `{ person_id, answers: [{question_id, option_id?, option_label?,
-  free_text?, skipped?}] }`. Replaces `archetype_answers_draft` on
+  `{ person_id, answers: [{question_id, option_ids?, option_labels?,
+  option_id?, option_label?, free_text?, skipped?}] }`. Chips are
+  multi-select and may combine with free_text; the legacy single
+  shape stays accepted. Replaces `archetype_answers_draft` on
   the row (last-write-wins) so the user can resume an abandoned
   unlock flow. Returns `{ saved, answered, total }`. 404 if no
   matching active theme for that person; 409 if the theme is
