@@ -41,11 +41,27 @@ class Lead:
 
 
 def _answer_text(ans: dict[str, Any]) -> str:
-    """The contributor's actual choice -- free text wins over a chip label."""
+    """The contributor's actual choice.
+
+    Multi-select answers join their chip labels; typed free text is the
+    most personal signal so it leads when present, with the chips kept
+    alongside for context.
+    """
+    raw_labels = ans.get("option_labels") or ans.get("labels")
+    if isinstance(raw_labels, list):
+        labels = [str(label).strip() for label in raw_labels if str(label or "").strip()]
+    else:
+        labels = []
+    if not labels:
+        single = str(ans.get("option_label") or "").strip()
+        if single:
+            labels = [single]
     free = str(ans.get("free_text") or "").strip()
+    if free and labels:
+        return f'{free} (also: {", ".join(labels)})'
     if free:
         return free
-    return str(ans.get("option_label") or "").strip()
+    return ", ".join(labels)
 
 
 def _value_for(question_id: str, *, has_free_text: bool) -> int:

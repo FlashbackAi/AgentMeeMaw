@@ -60,9 +60,39 @@ def test_skipped_and_blank_answers_dropped() -> None:
     assert [x.label for x in leads] == ["q11"]
 
 
-def test_free_text_wins_over_option_label() -> None:
+def test_free_text_leads_with_chips_alongside() -> None:
     leads = build_leads([_ans("q10", label="Sold a home", free="Sold the house he built")])
-    assert leads[0].answer == "Sold the house he built"
+    assert leads[0].answer == "Sold the house he built (also: Sold a home)"
+
+
+def test_multi_select_labels_joined() -> None:
+    leads = build_leads(
+        [
+            {
+                "question_id": "q10",
+                "question_text": "Q for q10",
+                "option_ids": ["q10_o1", "q10_o2"],
+                "option_labels": ["Sold a home", "Gave up a dream job"],
+            }
+        ]
+    )
+    assert leads[0].answer == "Sold a home, Gave up a dream job"
+
+
+def test_multi_select_labels_with_free_text() -> None:
+    leads = build_leads(
+        [
+            {
+                "question_id": "q10",
+                "question_text": "Q for q10",
+                "option_labels": ["Sold a home", "Gave up a dream job"],
+                "free_text": "Sold the house he built",
+            }
+        ]
+    )
+    assert leads[0].answer == (
+        "Sold the house he built (also: Sold a home, Gave up a dream job)"
+    )
 
 
 def test_json_roundtrip_and_pursue_flow() -> None:

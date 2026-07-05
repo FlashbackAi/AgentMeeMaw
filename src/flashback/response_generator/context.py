@@ -155,23 +155,34 @@ def render_starter_context(ctx: StarterContext) -> str:
 def _format_theme_archetype_answer(answer: dict) -> str:
     """Render a single archetype answer row as a short readable line.
 
-    Expected shape: ``{'question_id', 'question_text'?, 'option_id'?,
-    'option_label'?, 'free_text'?}``. Node decides what to pack; we
-    accept several layouts gracefully.
+    Expected shape: ``{'question_id', 'question_text'?, 'option_ids'?,
+    'option_labels'?, 'option_id'?, 'option_label'?, 'free_text'?}``.
+    Node decides what to pack; we accept several layouts gracefully.
+    Multi-select answers carry several labels and may combine free text.
     """
     question = (
         answer.get("question_text") or answer.get("text") or answer.get("question") or ""
     )
-    chosen = (
-        answer.get("option_label")
-        or answer.get("label")
-        or answer.get("free_text")
-        or answer.get("answer")
-        or ""
-    )
+    raw_labels = answer.get("option_labels") or answer.get("labels")
+    if isinstance(raw_labels, list):
+        labels = [str(label).strip() for label in raw_labels if str(label or "").strip()]
+    else:
+        labels = []
+    if not labels:
+        single = str(answer.get("option_label") or answer.get("label") or "").strip()
+        if single:
+            labels = [single]
+    free_text = str(answer.get("free_text") or answer.get("answer") or "").strip()
+
+    if labels and free_text:
+        chosen = f'{", ".join(labels)} — in their own words: "{free_text}"'
+    elif labels:
+        chosen = ", ".join(labels)
+    else:
+        chosen = free_text
     if question and chosen:
-        return f"{question.strip()} — {chosen.strip()}"
-    return chosen.strip() or question.strip()
+        return f"{question.strip()} — {chosen}"
+    return chosen or question.strip()
 
 
 def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:

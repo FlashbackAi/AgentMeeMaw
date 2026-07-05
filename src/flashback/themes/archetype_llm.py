@@ -137,8 +137,10 @@ class ArchetypeQuestion:
     """One generated archetype question as persisted on the theme row.
 
     ``question_id`` is a stable slug (``q1``, ``q2``, ...) used by the
-    UI to key answers; ``allow_skip`` / ``allow_free_text`` are always
-    True for theme-archetype questions (mirrors onboarding).
+    UI to key answers; ``allow_skip`` / ``allow_free_text`` /
+    ``allow_multiple`` are always True for theme-archetype questions
+    (mirrors onboarding, where only the ground-truth pair stays
+    single-choice).
     """
 
     question_id: str
@@ -146,6 +148,7 @@ class ArchetypeQuestion:
     options: list[dict[str, str]]
     allow_skip: bool = True
     allow_free_text: bool = True
+    allow_multiple: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -154,6 +157,7 @@ class ArchetypeQuestion:
             "options": list(self.options),
             "allow_skip": self.allow_skip,
             "allow_free_text": self.allow_free_text,
+            "allow_multiple": self.allow_multiple,
         }
 
 

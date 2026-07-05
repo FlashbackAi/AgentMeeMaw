@@ -77,6 +77,7 @@ class ArchetypeQuestionPayload(BaseModel):
     options: list[ArchetypeOption]
     allow_skip: bool = True
     allow_free_text: bool = True
+    allow_multiple: bool = True
 
 
 class UnlockPrepareResponse(BaseModel):
@@ -109,6 +110,10 @@ class ArchetypeAnswerInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_id: str
+    # Multi-select shape; legacy single option_id/option_label stays
+    # accepted. Chips and free_text may combine on one answer.
+    option_ids: list[str] | None = None
+    option_labels: list[str] | None = None
     option_id: str | None = None
     option_label: str | None = None
     free_text: str | None = None
@@ -263,6 +268,7 @@ async def unlock_prepare(
                 ],
                 allow_skip=q.allow_skip,
                 allow_free_text=q.allow_free_text,
+                allow_multiple=q.allow_multiple,
             )
             for q in questions
         ],
@@ -334,7 +340,10 @@ async def archetype_progress(
     answered = sum(
         1
         for a in answers_payload
-        if a.get("option_id") or a.get("free_text") or a.get("skipped")
+        if a.get("option_ids")
+        or a.get("option_id")
+        or a.get("free_text")
+        or a.get("skipped")
     )
 
     log.info(
@@ -413,6 +422,7 @@ def _rehydrate_archetype_questions(
                 ],
                 allow_skip=bool(q.get("allow_skip", True)),
                 allow_free_text=bool(q.get("allow_free_text", True)),
+                allow_multiple=bool(q.get("allow_multiple", True)),
             )
         )
     return out
