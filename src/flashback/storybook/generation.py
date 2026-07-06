@@ -195,15 +195,24 @@ def _moments_payload(moments: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 async def _fetch_inputs(
     db_pool: AsyncConnectionPool, person_id: str, collection: str
-) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    """Person descriptors + collection-scoped qualifying pool + ground truth.
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Person descriptors + the auto slice + the whole qualifying pool + GT.
 
-    The pool is scoped to ``collection`` (a grid slug draws only on its tagged
-    moments; the ``wisdom`` lens draws on the whole pool) and gated on the
-    applicable floor — under it, ``StorybookTooThin`` and nothing is minted.
-    Moments already used in a completed book are demoted to the back, and the
-    slice is capped at ``STORYBOOK_MAX_SELECT`` — this IS the definitive book
-    slice (the render worker no longer curates)."""
+    Eligibility is **tag-gated**: the collection must have ≥ its floor of
+    qualifying moments tagged to it (grid 5, wisdom whole-pool 3), else
+    ``StorybookTooThin`` and nothing is minted. That gate decides whether the
+    book is *offered*.
+
+    Two moment sets come back:
+
+    * ``auto_slice`` — the collection's tagged pool, demoted (used-in-a-
+      completed-book to the back) and capped at ``STORYBOOK_MAX_SELECT``. This
+      is the definitive slice for the auto (no ``moment_ids``) path.
+    * ``whole_pool`` — every qualifying moment for the person. A user-confirmed
+      selection is validated against THIS, so the family may add a moment the
+      tagger didn't put in the collection (explicit curation, design
+      2026-07-06). For ``wisdom`` the two sets coincide.
+    """
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
             person = await fetch_person_for_storybook_async(
@@ -211,19 +220,22 @@ async def _fetch_inputs(
             )
             if person is None:
                 raise StorybookNotFound(f"person {person_id} not found")
-            moments = await fetch_scope_scene_moments_async(
+            tagged = await fetch_scope_scene_moments_async(
                 cur, person_id=person_id, collection=collection
+            )
+            whole_pool = await fetch_scope_scene_moments_async(
+                cur, person_id=person_id, collection=None
             )
             usage = await fetch_storybook_usage_async(cur, person_id=person_id)
     floor = collection_floor(collection)
-    if len(moments) < floor:
+    if len(tagged) < floor:
         raise StorybookTooThin(
-            len(moments), floor=floor, person_name=person.get("person_name")
+            len(tagged), floor=floor, person_name=person.get("person_name")
         )
-    moments = demote_used_moments(moments, usage)[:STORYBOOK_MAX_SELECT]
+    auto_slice = demote_used_moments(tagged, usage)[:STORYBOOK_MAX_SELECT]
     ground_truth = await fetch_ground_truth(db_pool, person_id)
     gt_context = render_ground_truth_block(ground_truth, "scene_subject") or ""
-    return person, moments, gt_context
+    return person, auto_slice, whole_pool, gt_context
 
 
 def _context(
@@ -310,14 +322,20 @@ async def generate_storybook(
     preview flow (spec 2026-07-05). Absent = auto-curate as before.
     """
     _validate(collection, page_put_urls)
-    person, moments, gt_context = await _fetch_inputs(
+    person, auto_slice, whole_pool, gt_context = await _fetch_inputs(
         db_pool, person_id, collection
     )
     user_curated = moment_ids is not None
     if user_curated:
+        # Validate against the WHOLE qualifying pool, not just the tagged
+        # slice: the family may add a moment the tagger didn't put in the
+        # collection (explicit curation). The tag gate already passed above,
+        # so the book is legitimately offered.
         moments = _resolve_selection(
-            moments, moment_ids, collection=collection
+            whole_pool, moment_ids, collection=collection
         )
+    else:
+        moments = auto_slice
     ctx, composed_at = _context(
         collection=collection,
         person=person,
@@ -397,7 +415,9 @@ async def _rerender(
         )
     collection = row.get("collection") or ""
     _validate(collection, page_put_urls)
-    person, moments, gt_context = await _fetch_inputs(
+    # ``moments`` here is the auto slice — the fallback when a stored
+    # user-curated selection has been gutted below the floor by supersession.
+    person, moments, _whole_pool, gt_context = await _fetch_inputs(
         db_pool, person_id, collection
     )
     # A user-curated book keeps its confirmed slice across regenerate /

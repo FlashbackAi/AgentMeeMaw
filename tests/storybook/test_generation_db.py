@@ -274,6 +274,40 @@ async def test_confirmed_selection_filters_context_and_seeds_scene_ids(
     assert [str(s) for s in scene_ids] == chosen
 
 
+async def test_selection_may_add_moment_outside_collection_tags(
+    async_pool,
+) -> None:
+    # Gate passes on 5 childhood-tagged moments; the family then adds a
+    # festivals-only moment to the childhood book. The whole-pool validation
+    # accepts it (explicit curation, design 2026-07-06).
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 5, collections=["childhood"])
+    await _add_qualifying_moments(async_pool, pid, 1, collections=["festivals"])
+    ids = await _pool_ids(async_pool, pid)
+    chosen = ids[:4] + [ids[5]]  # 4 childhood + the festivals-only one
+    result = await generate_storybook(
+        db_pool=async_pool, queue=_queue(), person_id=pid,
+        collection="childhood", moment_ids=chosen, **_urls(),
+    )
+    assert result.moments_count == 5
+    row = await _fetch_row(async_pool, result.storybook_id)
+    assert [m["id"] for m in row[2][CONTEXT_KEY]["moments"]] == chosen
+
+
+async def test_add_outside_tags_still_needs_the_gate(async_pool) -> None:
+    # Only 4 childhood-tagged (below floor 5) — the book is not offered even
+    # though the person has other qualifying moments to add from.
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, 4, collections=["childhood"])
+    await _add_qualifying_moments(async_pool, pid, 4, collections=["festivals"])
+    ids = await _pool_ids(async_pool, pid)
+    with pytest.raises(StorybookTooThin):
+        await generate_storybook(
+            db_pool=async_pool, queue=None, person_id=pid,
+            collection="childhood", moment_ids=ids[:5], **_urls(),
+        )
+
+
 async def test_selection_with_non_pool_id_rejected(async_pool) -> None:
     pid = await _make_person(async_pool)
     await _add_qualifying_moments(async_pool, pid, 6)

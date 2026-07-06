@@ -116,15 +116,19 @@ preview is now instant.
 }
 ```
 
-- The moment pool is now **collection-scoped**: for a grid collection it's
-  exactly the moments tagged to that collection; for `wisdom` it's the whole
-  pool. So every moment in the list already fits — the user's job is trimming,
-  not hunting.
-- **`picked`** — pre-select as before. It's now deterministic (tagged pool,
-  chronological, moments already used in a completed book pushed to the
-  bottom), not an LLM guess.
-- **`collections`** (new) — the moment's full tag list. Use it for a
-  cross-book "also fits Adventures" chip if you want richer hinting.
+- **Two-tier pool.** `picked: true` moments come first — the collection's
+  tagged moments (for `wisdom`, the whole pool), deterministic (tagged pool,
+  chronological, moments already used in a completed book pushed down), not an
+  LLM guess. **After them the rest of the person's whole qualifying pool is
+  listed `picked: false`** so the user can still *add* a moment the tagger
+  didn't put in this collection — the pick-your-moments "add" affordance from
+  the 2026-07-05 flow is preserved. (The create *gate* is still tag-based: a
+  book is only offered when it has ≥ floor tagged moments; the addable
+  remainder doesn't count toward that.)
+- **`picked`** — pre-select these.
+- **`collections`** (new) — the moment's full tag list. **Render it as chips**
+  so an added moment that belongs to another collection is visibly flagged as
+  such (e.g. a `["festivals"]` moment added to a Childhood book).
 - **`suggested_collection`** (**deprecated**) — now just the first tag other
   than the previewed collection (a single "also fits" hint). Kept so you don't
   have to change anything today; prefer `collections` when you touch this.
