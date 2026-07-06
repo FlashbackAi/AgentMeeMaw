@@ -34,10 +34,15 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.storybook.collections import TAGGABLE_SLUGS
 
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
 
 log = structlog.get_logger("flashback.workers.extraction.persistence")
+
+# Frozen set of grid-collection slugs the extraction tagger may assign; used to
+# drop unknown/invented slugs before they hit the moments column.
+_TAGGABLE_SLUG_SET: frozenset[str] = frozenset(TAGGABLE_SLUGS)
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +732,23 @@ def _insert_traits(
     return ids
 
 
+def _validate_collection_tags(raw: list[str]) -> list[str]:
+    """Filter LLM-emitted collection slugs to the taggable grid registry.
+
+    Unknown slugs are dropped silently (invariant #6); order preserved and
+    deduped. Returns ``[]`` when nothing valid remains — never NULL, so a
+    freshly-extracted moment is always distinguishable from a never-tagged
+    (backfill-pending) one at the column level (design 2026-07-06)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for slug in raw or ():
+        s = (slug or "").strip()
+        if s in _TAGGABLE_SLUG_SET and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def _insert_moment(
     cursor,
     *,
@@ -745,10 +767,12 @@ def _insert_moment(
               (person_id, title, narrative, time_anchor,
                life_period_estimate, sensory_details, emotional_tone,
                contributor_perspective, generation_prompt,
+               storybook_collections,
                llm_provider, llm_model, prompt_version)
         VALUES (%s,        %s,    %s,        %s,
                 %s,                  %s,              %s,
                 %s,                       %s,
+                %s,
                 %s,           %s,        %s)
         RETURNING id::text
         """,
@@ -762,6 +786,7 @@ def _insert_moment(
             moment.emotional_tone,
             moment.contributor_perspective,
             moment.generation_prompt,
+            _validate_collection_tags(moment.collections),
             llm_provenance.provider if llm_provenance else None,
             llm_provenance.model if llm_provenance else None,
             llm_provenance.prompt_version if llm_provenance else None,

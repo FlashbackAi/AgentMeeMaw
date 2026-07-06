@@ -48,6 +48,18 @@ class ThemeCatalogEntry:
 
 
 @dataclass(frozen=True)
+class CollectionCatalogEntry:
+    """One row of the storybook-collection catalog passed into the prompt.
+
+    Fixed (grid slugs only) — unlike themes there are no per-person collection
+    rows. ``description`` says what BELONGS in the collection so the tagger
+    fits moments accurately (design 2026-07-06)."""
+
+    slug: str
+    description: str
+
+
+@dataclass(frozen=True)
 class EntityCatalogEntry:
     """One existing active entity shown to the extraction LLM.
 
@@ -76,6 +88,7 @@ def run_extraction(
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    collection_catalog: Iterable[CollectionCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
     ground_truth_block: str = "",
     segment_anchor: SegmentAnchor | None = None,
@@ -96,6 +109,7 @@ def run_extraction(
         contributor_display_name=contributor_display_name,
         candidate_question_ids=candidate_question_ids,
         theme_catalog=theme_catalog,
+        collection_catalog=collection_catalog,
         entity_catalog=entity_catalog,
         ground_truth_block=ground_truth_block,
         segment_anchor=segment_anchor,
@@ -177,6 +191,7 @@ def _build_user_message(
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    collection_catalog: Iterable[CollectionCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
     ground_truth_block: str = "",
     segment_anchor: SegmentAnchor | None = None,
@@ -222,6 +237,17 @@ def _build_user_message(
                 f"covers: {xml_text(entry.description)}"
             )
         lines.append("</theme_catalog>")
+
+    collections = list(collection_catalog)
+    if collections:
+        lines.append("")
+        lines.append("<collection_catalog>")
+        for entry in collections:
+            lines.append(
+                f"- slug: {xml_text(entry.slug)} | "
+                f"belongs: {xml_text(entry.description)}"
+            )
+        lines.append("</collection_catalog>")
 
     entities = list(entity_catalog)
     if entities:

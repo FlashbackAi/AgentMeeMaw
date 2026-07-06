@@ -91,6 +91,22 @@ EXTRACTION_TOOL = ToolSpec(
                             ),
                             "items": {"type": "string"},
                         },
+                        "collections": {
+                            "type": "array",
+                            "description": (
+                                "Storybook collection slugs this moment "
+                                "genuinely fits. Pick ANY that apply from "
+                                "the <collection_catalog> in the user "
+                                "message. Multi-label is expected — a "
+                                "Diwali-in-childhood memory is BOTH "
+                                "'festivals' AND 'childhood'. Tag ONLY "
+                                "genuine fits; if none fit, return an "
+                                "empty array — never stretch a memory to "
+                                "fill a collection. Do not invent slugs "
+                                "not in the catalog."
+                            ),
+                            "items": {"type": "string"},
+                        },
                         "generation_prompt": {"type": "string"},
                     },
                     "required": ["title", "narrative", "generation_prompt"],
@@ -333,6 +349,19 @@ both 'family' AND 'milestones'; a story about a friend's funeral is \
 'friendships' AND 'milestones'. If none of the catalog slugs honestly fit, \
 return an empty themes array — do NOT force a tag. Do NOT invent slugs that \
 are not in the catalog; unknown slugs are dropped silently.
+
+5b. STORYBOOK COLLECTION TAGS — for each moment, also pick the storybook \
+collection slugs it genuinely belongs in. The available collections are \
+listed in <collection_catalog> in the user message; each entry has a slug \
+and a description of what belongs in that book. These gate which keepsake \
+storybooks a family can make, so ACCURACY MATTERS: tag a collection only \
+when the moment truly fits its description. Multi-label is expected — a \
+Diwali memory from someone's childhood is BOTH 'festivals' AND 'childhood'. \
+But do NOT stretch: a quiet dinner is not an 'adventure', and an ordinary \
+errand is not an 'interesting' story. If a moment fits no collection, return \
+an empty collections array — that is the correct answer for most everyday \
+moments. Do NOT invent slugs not in the catalog; unknown slugs are dropped \
+silently. This is separate from theme tags above.
 
 6. GROUND TRUTH OBSERVATIONS — stable facts about the SUBJECT (not about \
 one moment): region where their life happened, approximate birth decade, \
