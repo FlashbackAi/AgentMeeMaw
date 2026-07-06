@@ -80,12 +80,14 @@ Discrete recalled episodes. The most numerous and most edited table.
 | `video_url` | TEXT | Stylized video, written by Node |
 | `thumbnail_url` | TEXT | |
 | `generation_prompt` | TEXT | Written by agent |
+| `storybook_collections` | TEXT[] NULL | Grid-collection slugs this moment fits (migration 0036). Written by the Extraction Worker; gates per-collection storybook eligibility. `NULL` = never tagged (backfill pending), `'{}'` = tagged/fits none. `wisdom` is never tagged. |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
 
 **Indexes:**
 - `(person_id, status)`
 - `(person_id, created_at DESC)` partial WHERE active
 - HNSW on `narrative_embedding` partial WHERE active
+- GIN on `storybook_collections` (collection eligibility counts)
 
 ### 2.3 `entities`
 

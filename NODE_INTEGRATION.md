@@ -696,30 +696,36 @@ storybook is now one of **six fixed collections** rendered as a
 
 1. `GET /storybook-collections` returns the fixed registry:
    `[{slug, display_name, layout, page_count}]` (page_count is 7 for all six).
-   Drive the chooser from it and mint URLs per its counts.
-1b. **Optional pick-your-moments preview** (spec 2026-07-05). Before
-   minting anything, `POST /storybooks/preview` with
+   Drive the chooser from it and mint URLs per its counts. **Pass
+   `?person_id=<uuid>`** (design 2026-07-06) to also get `tagged_count` +
+   `eligible` per collection — render locked cards with a "3/5 stories" badge
+   and only enable a collection when `eligible` is true. Eligibility is a
+   deterministic count of qualifying moments tagged to the collection (grid
+   floor 5; `wisdom` counts the whole pool, floor 3), so no LLM runs.
+1b. **Optional pick-your-moments preview** (spec 2026-07-05; tag-scoped
+   2026-07-06). Before minting anything, `POST /storybooks/preview` with
    `{person_id, collection}` returns
    `{collection, bounds:{min_select,max_select}, moments:[{id, title,
-   snippet, life_period, picked, suggested_collection, used_in}]}` —
-   picked first in curation-rank order, then the rest of the qualifying
-   pool. Render it as a checklist with `picked` pre-selected;
-   `suggested_collection` is a hint chip ("suggested for Adventures");
-   `used_in` is an "also appears in X" **warning** chip (another rendered
-   book uses the moment) — informational, never blocking. Enforce
-   `bounds` client-side (disable confirm outside min/max). The call is
-   **stateless and read-only**: nothing persists until create. The first
-   call per pool snapshot pays one ~15s LLM curation; repeats (any
-   collection) hit the Valkey cache and are instant. Errors: 400 unknown
-   collection, 404 person, 409 too thin, 502 curation LLM failure.
-   Skipping this step entirely keeps the old auto-curate flow.
+   snippet, life_period, picked, collections, suggested_collection,
+   used_in}]}`. The pool is **collection-scoped** — for a grid collection it
+   is the moments tagged to it; for `wisdom` the whole pool. There is no LLM
+   curation call, so the preview is **instant** and `picked` is deterministic
+   (tagged pool, chronological, with moments already used in a completed book
+   demoted to the back). Render it as a checklist with `picked` pre-selected;
+   `collections` is the moment's full tag list (use for cross-book "also fits"
+   chips), `suggested_collection` is the deprecated single-hint form (kept for
+   compat); `used_in` is an "also appears in X" chip — informational, never
+   blocking. Enforce `bounds` client-side (disable confirm outside min/max).
+   The call is **stateless and read-only**: nothing persists until create.
+   Errors: 400 unknown collection, 404 person, 409 too thin for this
+   collection. Skipping this step keeps the auto-select flow.
 2. `POST /storybooks` with `{person_id, collection, pdf_put_url,
    cover_put_url, page_put_urls[7], anchor_photo_get_url?, moment_ids?}`:
    - `moment_ids` — the confirmed selection from step 1b (≤64, deduped;
-     ids must come from the preview's pool else **400**; count within
-     `bounds` else **409**). Omit it to auto-curate exactly as before.
-     When present the worker renders from exactly this slice (no
-     re-curation) and regenerate/edit preserve it.
+     ids must come from the preview's collection-scoped pool else **400**;
+     count within `bounds` else **409**). Omit it to auto-select the
+     collection's tagged pool deterministically. When present the worker
+     renders from exactly this slice and regenerate/edit preserve it.
    - `pdf_put_url` — presigned **PUT** (`application/pdf`)
    - `cover_put_url` — presigned **PUT** (`image/png`)
    - `page_put_urls` — exactly **7** presigned **PUT**s (`image/png`), in page

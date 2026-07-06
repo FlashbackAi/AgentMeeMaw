@@ -138,6 +138,19 @@ External dependencies we **call** but do not own: the Node Backend
   `storybooks.pdf_url` / `page_urls` / cover `image_url`+`thumbnail_url`.
   `/storybooks` no longer pushes `artifact_generation`. Spec:
   `docs/superpowers/specs/2026-06-29-storybooks-python-render-design.md`.
+  **Per-collection eligibility is tag-gated (design 2026-07-06).** The
+  Extraction Worker tags each moment with the grid collections it fits
+  (`moments.storybook_collections TEXT[]`, migration 0036, riding the
+  existing extraction LLM call — `wisdom` is never tagged, it lenses the
+  whole pool). A grid collection needs ≥5 qualifying tagged moments to be
+  minted (`wisdom` keeps the whole-pool floor of 3); below that, preview /
+  create **409** and nothing is enqueued. The render-time curation LLM is
+  **retired**: the route resolves the definitive slice from tags (chrono,
+  used-in-a-completed-book demoted, capped 25) and writes it to
+  `scene_moment_ids` before enqueuing, so a collection can never be rendered
+  from moments that don't fit it. Backfill existing legacies with
+  `scripts/backfill_storybook_collections.py`. Spec:
+  `docs/superpowers/specs/2026-07-06-storybook-collection-eligibility-design.md`.
 - **We never write to Node-owned tables** (users, future
   `person_roles`, etc.). In v1 onboarding state is stored on the
   agent-owned `persons` row because there is only one contributor per
