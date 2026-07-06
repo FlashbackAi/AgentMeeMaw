@@ -53,6 +53,9 @@ async def build_preview(
             moments = await fetch_scope_scene_moments_async(
                 cur, person_id=person_id, collection=collection
             )
+            whole_pool = await fetch_scope_scene_moments_async(
+                cur, person_id=person_id, collection=None
+            )
             usage = await fetch_storybook_usage_async(
                 cur, person_id=person_id
             )
@@ -62,15 +65,29 @@ async def build_preview(
             len(moments), floor=floor, person_name=person.get("person_name")
         )
 
-    by_id = {str(m["id"]): m for m in moments}
-    # Deterministic pick: the demoted, capped, chrono-ordered scoped pool
-    # (this is exactly what generate_storybook resolves on the auto path).
-    ordered_moments = demote_used_moments(moments, usage)
-    picked_ids = [str(m["id"]) for m in ordered_moments[:STORYBOOK_MAX_SELECT]]
-    picked_set = set(picked_ids)
-    ordered = picked_ids + [
-        str(m["id"]) for m in ordered_moments if str(m["id"]) not in picked_set
+    # Two-tier (design 2026-07-06): the collection's tagged moments are
+    # pre-picked; the rest of the whole qualifying pool is shown unpicked so
+    # the family can ADD a moment the tagger didn't put in this collection
+    # (explicit curation — the tag gate above already decided the book is
+    # offered). For ``wisdom`` the two sets coincide, so there's nothing extra.
+    by_id = {str(m["id"]): m for m in whole_pool}
+    for m in moments:  # scoped moments are a subset, but be defensive
+        by_id.setdefault(str(m["id"]), m)
+
+    # Deterministic pick: the demoted, capped, chrono-ordered TAGGED pool
+    # (exactly what generate_storybook resolves on the auto path).
+    picked_ids = [
+        str(m["id"])
+        for m in demote_used_moments(moments, usage)[:STORYBOOK_MAX_SELECT]
     ]
+    picked_set = set(picked_ids)
+    # Addable remainder: everything else in the qualifying pool, demoted.
+    rest = [
+        str(m["id"])
+        for m in demote_used_moments(whole_pool, usage)
+        if str(m["id"]) not in picked_set
+    ]
+    ordered = picked_ids + rest
     return {
         "collection": collection,
         "bounds": {

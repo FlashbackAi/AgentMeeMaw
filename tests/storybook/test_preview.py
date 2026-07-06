@@ -46,7 +46,9 @@ async def _add_moments(pool, person_id: str, tag_lists: list[list[str]]) -> list
     return ids
 
 
-async def test_grid_preview_is_scoped_to_tagged_pool(async_pool) -> None:
+async def test_grid_preview_picks_tagged_and_offers_rest_addable(
+    async_pool,
+) -> None:
     pid = await _make_person(async_pool)
     ids = await _add_moments(
         async_pool,
@@ -54,11 +56,11 @@ async def test_grid_preview_is_scoped_to_tagged_pool(async_pool) -> None:
         [
             ["childhood"],
             ["childhood", "adventurous"],
-            ["festivals"],  # not childhood
+            ["festivals"],  # not childhood — addable, not picked
             ["childhood"],
             ["childhood"],
             ["childhood"],
-            None,  # untagged: excluded from every grid scope
+            None,  # untagged but qualifying — addable, not picked
         ],
     )
     got = await build_preview(
@@ -68,15 +70,20 @@ async def test_grid_preview_is_scoped_to_tagged_pool(async_pool) -> None:
     assert got["collection"] == "childhood"
     assert got["bounds"] == {"min_select": 5, "max_select": 25}
     rows = got["moments"]
-    got_ids = {m["id"] for m in rows}
-    # Exactly the 5 childhood-tagged moments; festivals-only + untagged excluded.
-    assert got_ids == {ids[0], ids[1], ids[3], ids[4], ids[5]}
-    assert all(m["picked"] for m in rows)  # deterministic: whole scoped slice
     by_id = {m["id"]: m for m in rows}
+    # The 5 childhood-tagged are pre-picked.
+    childhood_ids = {ids[0], ids[1], ids[3], ids[4], ids[5]}
+    assert {m["id"] for m in rows if m["picked"]} == childhood_ids
+    # Two-tier: the festivals-only + untagged moments are shown, NOT picked,
+    # so the family can still add them (design 2026-07-06).
+    assert by_id[ids[2]]["picked"] is False  # festivals-only
+    assert by_id[ids[6]]["picked"] is False  # untagged
+    assert {m["id"] for m in rows} == set(ids)  # whole qualifying pool present
+    # Picked come first.
+    assert all(rows[i]["picked"] for i in range(5))
     assert by_id[ids[1]]["collections"] == ["childhood", "adventurous"]
-    # Deprecated hint: first tag other than the previewed collection.
     assert by_id[ids[1]]["suggested_collection"] == "adventurous"
-    assert by_id[ids[0]]["suggested_collection"] is None
+    assert by_id[ids[2]]["suggested_collection"] == "festivals"
 
 
 async def test_wisdom_preview_includes_whole_qualifying_pool(async_pool) -> None:

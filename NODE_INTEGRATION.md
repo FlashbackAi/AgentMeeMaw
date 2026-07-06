@@ -707,25 +707,30 @@ storybook is now one of **six fixed collections** rendered as a
    `{person_id, collection}` returns
    `{collection, bounds:{min_select,max_select}, moments:[{id, title,
    snippet, life_period, picked, collections, suggested_collection,
-   used_in}]}`. The pool is **collection-scoped** — for a grid collection it
-   is the moments tagged to it; for `wisdom` the whole pool. There is no LLM
-   curation call, so the preview is **instant** and `picked` is deterministic
-   (tagged pool, chronological, with moments already used in a completed book
-   demoted to the back). Render it as a checklist with `picked` pre-selected;
-   `collections` is the moment's full tag list (use for cross-book "also fits"
-   chips), `suggested_collection` is the deprecated single-hint form (kept for
-   compat); `used_in` is an "also appears in X" chip — informational, never
-   blocking. Enforce `bounds` client-side (disable confirm outside min/max).
-   The call is **stateless and read-only**: nothing persists until create.
-   Errors: 400 unknown collection, 404 person, 409 too thin for this
-   collection. Skipping this step keeps the auto-select flow.
+   used_in}]}`. **Two-tier:** `picked: true` are the collection's tagged
+   moments (for `wisdom`, the whole pool), first and deterministic — no LLM
+   curation, so the preview is **instant**. After them the rest of the
+   person's whole qualifying pool is listed `picked: false` so the family can
+   *add* a moment the tagger didn't put in this collection. Render as a
+   checklist with `picked` pre-selected; show each moment's `collections`
+   chips so an added out-of-collection moment is visible as such
+   (`suggested_collection` is the deprecated single-hint form). `used_in` is
+   an "also appears in X" chip — informational, never blocking. Enforce
+   `bounds` client-side (disable confirm outside min/max). The call is
+   **stateless and read-only**: nothing persists until create. Errors: 400
+   unknown collection, 404 person, 409 too few *tagged* moments (the addable
+   remainder doesn't count toward eligibility). Skipping this step keeps the
+   auto-select flow.
 2. `POST /storybooks` with `{person_id, collection, pdf_put_url,
    cover_put_url, page_put_urls[7], anchor_photo_get_url?, moment_ids?}`:
    - `moment_ids` — the confirmed selection from step 1b (≤64, deduped;
-     ids must come from the preview's collection-scoped pool else **400**;
-     count within `bounds` else **409**). Omit it to auto-select the
-     collection's tagged pool deterministically. When present the worker
-     renders from exactly this slice and regenerate/edit preserve it.
+     ids must be qualifying moments for the person — validated against the
+     **whole** qualifying pool, not just the collection's tagged slice, so
+     adds of out-of-collection moments are allowed — else **400**; count
+     within `bounds` else **409**; the collection must still be eligible by
+     tag count or create **409**s before selection is considered). Omit it to
+     auto-select the collection's tagged pool deterministically. When present
+     the worker renders from exactly this slice and regenerate/edit preserve it.
    - `pdf_put_url` — presigned **PUT** (`application/pdf`)
    - `cover_put_url` — presigned **PUT** (`image/png`)
    - `page_put_urls` — exactly **7** presigned **PUT**s (`image/png`), in page
