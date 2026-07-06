@@ -27,7 +27,10 @@ from flashback.storybook.generation import (
     generate_storybook,
     regenerate_storybook,
 )
-from flashback.storybook.repository import STORYBOOK_MIN_MOMENTS
+from flashback.storybook.repository import (
+    STORYBOOK_COLLECTION_FLOOR,
+    STORYBOOK_MIN_MOMENTS,
+)
 
 
 async def _make_person(pool, name: str = "Dad") -> str:
@@ -42,15 +45,25 @@ async def _make_person(pool, name: str = "Dad") -> str:
                 return (await cur.fetchone())[0]
 
 
-async def _add_qualifying_moments(pool, person_id: str, n: int) -> None:
+# Tag every inserted moment with all grid slugs so any grid collection's
+# scoped pool sees them (design 2026-07-06). The wisdom lens counts the whole
+# qualifying pool regardless of tags.
+_ALL_GRID = ["childhood", "interesting", "nostalgia", "festivals", "adventurous"]
+
+
+async def _add_qualifying_moments(
+    pool, person_id: str, n: int, collections: list[str] | None = None
+) -> None:
+    tags = _ALL_GRID if collections is None else collections
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
                 for i in range(n):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
-                        "sensory_details) VALUES (%s, %s, %s, %s)",
-                        (person_id, f"m{i}", "n", "the smell of rain"),
+                        "sensory_details, storybook_collections) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (person_id, f"m{i}", "n", "the smell of rain", tags),
                     )
 
 
@@ -117,7 +130,7 @@ async def test_generate_mints_row_with_context_then_enqueues(
     async_pool,
 ) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     q = _queue()
     result = await generate_storybook(
         db_pool=async_pool, queue=q, person_id=pid,
@@ -127,7 +140,7 @@ async def test_generate_mints_row_with_context_then_enqueues(
     )
     assert result.enqueued is True
     assert result.collection == "childhood"
-    assert result.moments_count == STORYBOOK_MIN_MOMENTS
+    assert result.moments_count == STORYBOOK_COLLECTION_FLOOR
     row = await _fetch_row(async_pool, result.storybook_id)
     assert row[0] == "generating"
     assert row[1] == "childhood"
@@ -145,7 +158,7 @@ async def test_generate_mints_row_with_context_then_enqueues(
 
 async def test_regenerate_sets_reuse_script(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     made = await generate_storybook(
         db_pool=async_pool, queue=None, person_id=pid,
         collection="festivals", **_urls(),
@@ -185,7 +198,7 @@ async def test_caller_supplied_id_is_used(async_pool) -> None:
     """Node generates the id (its presigned S3 keys embed it) — the row must
     be created with exactly that id."""
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     supplied = "11111111-2222-3333-4444-555555555555"
     result = await generate_storybook(
         db_pool=async_pool, queue=None, person_id=pid,
@@ -197,7 +210,7 @@ async def test_caller_supplied_id_is_used(async_pool) -> None:
 
 async def test_duplicate_caller_supplied_id_conflicts(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     supplied = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     await generate_storybook(
         db_pool=async_pool, queue=None, person_id=pid,
@@ -286,12 +299,14 @@ async def test_selection_bounds_enforced(async_pool) -> None:
 
 
 async def test_thin_pool_relaxes_min_to_floor(async_pool) -> None:
+    # Grid collections gate at 5, so the relaxation only applies to the wisdom
+    # whole-pool lens (design 2026-07-06): a pool of 4 lets the user confirm 3.
     pid = await _make_person(async_pool)
     await _add_qualifying_moments(async_pool, pid, 4)
     ids = await _pool_ids(async_pool, pid)
     result = await generate_storybook(
         db_pool=async_pool, queue=_queue(), person_id=pid,
-        collection="childhood", moment_ids=ids[:3], **_urls(),
+        collection="wisdom", moment_ids=ids[:3], **_urls(),
     )
     assert result.moments_count == 3
 

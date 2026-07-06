@@ -7,7 +7,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 from flashback.http.routes import storybooks as storybooks_route
-from flashback.llm.errors import LLMError
 from flashback.storybook.generation import (
     StorybookNotFound,
     StorybookTooThin,
@@ -28,6 +27,7 @@ async def test_preview_returns_builder_payload(client, monkeypatch) -> None:
         "moments": [{
             "id": str(uuid4()), "title": "t", "snippet": "n",
             "life_period": "", "picked": True,
+            "collections": ["childhood"],
             "suggested_collection": "childhood", "used_in": [],
         }],
     }
@@ -48,7 +48,6 @@ async def test_preview_error_mapping(client, monkeypatch) -> None:
         (UnknownCollection("memoir"), 400),
         (StorybookNotFound("nope"), 404),
         (StorybookTooThin(2), 409),
-        (LLMError("curation failed"), 502),
     ]
 
     def _raiser(exc):

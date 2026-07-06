@@ -658,12 +658,20 @@ class StorybookCollectionInfo(BaseModel):
 
     ``page_count`` tells Node how many page PUT URLs to mint
     (cover + page_count pages + the PDF).
+
+    ``tagged_count`` + ``eligible`` are present only when the request carries
+    ``person_id`` (design 2026-07-06): the count of qualifying moments this
+    collection can draw on and whether it clears the mint floor. They drive the
+    chooser's locked "3/5 stories" cards. Both are absent (None) on the bare
+    registry request.
     """
 
     slug: str
     display_name: str
     layout: str  # "grid" | "chapter"
     page_count: int
+    tagged_count: int | None = None
+    eligible: bool | None = None
 
 
 class StorybookPreviewRequest(BaseModel):
@@ -684,6 +692,11 @@ class StorybookPreviewMoment(BaseModel):
     snippet: str
     life_period: str
     picked: bool
+    # The moment's full storybook-collection tags (design 2026-07-06).
+    collections: list[str] = Field(default_factory=list)
+    # Deprecated: first tag other than the previewed collection, as a
+    # cross-book "also fits" hint. Superseded by ``collections``; kept for
+    # Node compatibility.
     suggested_collection: str | None = None
     used_in: list[str] = Field(default_factory=list)
 

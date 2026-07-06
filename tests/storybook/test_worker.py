@@ -10,7 +10,6 @@ from flashback.workers.storybook_render import worker
 from flashback.workers.storybook_render.worker import (
     handle_failure,
     process_one,
-    select_moments,
 )
 
 
@@ -87,31 +86,10 @@ def test_handle_failure_retries_then_fails() -> None:
     ack.assert_called_once_with("rh")
 
 
-def test_select_moments_grid_uses_curated_slice() -> None:
-    ctx = SimpleNamespace(
-        collection="childhood",
-        moments=[{"i": 0}, {"i": 1}, {"i": 2}],
-    )
-    out = select_moments(ctx, {"childhood": [2, 0]})
-    assert out == [{"i": 2}, {"i": 0}]
+# --- deterministic assembly (design 2026-07-06 — curation retired) -----------
 
 
-def test_select_moments_grid_empty_curation_falls_back_to_pool() -> None:
-    ctx = SimpleNamespace(collection="childhood", moments=[{"i": 0}])
-    assert select_moments(ctx, {"childhood": []}) == [{"i": 0}]
-
-
-def test_select_moments_chapter_lenses_whole_pool() -> None:
-    ctx = SimpleNamespace(
-        collection="wisdom", moments=[{"i": 0}, {"i": 1}]
-    )
-    assert select_moments(ctx, {}) == ctx.moments
-
-
-# --- user-curated contexts (spec 2026-07-05) ---------------------------------
-
-
-def _ctx(collection: str, *, user_curated: bool) -> StorybookRenderContext:
+def _ctx(collection: str, *, user_curated: bool = False) -> StorybookRenderContext:
     return StorybookRenderContext(
         storybook_id="sb1", person_id="p1", collection=collection,
         subject_name="Dad", relationship="father", gt_context="",
@@ -122,46 +100,25 @@ def _ctx(collection: str, *, user_curated: bool) -> StorybookRenderContext:
     )
 
 
-def test_select_moments_returns_all_for_user_curated() -> None:
-    ctx = _ctx("childhood", user_curated=True)
-    got = worker.select_moments(ctx, {"childhood": [0, 1]})
-    assert got == ctx.moments
-
-
-async def test_curate_and_assemble_skips_llm_curation_when_user_curated(
-    monkeypatch,
-) -> None:
-    async def _boom(**_kwargs):
-        raise AssertionError("must not curate a user-curated book")
-
+async def test_assemble_uses_context_slice_verbatim(monkeypatch) -> None:
+    """The worker assembles from ctx.moments directly — no curation, no
+    fallback to an unrelated pool (that judgement moved to the route)."""
     captured: dict = {}
 
     async def _fake_assemble(**kwargs):
         captured.update(kwargs)
         return "SCRIPT"
 
-    monkeypatch.setattr(worker, "curate_moments", _boom)
     monkeypatch.setattr(worker, "assemble_script", _fake_assemble)
-    ctx = _ctx("childhood", user_curated=True)
-    got = await worker._curate_and_assemble(ctx, settings=object())
+    ctx = _ctx("childhood")
+    got = await worker._assemble(ctx, settings=object())
     assert got == "SCRIPT"
     assert captured["moments"] == ctx.moments
+    assert captured["collection"].slug == "childhood"
 
 
-async def test_curate_and_assemble_still_curates_auto_books(
-    monkeypatch,
-) -> None:
-    calls: list[int] = []
-
-    async def _fake_curate(**kwargs):
-        calls.append(1)
-        return {"childhood": [1, 3]}
-
-    async def _fake_assemble(**kwargs):
-        return "SCRIPT"
-
-    monkeypatch.setattr(worker, "curate_moments", _fake_curate)
-    monkeypatch.setattr(worker, "assemble_script", _fake_assemble)
-    ctx = _ctx("childhood", user_curated=False)
-    await worker._curate_and_assemble(ctx, settings=object())
-    assert calls == [1]
+def test_worker_has_no_curation_surface() -> None:
+    """Curation is retired; the worker must not re-expose a content chooser."""
+    assert not hasattr(worker, "select_moments")
+    assert not hasattr(worker, "curate_moments")
+    assert not hasattr(worker, "_curate_and_assemble")
