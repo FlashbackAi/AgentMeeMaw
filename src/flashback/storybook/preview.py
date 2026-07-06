@@ -1,9 +1,11 @@
-"""Build the storybook preview payload (spec 2026-07-05).
+"""Build the storybook preview payload (spec 2026-07-05, updated 2026-07-06).
 
-The preview shows curation's picks for one collection (pre-selected)
-plus the rest of the qualifying pool, so the family can exclude/add
-before the render. Grid collections read the fingerprint-cached
-curation; ``wisdom`` includes the whole pool with no curation call.
+The preview shows the moments a collection's book will draw on (pre-selected)
+plus any remainder, so the family can exclude/add before the render. The pool
+is now collection-scoped and deterministic: grid collections draw on their
+tagged moments (design 2026-07-06), the ``wisdom`` lens draws on the whole
+qualifying pool. The curation LLM pass is retired — the picked slice is the
+demoted, capped, chronologically-ordered scoped pool.
 """
 
 from __future__ import annotations
@@ -12,8 +14,7 @@ from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
-from flashback.storybook.collections import COLLECTIONS, CURATED_SLUGS
-from flashback.storybook.curation_cache import cached_assignments
+from flashback.storybook.collections import COLLECTIONS
 from flashback.storybook.generation import (
     StorybookNotFound,
     StorybookTooThin,
@@ -21,7 +22,8 @@ from flashback.storybook.generation import (
 )
 from flashback.storybook.repository import (
     STORYBOOK_MAX_SELECT,
-    STORYBOOK_MIN_MOMENTS,
+    collection_floor,
+    demote_used_moments,
     effective_min_select,
     fetch_person_for_storybook_async,
     fetch_scope_scene_moments_async,
@@ -49,46 +51,30 @@ async def build_preview(
             if person is None:
                 raise StorybookNotFound(f"person {person_id} not found")
             moments = await fetch_scope_scene_moments_async(
-                cur, person_id=person_id
+                cur, person_id=person_id, collection=collection
             )
             usage = await fetch_storybook_usage_async(
                 cur, person_id=person_id
             )
-    if len(moments) < STORYBOOK_MIN_MOMENTS:
+    floor = collection_floor(collection)
+    if len(moments) < floor:
         raise StorybookTooThin(
-            len(moments), person_name=person.get("person_name")
+            len(moments), floor=floor, person_name=person.get("person_name")
         )
 
     by_id = {str(m["id"]): m for m in moments}
-    suggested: dict[str, str] = {}
-    if collection in CURATED_SLUGS:
-        assignments = await cached_assignments(
-            redis,
-            settings=settings,
-            person_id=str(person_id),
-            subject_name=person.get("person_name") or "",
-            relationship=person.get("person_relationship"),
-            moments=moments,
-        )
-        for slug, ids in assignments.items():
-            for mid in ids:
-                suggested.setdefault(str(mid), slug)
-        picked_ids = [
-            str(mid)
-            for mid in assignments.get(collection, [])
-            if str(mid) in by_id
-        ]
-    else:  # chapter lens: the whole pool is in by default
-        picked_ids = [str(m["id"]) for m in moments]
-
+    # Deterministic pick: the demoted, capped, chrono-ordered scoped pool
+    # (this is exactly what generate_storybook resolves on the auto path).
+    ordered_moments = demote_used_moments(moments, usage)
+    picked_ids = [str(m["id"]) for m in ordered_moments[:STORYBOOK_MAX_SELECT]]
     picked_set = set(picked_ids)
     ordered = picked_ids + [
-        str(m["id"]) for m in moments if str(m["id"]) not in picked_set
+        str(m["id"]) for m in ordered_moments if str(m["id"]) not in picked_set
     ]
     return {
         "collection": collection,
         "bounds": {
-            "min_select": effective_min_select(len(moments)),
+            "min_select": effective_min_select(len(moments), collection),
             "max_select": STORYBOOK_MAX_SELECT,
         },
         "moments": [
@@ -100,7 +86,18 @@ async def build_preview(
                 ],
                 "life_period": by_id[mid].get("life_period") or "",
                 "picked": mid in picked_set,
-                "suggested_collection": suggested.get(mid),
+                "collections": list(by_id[mid].get("collections") or []),
+                # Deprecated (design 2026-07-06): first tag other than this
+                # collection, as a cross-book "also fits" hint. Superseded by
+                # the full ``collections`` list above; kept for Node compat.
+                "suggested_collection": next(
+                    (
+                        c
+                        for c in (by_id[mid].get("collections") or [])
+                        if c != collection
+                    ),
+                    None,
+                ),
                 "used_in": usage.get(mid, []),
             }
             for mid in ordered

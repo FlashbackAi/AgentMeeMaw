@@ -1,13 +1,11 @@
-"""build_preview: picks-first ordering, wisdom pool-inclusion, used_in
-chips, bounds, and thin-pool guard (spec 2026-07-05)."""
+"""build_preview: collection-scoped picks, wisdom whole-pool, used_in chips,
+bounds, per-moment collections, and the per-collection floor guard
+(design 2026-07-06 — curation retired, tags gate)."""
 
 from __future__ import annotations
 
-import fakeredis.aioredis
 import pytest
-import pytest_asyncio
 
-from flashback.storybook import preview as preview_mod
 from flashback.storybook.generation import (
     StorybookTooThin,
     UnknownCollection,
@@ -27,100 +25,76 @@ async def _make_person(pool, name: str = "Dad") -> str:
                 return (await cur.fetchone())[0]
 
 
-async def _add_qualifying_moments(pool, person_id: str, n: int) -> None:
+async def _add_moments(pool, person_id: str, tag_lists: list[list[str]]) -> list[str]:
+    """Insert one qualifying moment per entry, tagged with that entry's slugs.
+
+    ``None`` entry -> NULL storybook_collections (never-tagged / backfill
+    pending); a list (incl. ``[]``) -> that tag array.
+    """
+    ids: list[str] = []
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
-                for i in range(n):
+                for i, tags in enumerate(tag_lists):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
-                        "sensory_details) VALUES (%s, %s, %s, %s)",
-                        (person_id, f"m{i}", "n", "the smell of rain"),
+                        "sensory_details, storybook_collections) "
+                        "VALUES (%s, %s, %s, %s, %s) RETURNING id::text",
+                        (person_id, f"m{i}", "n", "the smell of rain", tags),
                     )
+                    ids.append((await cur.fetchone())[0])
+    return ids
 
 
-async def _pool_ids(pool, person_id: str) -> list[str]:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT id::text FROM moments WHERE person_id = %s "
-                "ORDER BY created_at",
-                (person_id,),
-            )
-            return [r[0] for r in await cur.fetchall()]
-
-
-@pytest_asyncio.fixture
-async def redis():
-    client = fakeredis.aioredis.FakeRedis()
-    try:
-        yield client
-    finally:
-        await client.aclose()
-
-
-@pytest.fixture
-def fixed_assignments(monkeypatch):
-    """Patch the cache layer so no LLM call happens; the returned holder
-    lets each test set the assignment (by moment id) after ids exist."""
-    holder: dict = {"assignments": {}}
-
-    async def _fake(_redis, **_kwargs):
-        return holder["assignments"]
-
-    monkeypatch.setattr(preview_mod, "cached_assignments", _fake)
-    return holder
-
-
-async def test_grid_preview_picks_first_with_hints(
-    async_pool, redis, fixed_assignments
-) -> None:
+async def test_grid_preview_is_scoped_to_tagged_pool(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, 6)
-    ids = await _pool_ids(async_pool, pid)
-    fixed_assignments["assignments"] = {
-        "childhood": [ids[2], ids[0]],
-        "adventurous": [ids[4]],
-    }
+    ids = await _add_moments(
+        async_pool,
+        pid,
+        [
+            ["childhood"],
+            ["childhood", "adventurous"],
+            ["festivals"],  # not childhood
+            ["childhood"],
+            ["childhood"],
+            ["childhood"],
+            None,  # untagged: excluded from every grid scope
+        ],
+    )
     got = await build_preview(
-        db_pool=async_pool, redis=redis, settings=object(),
+        db_pool=async_pool, redis=None, settings=object(),
         person_id=pid, collection="childhood",
     )
     assert got["collection"] == "childhood"
     assert got["bounds"] == {"min_select": 5, "max_select": 25}
     rows = got["moments"]
-    assert [m["id"] for m in rows[:2]] == [ids[2], ids[0]]
-    assert rows[0]["picked"] and rows[1]["picked"]
-    assert all(not m["picked"] for m in rows[2:])
+    got_ids = {m["id"] for m in rows}
+    # Exactly the 5 childhood-tagged moments; festivals-only + untagged excluded.
+    assert got_ids == {ids[0], ids[1], ids[3], ids[4], ids[5]}
+    assert all(m["picked"] for m in rows)  # deterministic: whole scoped slice
     by_id = {m["id"]: m for m in rows}
-    assert by_id[ids[4]]["suggested_collection"] == "adventurous"
-    assert by_id[ids[1]]["suggested_collection"] is None
-    assert len(rows) == 6
+    assert by_id[ids[1]]["collections"] == ["childhood", "adventurous"]
+    # Deprecated hint: first tag other than the previewed collection.
+    assert by_id[ids[1]]["suggested_collection"] == "adventurous"
+    assert by_id[ids[0]]["suggested_collection"] is None
 
 
-async def test_wisdom_preview_includes_whole_pool_no_curation(
-    async_pool, redis, monkeypatch
-) -> None:
-    async def _boom(*_a, **_k):
-        raise AssertionError("wisdom must not curate")
-
-    monkeypatch.setattr(preview_mod, "cached_assignments", _boom)
+async def test_wisdom_preview_includes_whole_qualifying_pool(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, 4)
+    # Untagged moments still count for wisdom (whole-pool lens).
+    await _add_moments(async_pool, pid, [None, None, None, None])
     got = await build_preview(
-        db_pool=async_pool, redis=redis, settings=object(),
+        db_pool=async_pool, redis=None, settings=object(),
         person_id=pid, collection="wisdom",
     )
+    assert len(got["moments"]) == 4
     assert all(m["picked"] for m in got["moments"])
     assert got["bounds"]["min_select"] == 3  # pool of 4 relaxes the min
 
 
-async def test_used_in_maps_complete_books(
-    async_pool, redis, fixed_assignments
-) -> None:
+async def test_used_in_demotes_and_maps_complete_books(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, 5)
-    ids = await _pool_ids(async_pool, pid)
+    ids = await _add_moments(async_pool, pid, [["childhood"]] * 6)
     async with async_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -136,26 +110,34 @@ async def test_used_in_maps_complete_books(
                 (pid, [ids[2]]),
             )
     got = await build_preview(
-        db_pool=async_pool, redis=redis, settings=object(),
+        db_pool=async_pool, redis=None, settings=object(),
         person_id=pid, collection="childhood",
     )
-    by_id = {m["id"]: m for m in got["moments"]}
+    rows = got["moments"]
+    by_id = {m["id"]: m for m in rows}
     assert by_id[ids[0]]["used_in"] == ["festivals"]
     assert by_id[ids[2]]["used_in"] == []  # generating != rendered
+    # Moments used in a completed book are demoted to the back.
+    assert rows[-1]["id"] in {ids[0], ids[1]}
+    assert rows[-2]["id"] in {ids[0], ids[1]}
 
 
-async def test_thin_pool_and_bad_collection_raise(
-    async_pool, redis, fixed_assignments
-) -> None:
+async def test_grid_below_floor_raises(async_pool) -> None:
     pid = await _make_person(async_pool)
-    await _add_qualifying_moments(async_pool, pid, 2)
-    with pytest.raises(StorybookTooThin):
+    await _add_moments(async_pool, pid, [["childhood"]] * 4)  # only 4 < 5
+    with pytest.raises(StorybookTooThin) as exc:
         await build_preview(
-            db_pool=async_pool, redis=redis, settings=object(),
+            db_pool=async_pool, redis=None, settings=object(),
             person_id=pid, collection="childhood",
         )
+    assert exc.value.floor == 5
+
+
+async def test_bad_collection_raises(async_pool) -> None:
+    pid = await _make_person(async_pool)
+    await _add_moments(async_pool, pid, [["childhood"]] * 5)
     with pytest.raises(UnknownCollection):
         await build_preview(
-            db_pool=async_pool, redis=redis, settings=object(),
+            db_pool=async_pool, redis=None, settings=object(),
             person_id=pid, collection="memoir",
         )

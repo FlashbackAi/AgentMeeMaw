@@ -19,8 +19,17 @@ from uuid import UUID
 
 from psycopg.types.json import Json
 
-# Floor: never mint a book thinner than this many qualifying (scoped) moments.
+from flashback.storybook.collections import is_grid
+
+# Whole-pool floor: never mint a book thinner than this many qualifying
+# (scoped) moments. Applies to the ``wisdom`` chapter lens, which reads the
+# whole pool rather than a tagged slice.
 STORYBOOK_MIN_MOMENTS = 3
+# Per-grid-collection floor: a grid collection needs at least this many
+# qualifying moments TAGGED to it before its book can be minted (design
+# 2026-07-06). This is what stops a collection being rendered from moments
+# that don't fit it.
+STORYBOOK_COLLECTION_FLOOR = 5
 # Candidate ceiling handed to the assembler. Larger than the ~12 pages a book
 # holds so the LLM has a real pool to curate from.
 STORYBOOK_CANDIDATE_LIMIT = 40
@@ -32,8 +41,23 @@ STORYBOOK_MIN_SELECT = 5
 STORYBOOK_MAX_SELECT = 25
 
 
-def effective_min_select(pool_size: int) -> int:
-    """Minimum confirmable selection for a pool of ``pool_size``."""
+def collection_floor(collection: str | None) -> int:
+    """Minimum qualifying pool size to mint ``collection``.
+
+    Grid collections gate on their tagged slice (``STORYBOOK_COLLECTION_FLOOR``);
+    the ``wisdom`` chapter lens (and any unscoped caller) uses the whole-pool
+    floor (``STORYBOOK_MIN_MOMENTS``)."""
+    return STORYBOOK_COLLECTION_FLOOR if is_grid(collection or "") else STORYBOOK_MIN_MOMENTS
+
+
+def effective_min_select(pool_size: int, collection: str | None = None) -> int:
+    """Minimum confirmable selection for a pool of ``pool_size``.
+
+    Grid collections are gated at ``STORYBOOK_COLLECTION_FLOOR`` (5) up front,
+    so their preview min-select is 5. The ``wisdom`` lens may run on a pool of
+    3-4, so its min relaxes to the whole-pool floor."""
+    if is_grid(collection or ""):
+        return STORYBOOK_MIN_SELECT
     if pool_size >= STORYBOOK_MIN_SELECT:
         return STORYBOOK_MIN_SELECT
     return STORYBOOK_MIN_MOMENTS
@@ -62,7 +86,7 @@ ORDER BY
 _MOMENT_COLUMNS = (
     "m.id::text, m.title, m.narrative, "
     "m.generation_prompt, m.sensory_details, m.time_anchor, "
-    "m.life_period_estimate"
+    "m.life_period_estimate, m.storybook_collections"
 )
 
 
@@ -75,6 +99,7 @@ def _moment_row(r: tuple) -> dict[str, Any]:
         "sensory_details": r[4],
         "time_anchor": r[5],
         "life_period": r[6],
+        "collections": list(r[7]) if r[7] else [],
     }
 
 
@@ -82,19 +107,25 @@ async def fetch_scope_scene_moments_async(
     cur,
     *,
     person_id: UUID | str,
+    collection: str | None = None,
     theme_id: UUID | str | None = None,
     life_period: str | None = None,
     limit: int = STORYBOOK_CANDIDATE_LIMIT,
 ) -> list[dict[str, Any]]:
     """Return qualifying candidate moments for a storybook, scope-filtered.
 
-    Optional scope narrows the pool: ``theme_id`` (moments tagged to that theme
-    via an active ``themed_as`` edge) and/or ``life_period`` (exact match on
+    Optional scope narrows the pool: ``collection`` (a grid slug — moments
+    tagged to it in ``storybook_collections``; the ``wisdom`` lens and a None
+    collection are unscoped), ``theme_id`` (moments tagged to that theme via an
+    active ``themed_as`` edge) and/or ``life_period`` (exact match on
     ``life_period_estimate``). No scope = the whole qualifying pool. Ordered
     life-chronologically and capped at ``limit``.
     """
     params: dict[str, Any] = {"pid": str(person_id), "limit": limit}
     scope_sql = ""
+    if collection is not None and is_grid(collection):
+        params["collection"] = collection
+        scope_sql += "\n           AND %(collection)s = ANY(m.storybook_collections)"
     if theme_id is not None:
         params["theme_id"] = str(theme_id)
         scope_sql += """
@@ -111,11 +142,14 @@ async def fetch_scope_scene_moments_async(
         params["life_period"] = life_period
         scope_sql += "\n           AND m.life_period_estimate = %(life_period)s"
 
+    # Read the base table (not the active_moments view) so the
+    # storybook_collections column is visible; filter status explicitly.
     await cur.execute(
         f"""
         SELECT {_MOMENT_COLUMNS}
-          FROM active_moments m
+          FROM moments m
          WHERE m.person_id = %(pid)s
+           AND m.status = 'active'
            AND ({_QUALIFYING}){scope_sql}
          {_CHRONO_ORDER}
          LIMIT %(limit)s
@@ -124,6 +158,22 @@ async def fetch_scope_scene_moments_async(
     )
     rows = await cur.fetchall()
     return [_moment_row(r) for r in rows]
+
+
+def demote_used_moments(
+    moments: list[dict[str, Any]], usage: dict[str, list[str]]
+) -> list[dict[str, Any]]:
+    """Move moments already used in a completed book to the back (stable).
+
+    Cross-book repetition control that replaces the retired curation LLM's
+    single-assignment rule: a moment carried by another finished storybook is
+    deprioritised so a fresh book prefers unseen material, but is NOT excluded
+    (the family can still swap it in via the preview). Chrono order is
+    preserved within each group.
+    """
+    fresh = [m for m in moments if not usage.get(str(m["id"]))]
+    used = [m for m in moments if usage.get(str(m["id"]))]
+    return fresh + used
 
 
 async def fetch_moments_by_ids_async(
@@ -139,8 +189,9 @@ async def fetch_moments_by_ids_async(
     await cur.execute(
         f"""
         SELECT {_MOMENT_COLUMNS}
-          FROM active_moments m
+          FROM moments m
          WHERE m.person_id = %(pid)s
+           AND m.status = 'active'
            AND m.id = ANY(%(ids)s)
         """,
         {"pid": str(person_id), "ids": [str(m) for m in moment_ids]},
@@ -174,6 +225,57 @@ async def fetch_storybook_usage_async(
             if collection not in slugs:
                 slugs.append(collection)
     return usage
+
+
+async def fetch_collection_eligibility_async(
+    cur, *, person_id: UUID | str
+) -> dict[str, tuple[int, bool]]:
+    """Per-collection ``(tagged_qualifying_count, eligible)`` for one person.
+
+    Grid collections count qualifying moments tagged to them and are eligible
+    at ``STORYBOOK_COLLECTION_FLOOR``; the ``wisdom`` lens counts the whole
+    qualifying pool and is eligible at ``STORYBOOK_MIN_MOMENTS``. Drives the
+    ``GET /storybook-collections?person_id=...`` chooser badges.
+    """
+    from flashback.storybook.collections import COLLECTIONS, TAGGABLE_SLUGS
+
+    # Per-grid-slug qualifying counts (one row per slug present in any array).
+    await cur.execute(
+        f"""
+        SELECT slug, count(*)
+          FROM moments m,
+               unnest(m.storybook_collections) AS slug
+         WHERE m.person_id = %(pid)s
+           AND m.status = 'active'
+           AND ({_QUALIFYING})
+         GROUP BY slug
+        """,
+        {"pid": str(person_id)},
+    )
+    grid_counts = {slug: int(n) for slug, n in await cur.fetchall()}
+
+    # Whole qualifying pool — the wisdom lens floor.
+    await cur.execute(
+        f"""
+        SELECT count(*)
+          FROM moments m
+         WHERE m.person_id = %(pid)s
+           AND m.status = 'active'
+           AND ({_QUALIFYING})
+        """,
+        {"pid": str(person_id)},
+    )
+    (total_qualifying,) = await cur.fetchone()
+    total_qualifying = int(total_qualifying)
+
+    out: dict[str, tuple[int, bool]] = {}
+    for slug in COLLECTIONS:
+        if slug in TAGGABLE_SLUGS:
+            count = grid_counts.get(slug, 0)
+            out[slug] = (count, count >= STORYBOOK_COLLECTION_FLOOR)
+        else:  # wisdom / chapter lens: whole-pool
+            out[slug] = (total_qualifying, total_qualifying >= STORYBOOK_MIN_MOMENTS)
+    return out
 
 
 async def fetch_person_for_storybook_async(

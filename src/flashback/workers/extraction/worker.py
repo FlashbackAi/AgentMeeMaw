@@ -57,11 +57,13 @@ from .compatibility_llm import (
 )
 from .extraction_llm import (
     EXTRACTION_PROMPT_VERSION,
+    CollectionCatalogEntry,
     EntityCatalogEntry,
     ExtractionLLMConfig,
     ThemeCatalogEntry,
     run_extraction,
 )
+from flashback.storybook.collections import grid_tag_catalog
 from flashback.themes.repository import (
     auto_unlock_rich_themes_sync,
     fetch_active_themes_for_person_sync,
@@ -101,6 +103,13 @@ from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 from uuid import UUID as _UUID
 
 log = structlog.get_logger("flashback.workers.extraction")
+
+# The storybook-collection catalog is a fixed registry (grid slugs only), so
+# build it once at import rather than per message.
+_COLLECTION_CATALOG: list[CollectionCatalogEntry] = [
+    CollectionCatalogEntry(slug=row["slug"], description=row["tag_description"])
+    for row in grid_tag_catalog()
+]
 
 
 def _build_theme_catalog(theme_rows) -> list[ThemeCatalogEntry]:
@@ -302,6 +311,7 @@ class ExtractionWorker:
                 str(question_id) for question_id in payload.candidate_question_ids
             ],
             theme_catalog=theme_catalog,
+            collection_catalog=_COLLECTION_CATALOG,
             entity_catalog=entity_catalog,
             ground_truth_block=render_ground_truth_block(
                 ground_truth, "extraction"

@@ -37,11 +37,14 @@ from flashback.storybook.context import CONTEXT_KEY, build_context_dict
 from flashback.storybook.repository import (
     STORYBOOK_MAX_SELECT,
     STORYBOOK_MIN_MOMENTS,
+    collection_floor,
+    demote_used_moments,
     effective_min_select,
     fetch_moments_by_ids_async,
     fetch_person_for_storybook_async,
     fetch_scope_scene_moments_async,
     fetch_storybook_for_regen_async,
+    fetch_storybook_usage_async,
     insert_storybook_async,
     update_storybook_for_rerender_async,
 )
@@ -68,15 +71,26 @@ class BadPageUrls(Exception):
 
 
 class StorybookTooThin(Exception):
-    """Raised when the qualifying pool is below the floor to mint a book."""
+    """Raised when the qualifying pool is below the floor to mint a book.
 
-    def __init__(self, available: int, person_name: str | None = None) -> None:
+    ``floor`` is the applicable minimum — the per-collection floor for a grid
+    collection, the whole-pool floor for the ``wisdom`` lens (design
+    2026-07-06)."""
+
+    def __init__(
+        self,
+        available: int,
+        *,
+        floor: int = STORYBOOK_MIN_MOMENTS,
+        person_name: str | None = None,
+    ) -> None:
         self.available = available
+        self.floor = floor
         who = f" of {person_name}" if person_name else ""
         super().__init__(
             f"Not enough stories yet -- keep sharing memories{who} "
-            f"(need at least {STORYBOOK_MIN_MOMENTS} qualifying moments, "
-            f"have {available})"
+            f"(need at least {floor} qualifying moments for this "
+            f"collection, have {available})"
         )
 
 
@@ -112,13 +126,18 @@ class StorybookSelectionOutOfBounds(Exception):
 
 
 def _resolve_selection(
-    pool: list[dict[str, Any]], moment_ids: list[str]
+    pool: list[dict[str, Any]],
+    moment_ids: list[str],
+    *,
+    collection: str,
 ) -> list[dict[str, Any]]:
     """Dedupe + resolve the confirmed ids against the qualifying pool.
 
-    Pool membership is the validation (person-scoping falls out of it);
-    unknown ids raise rather than silently dropping -- an explicit user
-    choice must never be quietly ignored.
+    Pool membership is the validation (person-scoping AND collection-scoping
+    both fall out of it — the pool is already collection-scoped, so a moment
+    that doesn't fit the collection is not in ``by_id`` and raises); unknown
+    ids raise rather than silently dropping -- an explicit user choice must
+    never be quietly ignored.
     """
     by_id = {str(m["id"]): m for m in pool}
     seen: set[str] = set()
@@ -134,7 +153,7 @@ def _resolve_selection(
             bad.append(mid)
     if bad:
         raise StorybookBadMomentIds(bad)
-    lo = effective_min_select(len(pool))
+    lo = effective_min_select(len(pool), collection)
     if not (lo <= len(ordered) <= STORYBOOK_MAX_SELECT):
         raise StorybookSelectionOutOfBounds(
             len(ordered), lo, STORYBOOK_MAX_SELECT
@@ -175,9 +194,16 @@ def _moments_payload(moments: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 async def _fetch_inputs(
-    db_pool: AsyncConnectionPool, person_id: str
+    db_pool: AsyncConnectionPool, person_id: str, collection: str
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    """Person descriptors + qualifying pool + ground-truth block, or raise."""
+    """Person descriptors + collection-scoped qualifying pool + ground truth.
+
+    The pool is scoped to ``collection`` (a grid slug draws only on its tagged
+    moments; the ``wisdom`` lens draws on the whole pool) and gated on the
+    applicable floor — under it, ``StorybookTooThin`` and nothing is minted.
+    Moments already used in a completed book are demoted to the back, and the
+    slice is capped at ``STORYBOOK_MAX_SELECT`` — this IS the definitive book
+    slice (the render worker no longer curates)."""
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
             person = await fetch_person_for_storybook_async(
@@ -186,12 +212,15 @@ async def _fetch_inputs(
             if person is None:
                 raise StorybookNotFound(f"person {person_id} not found")
             moments = await fetch_scope_scene_moments_async(
-                cur, person_id=person_id
+                cur, person_id=person_id, collection=collection
             )
-    if len(moments) < STORYBOOK_MIN_MOMENTS:
+            usage = await fetch_storybook_usage_async(cur, person_id=person_id)
+    floor = collection_floor(collection)
+    if len(moments) < floor:
         raise StorybookTooThin(
-            len(moments), person_name=person.get("person_name")
+            len(moments), floor=floor, person_name=person.get("person_name")
         )
+    moments = demote_used_moments(moments, usage)[:STORYBOOK_MAX_SELECT]
     ground_truth = await fetch_ground_truth(db_pool, person_id)
     gt_context = render_ground_truth_block(ground_truth, "scene_subject") or ""
     return person, moments, gt_context
@@ -281,10 +310,14 @@ async def generate_storybook(
     preview flow (spec 2026-07-05). Absent = auto-curate as before.
     """
     _validate(collection, page_put_urls)
-    person, moments, gt_context = await _fetch_inputs(db_pool, person_id)
+    person, moments, gt_context = await _fetch_inputs(
+        db_pool, person_id, collection
+    )
     user_curated = moment_ids is not None
     if user_curated:
-        moments = _resolve_selection(moments, moment_ids)
+        moments = _resolve_selection(
+            moments, moment_ids, collection=collection
+        )
     ctx, composed_at = _context(
         collection=collection,
         person=person,
@@ -305,11 +338,10 @@ async def generate_storybook(
                     person_id=person_id,
                     title=None,  # worker writes it from the assembled script
                     script={},
-                    scene_moment_ids=(
-                        [str(m["id"]) for m in moments]
-                        if user_curated
-                        else []
-                    ),
+                    # The resolved slice is now definitive for BOTH paths (the
+                    # render worker no longer curates) — persist it so Postgres
+                    # stays authoritative and regenerate/edit reuse the same set.
+                    scene_moment_ids=[str(m["id"]) for m in moments],
                     moments_count=len(moments),
                     context={CONTEXT_KEY: ctx},
                     tags=[],
@@ -365,12 +397,17 @@ async def _rerender(
         )
     collection = row.get("collection") or ""
     _validate(collection, page_put_urls)
-    person, moments, gt_context = await _fetch_inputs(db_pool, person_id)
+    person, moments, gt_context = await _fetch_inputs(
+        db_pool, person_id, collection
+    )
     # A user-curated book keeps its confirmed slice across regenerate /
     # edit; superseded ids fall out of fetch_moments_by_ids. If that
-    # guts the slice below the floor, fall back to the full pool (auto)
-    # rather than stranding the edit -- there is no post-render re-pick
-    # surface (spec 2026-07-05 §5).
+    # guts the slice below the collection floor, fall back to the
+    # collection-scoped auto slice (already in ``moments``) rather than
+    # stranding the edit -- there is no post-render re-pick surface
+    # (spec 2026-07-05 §5). ``_fetch_inputs`` already 409'd if even the
+    # auto slice is below floor, so the fallback is always valid.
+    floor = collection_floor(collection)
     stored_ctx = ((row.get("context") or {}).get(CONTEXT_KEY)) or {}
     user_curated = bool(stored_ctx.get("user_curated"))
     if user_curated:
@@ -384,13 +421,14 @@ async def _rerender(
                 selected = await fetch_moments_by_ids_async(
                     cur, person_id=person_id, moment_ids=kept_ids
                 )
-        if len(selected) >= STORYBOOK_MIN_MOMENTS:
+        if len(selected) >= floor:
             moments = selected
         else:
             log.warning(
                 "storybook.selection_below_floor_fallback",
                 storybook_id=storybook_id,
                 kept=len(selected),
+                floor=floor,
             )
             user_curated = False
     ctx, composed_at = _context(

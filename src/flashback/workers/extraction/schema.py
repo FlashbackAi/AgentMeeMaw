@@ -73,6 +73,14 @@ class ExtractedMoment(BaseModel):
     carry both 'family' and 'milestones'. Unknown slugs are dropped at
     persistence time."""
 
+    collections: list[str] = Field(default_factory=list)
+    """Storybook grid-collection slugs this moment genuinely fits — drawn
+    from the fixed ``<collection_catalog>`` in the extraction prompt (the
+    grid slugs only; ``wisdom`` is never tagged). Multi-label and expected:
+    a Diwali-in-childhood memory is both 'festivals' AND 'childhood'. Empty
+    is fine (fits no collection). Gates per-collection storybook eligibility
+    (design 2026-07-06). Unknown slugs are dropped at persistence time."""
+
 
 class ExtractedEntity(BaseModel):
     model_config = ConfigDict(extra="forbid")

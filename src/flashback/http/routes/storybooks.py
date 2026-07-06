@@ -39,9 +39,9 @@ from flashback.http.models import (
     StorybookPreviewResponse,
     StorybookRegenerateRequest,
 )
-from flashback.llm.errors import LLMError
 from flashback.storybook.collections import public_collections
 from flashback.storybook.preview import build_preview
+from flashback.storybook.repository import fetch_collection_eligibility_async
 from flashback.storybook.generation import (
     BadPageUrls,
     StorybookBadMomentIds,
@@ -84,9 +84,27 @@ def _to_response(
 @router.get(
     "/storybook-collections", response_model=list[StorybookCollectionInfo]
 )
-async def list_storybook_collections() -> list[StorybookCollectionInfo]:
-    """The fixed collection registry (chooser + presigned-URL mint counts)."""
-    return [StorybookCollectionInfo(**c) for c in public_collections()]
+async def list_storybook_collections(
+    person_id: UUID | None = None,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> list[StorybookCollectionInfo]:
+    """The fixed collection registry (chooser + presigned-URL mint counts).
+
+    When ``person_id`` is supplied, each row also carries ``tagged_count`` +
+    ``eligible`` so the chooser can render locked "3/5 stories" cards
+    (design 2026-07-06). Without it, the bare registry is returned.
+    """
+    eligibility = None
+    if person_id is not None:
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                eligibility = await fetch_collection_eligibility_async(
+                    cur, person_id=person_id
+                )
+    return [
+        StorybookCollectionInfo(**c)
+        for c in public_collections(eligibility=eligibility)
+    ]
 
 
 @router.post(
@@ -122,11 +140,6 @@ async def preview_storybook(
     except StorybookTooThin as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    except LLMError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"curation failed: {exc}",
         ) from exc
     return StorybookPreviewResponse(**payload)
 

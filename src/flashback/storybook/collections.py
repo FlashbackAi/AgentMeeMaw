@@ -38,6 +38,12 @@ class Collection:
     tone: str    # "gentle" | "full"
     theme_focus: str
     signature_hint: str
+    # A clean one-line description of what BELONGS in this collection, used by
+    # the extraction / backfill tagger. Distinct from ``theme_focus`` (which
+    # also carries "Open on ..." assembly directives that would confuse a
+    # tagger). Empty for the chapter collection (``wisdom`` is never tagged —
+    # it lenses the whole pool).
+    tag_description: str = ""
 
 
 COLLECTIONS: dict[str, Collection] = {
@@ -64,6 +70,12 @@ COLLECTIONS: dict[str, Collection] = {
             "a beloved childhood place or plaything from these memories (a "
             "tree, a yard, a pond, a favourite spot)"
         ),
+        tag_description=(
+            "the small, formative world of growing up — the subject's own "
+            "childhood OR a grandchild's/child's childhood spent with them: "
+            "play, mischief, school, lessons learned as a kid, summers, "
+            "growing-up scenes."
+        ),
     ),
     "interesting": Collection(
         slug="interesting",
@@ -87,6 +99,11 @@ COLLECTIONS: dict[str, Collection] = {
         signature_hint=(
             "the one object or skill at the heart of the subject's most "
             "surprising side (a book, a tool, a craft)"
+        ),
+        tag_description=(
+            "the remarkable, surprising stories you'd tell a stranger — "
+            "hidden talents, unusual events, brushes with history, quirks, "
+            "the unexpected side of the subject. Not everyday routine."
         ),
     ),
     "nostalgia": Collection(
@@ -112,6 +129,11 @@ COLLECTIONS: dict[str, Collection] = {
             "a small sensory detail worn or repeated daily in these memories "
             "(a piece of jewellery, a morning ritual, a familiar sound)"
         ),
+        tag_description=(
+            "quiet, tender, sensory everyday textures — domestic rhythms, "
+            "small daily rituals, familiar sounds/smells, gentle ordinary "
+            "moments that ache with remembering. Not dramatic or eventful."
+        ),
     ),
     "festivals": Collection(
         slug="festivals",
@@ -135,6 +157,11 @@ COLLECTIONS: dict[str, Collection] = {
             "one physical emblem of celebration recurring in these memories "
             "(a flag, a lamp, a garland, a shared dish)"
         ),
+        tag_description=(
+            "festivals, ceremonies, holidays and special days — religious or "
+            "cultural celebrations, weddings, blessings, milestones and rites "
+            "the family marked together."
+        ),
     ),
     "adventurous": Collection(
         slug="adventurous",
@@ -157,6 +184,11 @@ COLLECTIONS: dict[str, Collection] = {
         signature_hint=(
             "the tool or terrain of the subject's boldest doing (an axe, a "
             "road, a river, a forest)"
+        ),
+        tag_description=(
+            "physical, outdoor, daring moments — journeys, travel, feats, "
+            "risk and motion, the body out in the world (hikes, rivers, "
+            "roads, sport, expeditions). Not indoor or sedentary scenes."
         ),
     ),
     "wisdom": Collection(
@@ -189,23 +221,60 @@ COLLECTIONS: dict[str, Collection] = {
     ),
 }
 
-# Grid collections are curated into distinct slices (each moment belongs to at
-# most one of them); the chapter collection draws a lens over the whole pool.
+# Grid collections draw on their tagged slice; the chapter collection
+# (``wisdom``) draws a lens over the whole pool and is never tagged / gated
+# per collection. ``CURATED_SLUGS`` keeps its name for compatibility but now
+# means "the tag-gated grid collections".
 CURATED_SLUGS = [s for s, c in COLLECTIONS.items() if c.layout == "grid"]
+
+# The collection slugs the extraction / backfill tagger may assign. Exactly the
+# grid slugs — ``wisdom`` is excluded by design (it lenses the whole pool).
+TAGGABLE_SLUGS: tuple[str, ...] = tuple(CURATED_SLUGS)
+
+
+def is_grid(slug: str) -> bool:
+    """True for a tag-gated grid collection; False for the chapter lens."""
+    c = COLLECTIONS.get(slug)
+    return c is not None and c.layout == "grid"
+
+
+def grid_tag_catalog() -> list[dict[str, str]]:
+    """The ``<collection_catalog>`` rows shown to the tagger.
+
+    One entry per grid slug: ``slug`` + ``tag_description`` (what belongs).
+    ``wisdom`` is absent by design.
+    """
+    return [
+        {"slug": s, "tag_description": COLLECTIONS[s].tag_description}
+        for s in TAGGABLE_SLUGS
+    ]
 
 
 def asset_dir(slug: str) -> str:
     return os.path.join(_ASSETS, slug)
 
 
-def public_collections() -> list[dict]:
-    """The GET /storybook-collections surface (chooser + URL-mint counts)."""
-    return [
-        {
+def public_collections(
+    eligibility: dict[str, tuple[int, bool]] | None = None,
+) -> list[dict]:
+    """The GET /storybook-collections surface (chooser + URL-mint counts).
+
+    When ``eligibility`` is supplied (a per-slug ``(tagged_count, eligible)``
+    map, computed against one person's pool), each entry additionally carries
+    ``tagged_count`` + ``eligible`` so Node can render locked "3/5 stories"
+    cards. Without it the response is the bare registry (unchanged).
+    """
+    rows: list[dict] = []
+    for c in COLLECTIONS.values():
+        row = {
             "slug": c.slug,
             "display_name": c.display,
             "layout": c.layout,
             "page_count": PAGE_COUNT,
         }
-        for c in COLLECTIONS.values()
-    ]
+        if eligibility is not None:
+            count, eligible = eligibility.get(c.slug, (0, False))
+            row["tagged_count"] = count
+            row["eligible"] = eligible
+        rows.append(row)
+    return rows

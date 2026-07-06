@@ -19,9 +19,8 @@ import tempfile
 import structlog
 from google import genai
 
-from flashback.storybook.collections import COLLECTIONS, CURATED_SLUGS
+from flashback.storybook.collections import COLLECTIONS
 from flashback.storybook.context import StorybookRenderContext
-from flashback.storybook.curation import curate_moments
 from flashback.storybook.refs import MasterRefs
 from flashback.storybook.render import render_storybook
 from flashback.storybook.script import BookScript, assemble_script
@@ -39,50 +38,28 @@ def _openai_client(cfg):
     return openai.OpenAI(api_key=cfg.openai_api_key)
 
 
-def select_moments(ctx: StorybookRenderContext,
-                   curation: dict[str, list[int]]) -> list[dict]:
-    """The moment slice this collection draws on.
+async def _assemble(ctx: StorybookRenderContext, *, settings) -> BookScript:
+    """Assemble the book from the context's moment slice.
 
-    Grid collections use their curated slice (falling back to the whole pool
-    if curation returned nothing usable — a short book beats no book); the
-    chapter collection lenses the whole pool. User-curated contexts carry
-    exactly the confirmed slice and pass through untouched.
-    """
-    if getattr(ctx, "user_curated", False):
-        return ctx.moments
-    if ctx.collection not in CURATED_SLUGS:
-        return ctx.moments
-    idxs = [i for i in curation.get(ctx.collection, [])
-            if 0 <= i < len(ctx.moments)]
-    return [ctx.moments[i] for i in idxs] or ctx.moments
-
-
-async def _curate_and_assemble(ctx: StorybookRenderContext, *,
-                               settings) -> BookScript:
-    collection = COLLECTIONS[ctx.collection]
-    if ctx.collection in CURATED_SLUGS and not ctx.user_curated:
-        curation = await curate_moments(
-            settings=settings,
-            subject_name=ctx.subject_name,
-            relationship=ctx.relationship,
-            moments=ctx.moments,
-        )
-    else:
-        curation = {}
+    ``ctx.moments`` IS the definitive slice — the route resolves it from the
+    collection's tagged pool (or the user's confirmed pick) and writes it to
+    Postgres before enqueuing (design 2026-07-06). The worker no longer curates
+    or falls back to an unrelated pool, so it can never render a collection from
+    moments that don't fit it."""
     return await assemble_script(
         settings=settings,
-        collection=collection,
+        collection=COLLECTIONS[ctx.collection],
         subject_name=ctx.subject_name,
         relationship=ctx.relationship,
         gt_context=ctx.gt_context,
-        moments=select_moments(ctx, curation),
+        moments=ctx.moments,
         edit_instructions=ctx.edit_instructions or None,
     )
 
 
 def build_script(ctx: StorybookRenderContext, *, pool, settings) -> BookScript:
-    """Reuse the stored script on regenerate; otherwise curate + assemble
-    (big-LLM, sync wrapper) and persist the result on the row."""
+    """Reuse the stored script on regenerate; otherwise assemble (big-LLM,
+    sync wrapper) from the context slice and persist the result on the row."""
     if ctx.reuse_script:
         saved = persistence.load_saved_script(pool, storybook_id=ctx.storybook_id)
         if saved:
@@ -91,7 +68,7 @@ def build_script(ctx: StorybookRenderContext, *, pool, settings) -> BookScript:
             return BookScript.from_dict(saved)
         log.info("storybook_render.reuse_missing_script",
                  storybook_id=ctx.storybook_id)
-    script = asyncio.run(_curate_and_assemble(ctx, settings=settings))
+    script = asyncio.run(_assemble(ctx, settings=settings))
     persistence.save_script(
         pool, storybook_id=ctx.storybook_id,
         title=script.cover_title, script_dict=script.to_dict())
