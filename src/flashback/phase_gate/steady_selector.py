@@ -30,6 +30,76 @@ STARTER_FALLBACK_SOURCES: tuple[str, ...] = (
 )
 
 
+async def fetch_steady_candidates(
+    pool: AsyncConnectionPool,
+    person_id: UUID,
+    recent_ids: list[UUID],
+    sources: tuple[str, ...],
+    *,
+    exclude_skipped: bool,
+) -> list["Candidate"]:
+    """Fetch the producer-bank candidates for a person via
+    ``SELECT_STEADY_CANDIDATES``. Shared by :class:`SteadySelector` and the
+    question feed."""
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                SELECT_STEADY_CANDIDATES,
+                {
+                    "person_id": person_id,
+                    "recent_ids": recent_ids,
+                    "sources": list(sources),
+                    "exclude_skipped": exclude_skipped,
+                },
+            )
+            rows = await cur.fetchall()
+    return [
+        Candidate(
+            id=row[0],
+            text=row[1],
+            source=row[2],
+            attributes=row[3] if isinstance(row[3], dict) else {},
+            created_at=row[4],
+            decision_action=row[5],
+            decision_decided_at=row[6],
+        )
+        for row in rows
+    ]
+
+
+def rank_candidates(
+    candidates: list["Candidate"],
+    *,
+    recent_themes: set[str],
+    active_theme_slug: str | None,
+    now: datetime,
+) -> list["ScoredCandidate"]:
+    """Score and sort candidates by :func:`combined_score`, descending.
+
+    Ties break on ``created_at`` (fresher first). Shared by the single-pick
+    :class:`SteadySelector` path and the multi-item question feed."""
+    scored = [
+        ScoredCandidate(
+            candidate=candidate,
+            score=combined_score(
+                candidate.source,
+                candidate.themes,
+                recent_themes,
+                active_theme_slug=active_theme_slug,
+                created_at=candidate.created_at,
+                now=now,
+                is_deferred=candidate.decision_action == "defer",
+            ),
+        )
+        for candidate in candidates
+    ]
+    scored.sort(
+        key=lambda item: (item.score, item.candidate.created_at),
+        reverse=True,
+    )
+    return scored
+
+
 class SteadySelector:
     def __init__(self, db_pool: AsyncConnectionPool, working_memory: WorkingMemory):
         self._pool = db_pool
@@ -91,24 +161,11 @@ class SteadySelector:
             )
 
         now = datetime.now(timezone.utc)
-        scored = [
-            _ScoredCandidate(
-                candidate=candidate,
-                score=combined_score(
-                    candidate.source,
-                    candidate.themes,
-                    recent_themes,
-                    active_theme_slug=active_theme_slug,
-                    created_at=candidate.created_at,
-                    now=now,
-                    is_deferred=candidate.decision_action == "defer",
-                ),
-            )
-            for candidate in candidates
-        ]
-        scored.sort(
-            key=lambda item: (item.score, item.candidate.created_at),
-            reverse=True,
+        scored = rank_candidates(
+            candidates,
+            recent_themes=recent_themes,
+            active_theme_slug=active_theme_slug,
+            now=now,
         )
         selected = _apply_universal_dimension_demotion(scored)
         candidate = selected.candidate
@@ -151,35 +208,18 @@ class SteadySelector:
         sources: tuple[str, ...],
         *,
         exclude_skipped: bool,
-    ) -> list["_Candidate"]:
-        async with self._pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    SELECT_STEADY_CANDIDATES,
-                    {
-                        "person_id": person_id,
-                        "recent_ids": recent_ids,
-                        "sources": list(sources),
-                        "exclude_skipped": exclude_skipped,
-                    },
-                )
-                rows = await cur.fetchall()
-        return [
-            _Candidate(
-                id=row[0],
-                text=row[1],
-                source=row[2],
-                attributes=row[3] if isinstance(row[3], dict) else {},
-                created_at=row[4],
-                decision_action=row[5],
-                decision_decided_at=row[6],
-            )
-            for row in rows
-        ]
+    ) -> list["Candidate"]:
+        return await fetch_steady_candidates(
+            self._pool,
+            person_id,
+            recent_ids,
+            sources,
+            exclude_skipped=exclude_skipped,
+        )
 
 
 @dataclass(frozen=True)
-class _Candidate:
+class Candidate:
     id: UUID
     text: str
     source: str
@@ -197,14 +237,14 @@ class _Candidate:
 
 
 @dataclass(frozen=True)
-class _ScoredCandidate:
-    candidate: _Candidate
+class ScoredCandidate:
+    candidate: Candidate
     score: float
 
 
 def _apply_universal_dimension_demotion(
-    scored: list[_ScoredCandidate],
-) -> _ScoredCandidate:
+    scored: list[ScoredCandidate],
+) -> ScoredCandidate:
     selected = scored[0]
     if selected.candidate.source != "universal_dimension":
         return selected
