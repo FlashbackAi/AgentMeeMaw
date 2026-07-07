@@ -802,3 +802,24 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok", "degraded"]
     checks: dict[str, str] = Field(default_factory=dict)
+
+
+# --- /questions/feed -------------------------------------------------------
+
+
+class FeedQuestionOut(BaseModel):
+    """One entry in the browsable question feed (``GET /questions/feed``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: UUID
+    text: str
+    source: str
+    themes: list[str]
+    created_at: datetime
+
+
+class QuestionFeedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questions: list[FeedQuestionOut]
