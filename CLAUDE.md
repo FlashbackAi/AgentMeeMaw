@@ -938,6 +938,15 @@ We expose an HTTP service. Node calls us; we never call Node.
   theme. Answers are ephemeral priors — kept on the theme row's
   `archetype_answers` JSONB, fed into the first-turn opener
   context, but never written as moments/traits/profile_facts.
+  `session_metadata` also accepts optional `question_id` (UUID) — the
+  producer-bank question the contributor tapped in the feed
+  (`GET /questions/feed`). The `apply_picked_question` step (after
+  `select_starter_question`, both phases, both JSON + stream pipelines)
+  loads that active person-scoped question and sets `state.selection` so
+  the opener anchors on it, overriding any auto-selected starter
+  question. An explicit pick is exempt from cooldown/recency dedup; an
+  unknown/foreign/inactive id degrades to the normal opener. Composes
+  with `theme_id`.
 - `POST /turn` — body: `{ session_id, person_id, role_id, message }`.
   Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
@@ -964,6 +973,17 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /session/wrap` — body: `{ session_id, person_id }`. Force-
   closes the open segment, generates session summary, kicks off
   post-session sequencing. Returns the session summary.
+- `GET /questions/feed?person_id=...&limit=...` — ranked, browsable
+  feed of the person's producer-bank questions for the scrolling
+  surface. Reuses the SteadySelector fetch + `combined_score` ranking,
+  honors `question_decisions` (`skip`/`suppress` excluded, `defer`
+  boosted), and spreads `universal_dimension` (≤1 per 5, invariant #10).
+  Producer-bank sources only; coverage-tap + archetype excluded. `limit`
+  default 25, clamped 1–50. Read-only, person-scoped; empty list for a
+  fresh legacy. Tapping a result seeds a session via
+  `session_metadata.question_id` on `/session/start`. Ranking is
+  agent-side computation — the one carve-out from "Node reads
+  `active_questions` directly" (API.md §9).
 - `POST /admin/reset_phase` — admin-only escape hatch for Handover
   Check stickiness. Body: `{ person_id }`.
 - `POST /profile_facts/upsert` — Node-driven fact edit. Body:

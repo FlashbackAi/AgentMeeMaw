@@ -500,8 +500,17 @@ Mixing rows across models gives garbage.
 | Entity pages | `active_entities`, `active_edges` |
 | Threads | `active_threads`, `active_edges` (for moments in thread) |
 | Traits | `active_traits` |
-| Open questions / "ask next" | `active_questions` (filtered by status / answered_by edges) |
+| Open questions / "ask next" (raw) | `active_questions` (filtered by status / answered_by edges) |
+| Question **feed** (ranked browse surface) | `GET /questions/feed?person_id=...` — agent-ranked; do **not** re-derive from the view |
 | Identity merge review | `identity_merge_suggestions` (the GET endpoint is more convenient) |
+
+**Question feed → tap to start.** For the scrolling feed, call
+`GET /questions/feed?person_id=...` (ranked, producer-bank only,
+`skip`/`suppress` filtered, `universal_dimension` spread) and render the
+`questions[]`. When the contributor taps one, start a session with that
+question's `question_id` in `session_metadata.question_id` on
+`POST /session/start` — the agent's opener anchors on it. No new write
+surface: this is a read + an existing metadata field.
 
 ### 6.5 Columns Node writes
 
