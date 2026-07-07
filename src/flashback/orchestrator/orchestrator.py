@@ -41,6 +41,7 @@ from flashback.orchestrator.steps import (
     append_assistant,
     append_opener,
     append_user_turn,
+    apply_picked_question,
     apply_theme_unlock,
     classify,
     detect_segment,
@@ -136,6 +137,12 @@ class Orchestrator:
                     policies=SESSION_START_POLICIES,
                     step_name="select_starter_question",
                     fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="apply_picked_question",
+                    fn=lambda: apply_picked_question(state, self._deps),
                     state=state,
                 )
                 await execute(
@@ -681,6 +688,12 @@ class Orchestrator:
                     policies=SESSION_START_POLICIES,
                     step_name="select_starter_question",
                     fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="apply_picked_question",
+                    fn=lambda: apply_picked_question(state, self._deps),
                     state=state,
                 )
 
