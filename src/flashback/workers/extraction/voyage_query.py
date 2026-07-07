@@ -25,6 +25,8 @@ from typing import Protocol
 import structlog
 import voyageai
 
+from flashback.usage import recorder as usage_recorder
+
 log = structlog.get_logger("flashback.workers.extraction.voyage_query")
 EXPECTED_EMBEDDING_DIM = 1024
 
@@ -80,4 +82,9 @@ class SyncVoyageQueryEmbedder:
                 expected=EXPECTED_EMBEDDING_DIM,
             )
             return None
+        usage_recorder.record_llm_usage_sync(
+            feature="embedding_query", provider="voyage", model=self.model,
+            input_tokens=int(getattr(result, "total_tokens", 0) or 0),
+            output_tokens=0,
+        )
         return vector
