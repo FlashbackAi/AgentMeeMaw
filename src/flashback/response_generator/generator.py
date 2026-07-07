@@ -76,6 +76,7 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         )
         return _finalize(text, ctx.mode)
 
@@ -89,6 +90,7 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         )
         return _finalize(text, ctx.mode)
 
@@ -104,6 +106,7 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         )
         return _finalize(text, ctx.mode)
 
@@ -120,6 +123,7 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         ):
             yield chunk
 
@@ -135,6 +139,7 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         ):
             yield chunk
 
@@ -150,5 +155,6 @@ class ResponseGenerator:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="response_generate",
         ):
             yield chunk

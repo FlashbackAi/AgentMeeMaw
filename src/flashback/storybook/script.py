@@ -400,6 +400,7 @@ async def assemble_script(
         max_tokens=6000,
         timeout=120.0,
         settings=settings,
+        feature="storybook_script",
     )
     try:
         script = BookScript.from_dict(args)

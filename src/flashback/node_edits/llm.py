@@ -50,6 +50,7 @@ async def run_edit_llm(
         max_tokens=max_tokens,
         timeout=timeout,
         settings=settings,
+        feature="node_edit",
     )
     log.info(
         "node_edits.llm_returned",

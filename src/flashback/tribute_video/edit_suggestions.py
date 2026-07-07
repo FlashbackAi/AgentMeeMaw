@@ -150,6 +150,7 @@ async def generate_edit_suggestions(
             max_tokens=400,
             timeout=12.0,
             settings=settings,
+            feature="tribute_video",
         )
     except LLMError as exc:
         log.warning("edit_suggestions.llm_failed", error=str(exc))

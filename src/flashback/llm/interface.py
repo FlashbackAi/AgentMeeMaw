@@ -18,6 +18,8 @@ import structlog
 from flashback.llm.clients import get_anthropic_client, get_openai_client
 from flashback.llm.errors import LLMError, LLMMalformedResponse, LLMTimeout
 from flashback.llm.tool_spec import ToolSpec
+from flashback.usage import extract as usage_extract
+from flashback.usage import recorder as usage_recorder
 
 Provider = Literal["openai", "anthropic"]
 
@@ -47,6 +49,7 @@ async def call_with_tool(
     max_tokens: int,
     timeout: float,
     settings,
+    feature: str = "unknown",
 ) -> dict:
     """Call an LLM with forced tool use and return parsed tool arguments."""
     if provider == "anthropic":
@@ -58,6 +61,7 @@ async def call_with_tool(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         )
     if provider == "openai":
         return await _call_openai(
@@ -68,6 +72,7 @@ async def call_with_tool(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         )
     raise LLMError(f"unknown provider: {provider!r}")
 
@@ -81,6 +86,7 @@ async def call_text(
     max_tokens: int,
     timeout: float,
     settings,
+    feature: str = "unknown",
 ) -> str:
     """Call an LLM for plain prose and return generated text."""
     if provider == "anthropic":
@@ -91,6 +97,7 @@ async def call_text(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         )
     if provider == "openai":
         return await _call_openai_text(
@@ -100,6 +107,7 @@ async def call_text(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         )
     raise LLMError(f"unknown provider: {provider!r}")
 
@@ -113,6 +121,7 @@ async def call_text_stream(
     max_tokens: int,
     timeout: float,
     settings,
+    feature: str = "unknown",
 ) -> AsyncIterator[str]:
     """Stream prose chunks from an LLM. Yields text deltas as they arrive.
 
@@ -128,6 +137,7 @@ async def call_text_stream(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         ):
             yield chunk
         return
@@ -139,6 +149,7 @@ async def call_text_stream(
             max_tokens=max_tokens,
             timeout=timeout,
             settings=settings,
+            feature=feature,
         ):
             yield chunk
         return
@@ -154,6 +165,7 @@ async def _call_anthropic(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> dict:
     """Anthropic Messages API with a required tool_use block."""
     client = get_anthropic_client(settings)
@@ -196,6 +208,11 @@ async def _call_anthropic(
             max_tokens=max_tokens,
         )
 
+    await usage_recorder.record_llm_usage(
+        feature=feature, provider="anthropic", model=model,
+        **usage_extract.usage_from_anthropic(response),
+    )
+
     for block in response.content:
         if getattr(block, "type", None) == "tool_use":
             if getattr(block, "name", None) != tool.name:
@@ -216,6 +233,7 @@ async def _call_anthropic_text(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> str:
     """Anthropic Messages API without tools."""
     client = get_anthropic_client(settings)
@@ -237,6 +255,11 @@ async def _call_anthropic_text(
     except anthropic.APIError as e:
         raise LLMError(f"Anthropic API error: {e}") from e
 
+    await usage_recorder.record_llm_usage(
+        feature=feature, provider="anthropic", model=model,
+        **usage_extract.usage_from_anthropic(response),
+    )
+
     for block in getattr(response, "content", []) or []:
         if getattr(block, "type", None) == "text":
             text = getattr(block, "text", None)
@@ -256,6 +279,7 @@ async def _call_openai(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> dict:
     """OpenAI Chat Completions API with direct JSON schema output."""
     client = get_openai_client(settings)
@@ -291,6 +315,11 @@ async def _call_openai(
         raise LLMTimeout(str(e)) from e
     except openai.APIError as e:
         raise LLMError(f"OpenAI API error: {e}") from e
+
+    await usage_recorder.record_llm_usage(
+        feature=feature, provider="openai", model=model,
+        **usage_extract.usage_from_openai(response),
+    )
 
     try:
         msg = response.choices[0].message
@@ -344,6 +373,7 @@ async def _call_openai_text(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> str:
     """OpenAI Chat Completions API without tools."""
     client = get_openai_client(settings)
@@ -367,6 +397,11 @@ async def _call_openai_text(
     except openai.APIError as e:
         raise LLMError(f"OpenAI API error: {e}") from e
 
+    await usage_recorder.record_llm_usage(
+        feature=feature, provider="openai", model=model,
+        **usage_extract.usage_from_openai(response),
+    )
+
     try:
         content = response.choices[0].message.content
     except (AttributeError, IndexError) as e:
@@ -384,6 +419,7 @@ async def _call_anthropic_text_stream(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> AsyncIterator[str]:
     """Anthropic Messages API streaming. Yields text deltas as they arrive."""
     client = get_anthropic_client(settings)
@@ -404,6 +440,15 @@ async def _call_anthropic_text_stream(
                         _record_provider_success("Anthropic")
                         first_chunk_seen = True
                     yield chunk
+            try:
+                final = await stream.get_final_message()
+                await usage_recorder.record_llm_usage(
+                    feature=feature, provider="anthropic", model=model,
+                    **usage_extract.usage_from_anthropic(final),
+                )
+            except Exception as exc:  # noqa: BLE001 — metering must not break a completed stream
+                log.warning("usage.stream_final_failed", provider="anthropic",
+                            model=model, error=str(exc))
     except anthropic.APITimeoutError as e:
         if not first_chunk_seen:
             _record_provider_failure("Anthropic", settings=settings)
@@ -425,11 +470,13 @@ async def _call_openai_text_stream(
     max_tokens,
     timeout,
     settings,
+    feature="unknown",
 ) -> AsyncIterator[str]:
     """OpenAI Chat Completions streaming. Yields content deltas as they arrive."""
     client = get_openai_client(settings)
     _raise_if_circuit_open("OpenAI")
     first_chunk_seen = False
+    final_usage_chunk = None
     try:
         stream = await client.chat.completions.create(
             model=model,
@@ -440,9 +487,12 @@ async def _call_openai_text_stream(
             max_completion_tokens=max_tokens,
             timeout=timeout,
             stream=True,
+            stream_options={"include_usage": True},
             **_openai_request_kwargs(settings),
         )
         async for chunk in stream:
+            if getattr(chunk, "usage", None) is not None:
+                final_usage_chunk = chunk  # terminal chunk: empty choices + usage
             try:
                 delta = chunk.choices[0].delta.content
             except (AttributeError, IndexError):
@@ -452,6 +502,15 @@ async def _call_openai_text_stream(
                     _record_provider_success("OpenAI")
                     first_chunk_seen = True
                 yield delta
+        if final_usage_chunk is not None:
+            try:
+                await usage_recorder.record_llm_usage(
+                    feature=feature, provider="openai", model=model,
+                    **usage_extract.usage_from_openai(final_usage_chunk),
+                )
+            except Exception as exc:  # noqa: BLE001 — metering must not break a completed stream
+                log.warning("usage.stream_final_failed", provider="openai",
+                            model=model, error=str(exc))
     except openai.APITimeoutError as e:
         if not first_chunk_seen:
             _record_provider_failure("OpenAI", settings=settings)

@@ -125,6 +125,7 @@ def run_extraction(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="extraction",
         )
     )
     result = ExtractionResult.model_validate(args)

@@ -22,6 +22,8 @@ from typing import Protocol
 
 import voyageai
 
+from flashback.usage import recorder as usage_recorder
+
 
 class VoyageError(RuntimeError):
     """Raised when the Voyage API call fails or returns malformed output."""
@@ -81,4 +83,9 @@ class VoyageClient:
                     f"Voyage returned dim={len(vector)} for input {index}; "
                     f"expected {EXPECTED_EMBEDDING_DIM}"
                 )
+        usage_recorder.record_llm_usage_sync(
+            feature="embedding_row", provider="voyage", model=model,
+            input_tokens=int(getattr(result, "total_tokens", 0) or 0),
+            output_tokens=0,
+        )
         return vectors

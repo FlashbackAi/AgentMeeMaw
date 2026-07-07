@@ -142,6 +142,7 @@ async def select_ground_truth_question(
             max_tokens=300,
             timeout=10.0,
             settings=settings,
+            feature="ground_truth_tap",
         )
     except LLMError as exc:
         log.warning("gt_selection.llm_failed", error=str(exc))

@@ -60,6 +60,7 @@ def name_cluster(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="thread_naming",
         )
     )
     result = NamingResult.model_validate(args)

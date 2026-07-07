@@ -90,6 +90,7 @@ class IdentityMergeVerifier:
             max_tokens=self.max_tokens,
             timeout=self.timeout,
             settings=self.settings,
+            feature="identity_verify",
         )
         return IdentityMergeVerification.model_validate(args)
 

@@ -55,6 +55,7 @@ def synthesize(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="trait_synth",
         )
     )
     result = TraitSynthesisResult.model_validate(args)

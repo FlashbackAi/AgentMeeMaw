@@ -73,6 +73,7 @@ def extract_facts(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="profile_facts",
         )
     )
 

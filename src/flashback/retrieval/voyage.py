@@ -8,6 +8,8 @@ from typing import Protocol
 import structlog
 import voyageai
 
+from flashback.usage import recorder as usage_recorder
+
 log = structlog.get_logger("flashback.retrieval.voyage")
 EXPECTED_EMBEDDING_DIM = 1024
 
@@ -73,4 +75,9 @@ class VoyageQueryEmbedder:
             raise ValueError(
                 f"Voyage returned dim={len(vector)}; expected {EXPECTED_EMBEDDING_DIM}"
             )
+        usage_recorder.record_llm_usage_sync(
+            feature="embedding_query", provider="voyage", model=self._model,
+            input_tokens=int(getattr(result, "total_tokens", 0) or 0),
+            output_tokens=0,
+        )
         return vector

@@ -79,6 +79,7 @@ async def polish_message(
             max_tokens=300,
             timeout=12.0,
             settings=settings,
+            feature="tribute_message",
         )
     except LLMError as exc:
         log.warning("message_polish.llm_failed", error=str(exc))

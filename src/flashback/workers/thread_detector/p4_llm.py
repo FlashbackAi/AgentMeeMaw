@@ -60,6 +60,7 @@ def propose_thread_deepen_questions(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="p4_questions",
         )
     )
     result = P4Result.model_validate(args)

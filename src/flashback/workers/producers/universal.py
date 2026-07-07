@@ -151,6 +151,7 @@ class P5UniversalCoverage:
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="producer",
         )
         allowed = {dim.name for dim in under_covered}
         questions: list[GeneratedQuestion] = []

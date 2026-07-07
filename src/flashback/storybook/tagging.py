@@ -122,6 +122,7 @@ async def tag_moments(
         max_tokens=4000,
         timeout=90.0,
         settings=settings,
+        feature="storybook_tagging",
     )
     by_index: dict[int, list[str]] = {}
     for row in args.get("moments") or ():
