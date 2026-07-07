@@ -114,6 +114,7 @@ rejected with `422`.
 | `POST` | `/turn` | One user message → one assistant reply |
 | `POST` | `/turn/stream` | Same as above, streamed as SSE |
 | `POST` | `/session/wrap` | Force-close the open segment, run post-session sequencing |
+| `GET` | `/questions/feed` | Ranked producer-bank question feed for the scrolling browse surface |
 | `POST` | `/profile_facts/upsert` | Node-driven edit of one profile fact |
 | `GET` | `/identity_merges/suggestions` | List pending entity merge suggestions |
 | `POST` | `/identity_merges/scan` | Manually scan a person for merge candidates |
@@ -326,7 +327,8 @@ gate + question selection, return the agent's opener.
   "contributor_display_name": "string (optional, recommended)",
   "session_metadata": {
     "prior_session_summary": "string (optional)",
-    "archetype_answers": "array (optional, first session)"
+    "archetype_answers": "array (optional, first session)",
+    "question_id": "uuid (optional — the feed question the user tapped)"
   }
 }
 ```
@@ -355,6 +357,14 @@ are:
 - `archetype_answers`, the stored onboarding answers for the person. The
   first-turn opener renders these naturally and anchors on the most
   concrete detail without re-asking it.
+- `question_id`, the producer-bank question the contributor tapped in the
+  feed (`GET /questions/feed`). The agent loads that active, person-scoped
+  question and the opener anchors on it — overriding any auto-selected
+  starter question, in both starter and steady phase. An explicit pick is
+  **exempt** from the same-source cooldown and recency dedup: the exact
+  question tapped is always honored. An unknown / foreign / inactive id is
+  ignored (the opener falls back to normal). Composes with `theme_id` —
+  both may be present and both are soft opener context.
 
 **Response 200**
 ```json
@@ -1298,6 +1308,52 @@ re-renders.
 
 ---
 
+## 7d. Questions — browsable feed
+
+### `GET /questions/feed`
+
+A ranked, browsable list of the producer-bank questions the agent is
+holding for a person, for the scrolling feed. Tapping one starts a
+session seeded on it (pass its id as `session_metadata.question_id` on
+`POST /session/start`).
+
+**Query params**
+- `person_id` (uuid, required)
+- `limit` (int, optional, default `25`, clamped to `1..50`)
+
+**Response 200**
+```jsonc
+{
+  "questions": [
+    {
+      "question_id": "uuid",
+      "text": "string",
+      "source": "dropped_reference | underdeveloped_entity | thread_deepen | life_period_gap | universal_dimension",
+      "themes": ["family"],
+      "created_at": "iso-8601"
+    }
+  ]
+}
+```
+
+Semantics:
+- **Producer-bank sources only** (the five above). Coverage-tap and
+  archetype/unlock questions keep their own surfaces and never appear.
+- Ordered by the same `combined_score` the bot uses to decide what to ask
+  next (source priority + recency + defer boost), so the top item matches
+  the bot's instinct.
+- `question_decisions` are honored: `skip` and `suppress` are excluded,
+  `defer` is boosted.
+- `universal_dimension` questions are spread so a window of five never
+  holds more than one (invariant #10); best-effort when they dominate.
+- Empty list for a fresh legacy with no bank yet — this is a `200`, not an
+  error.
+
+**Errors**
+- `422` — malformed `person_id` / out-of-range `limit`
+
+---
+
 ## 8. Admin
 
 ### `POST /admin/reset_phase`
@@ -1338,7 +1394,10 @@ By design — Node reads these directly from Postgres:
 - `GET /traits`, `GET /persons/{id}/traits`
 - `GET /persons/{id}` (profile / display name / coverage_state)
 - `GET /profile_facts?person_id=...`
-- `GET /questions/...`
+- `GET /questions/...` raw list reads — a plain `active_questions`
+  filter. **Exception:** the *ranked* browsable feed is agent-served at
+  `GET /questions/feed` (§7d) because it needs agent-side ranking +
+  decision-filtering; Node renders it, it does not re-derive it.
 - Any DynamoDB transcript reads (Node-owned)
 - Any S3 / artifact URL reads (Node-owned, Node writes the URL columns)
 
