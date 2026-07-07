@@ -207,6 +207,7 @@ class P2Underdeveloped:
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="producer",
         )
         allowed = {e.id for e in entities}
         questions: list[GeneratedQuestion] = []

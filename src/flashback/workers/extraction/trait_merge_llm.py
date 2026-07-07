@@ -68,6 +68,7 @@ def merge_trait_description(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="trait_merge",
         )
     )
     try:

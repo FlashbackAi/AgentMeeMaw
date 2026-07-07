@@ -513,6 +513,7 @@ async def assemble_tribute_script(
             max_tokens=3200,
             timeout=45.0,
             settings=settings,
+            feature="tribute_assembly",
         )
     except LLMError as exc:
         log.warning("tribute_assembly.llm_failed", error=str(exc))

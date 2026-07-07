@@ -149,6 +149,7 @@ async def generate_tap_options(
             max_tokens=200,
             timeout=10.0,
             settings=settings,
+            feature="tap_options",
         )
     except LLMError as exc:
         log.warning("tap_options.llm_failed", error=str(exc))

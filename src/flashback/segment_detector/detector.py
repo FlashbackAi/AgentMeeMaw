@@ -61,6 +61,7 @@ class SegmentDetector:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="segment_detect",
         )
         result = SegmentDetectionResult.model_validate(args)
 

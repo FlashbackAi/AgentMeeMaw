@@ -30,6 +30,7 @@ class SessionSummaryGenerator:
             max_tokens=self._settings.llm_session_summary_max_tokens,
             timeout=self._settings.llm_session_summary_timeout_seconds,
             settings=self._settings,
+            feature="session_summary",
         )
         return SessionSummaryResult(text=text.strip())
 

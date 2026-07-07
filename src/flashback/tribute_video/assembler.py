@@ -222,6 +222,7 @@ async def assemble_storybook_video(
             max_tokens=5000,
             timeout=60.0,
             settings=settings,
+            feature="tribute_video",
         )
     except LLMError as exc:
         log.warning("storybook_video.assembly_failed", error=str(exc))

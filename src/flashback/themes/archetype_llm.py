@@ -230,6 +230,7 @@ async def generate_archetype_questions(
             max_tokens=1200,
             timeout=20.0,
             settings=settings,
+            feature="theme_archetype",
         )
     except LLMError as exc:
         log.warning(

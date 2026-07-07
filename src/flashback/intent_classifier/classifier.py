@@ -48,6 +48,7 @@ class IntentClassifier:
             max_tokens=self._max_tokens,
             timeout=self._timeout,
             settings=self._settings,
+            feature="intent_classify",
         )
         return IntentResult.model_validate(args)
 
