@@ -39,6 +39,11 @@ class StarterContext(BaseModel):
     contributor_role: str | None = None
     anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
+    # True when anchor_question_text came from an explicit feed pick
+    # (the contributor tapped this question), as opposed to an
+    # auto-selected starter question. An explicit pick must lead the
+    # opener and be asked faithfully, not buried behind continuity.
+    anchor_is_explicit_pick: bool = False
     prior_session_summary: str | None = None
 
     # Theme deepen context (optional). When set, the opener should

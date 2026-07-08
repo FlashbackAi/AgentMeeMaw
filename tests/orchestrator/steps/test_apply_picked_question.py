@@ -5,6 +5,8 @@ from uuid import UUID
 
 from flashback.orchestrator.state import SessionStartState
 from flashback.orchestrator.steps.apply_picked_question import apply_picked_question
+from flashback.orchestrator.steps.starter_opener import build_starter_context
+from flashback.phase_gate.schema import SelectionResult
 
 PERSON_ID = UUID("11111111-1111-1111-1111-111111111111")
 SESSION_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -97,3 +99,30 @@ async def test_unknown_question_id_degrades():
     state = _state({"question_id": str(QID)})
     await apply_picked_question(state, _Deps(None))  # fetchone -> None
     assert state.selection is None
+
+
+async def test_explicit_pick_flag_set_on_starter_context():
+    """A resolved feed pick flags the StarterContext as an explicit pick so
+    the opener leads with the picked question."""
+    row = (QID, "Tell me about the bike.", "dropped_reference")
+    state = _state({"question_id": str(QID)})
+    await apply_picked_question(state, _Deps(row))
+    ctx = build_starter_context(state)
+    assert ctx.anchor_is_explicit_pick is True
+    assert ctx.anchor_question_text == "Tell me about the bike."
+
+
+async def test_auto_selected_question_is_not_flagged_as_explicit_pick():
+    """A starter question selected by the phase gate (no question_id in
+    metadata) is not an explicit pick — the opener may bridge into it."""
+    state = _state({})
+    state.selection = SelectionResult(
+        phase="starter",
+        question_id=QID,
+        question_text="Tell me about the bike.",
+        source="dropped_reference",
+        rationale="auto",
+    )
+    ctx = build_starter_context(state)
+    assert ctx.anchor_is_explicit_pick is False
+    assert ctx.anchor_question_text == "Tell me about the bike."

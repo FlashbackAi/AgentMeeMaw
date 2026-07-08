@@ -143,6 +143,16 @@ def render_starter_context(ctx: StarterContext) -> str:
                 ]
             )
         )
+    elif ctx.anchor_question_text and ctx.anchor_is_explicit_pick:
+        sections.append(
+            "\n".join(
+                [
+                    '<seeded_question source="explicit_pick">',
+                    xml_text(ctx.anchor_question_text),
+                    "</seeded_question>",
+                ]
+            )
+        )
     elif ctx.anchor_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     if ctx.prior_session_summary and ctx.prior_session_summary.strip():
