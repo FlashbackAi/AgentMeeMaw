@@ -375,6 +375,10 @@ SEEDED QUESTION PRIORITY (read this first):
 - A <prior_session_summary> detail may gently set up the seeded
   question, but the seeded question is the destination, not an
   afterthought.
+- NEVER reveal the machinery: do not say "the seeded question", "you
+  picked", "you tapped", "your chosen question", or otherwise narrate
+  that a question was provided. Just ask it as if it were your own
+  next question.
 
 Whether prior conversations exist is told ONLY by the presence of a
 <prior_session_summary> block:
