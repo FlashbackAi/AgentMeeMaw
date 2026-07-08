@@ -148,6 +148,17 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
     anchor_text: str | None = None
     if state.selection and state.selection.question_text:
         anchor_text = state.selection.question_text
+    # An explicit feed pick is one where the caller passed question_id and
+    # apply_picked_question resolved it onto state.selection. Contrast with
+    # an auto-selected starter question, which the opener may bridge into
+    # more loosely.
+    picked_id = _string_or_none(state.session_metadata.get("question_id"))
+    anchor_is_explicit_pick = bool(
+        picked_id
+        and state.selection is not None
+        and state.selection.question_id is not None
+        and str(state.selection.question_id) == picked_id
+    )
     return StarterContext(
         person_name=state.person_name,
         person_relationship=state.person_relationship,
@@ -164,6 +175,7 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         ),
         anchor_question_text=anchor_text,
         anchor_dimension=None,
+        anchor_is_explicit_pick=anchor_is_explicit_pick,
         prior_session_summary=_string_or_none(
             state.session_metadata.get("prior_session_summary")
         ),

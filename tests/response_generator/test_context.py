@@ -51,6 +51,35 @@ def test_render_starter_context_includes_anchor_text_and_dimension():
     assert "Sarah" in rendered
 
 
+def test_explicit_pick_renders_seeded_question_with_source_marker():
+    """An explicit feed pick must be tagged source="explicit_pick" so the
+    opener prompt leads with it instead of burying it behind continuity."""
+
+    ctx = sample_starter_context()
+    ctx.anchor_dimension = None
+    ctx.anchor_is_explicit_pick = True
+
+    rendered = render_starter_context(ctx)
+
+    assert '<seeded_question source="explicit_pick">' in rendered
+    assert "What's a smell that brings them right back?" in rendered
+    assert "<anchor_question" not in rendered
+
+
+def test_auto_selected_question_renders_plain_seeded_block():
+    """A non-picked seeded question (auto-selected starter) stays a plain
+    <seeded_question> block with no source marker."""
+
+    ctx = sample_starter_context()
+    ctx.anchor_dimension = None
+    ctx.anchor_is_explicit_pick = False
+
+    rendered = render_starter_context(ctx)
+
+    assert "<seeded_question>" in rendered
+    assert 'source="explicit_pick"' not in rendered
+
+
 def test_starter_context_never_carries_archetype_answers():
     """Archetype answers are first-time-opener-only — they must not leak
     into the normal session-start path."""
