@@ -126,3 +126,26 @@ async def test_auto_selected_question_is_not_flagged_as_explicit_pick():
     ctx = build_starter_context(state)
     assert ctx.anchor_is_explicit_pick is False
     assert ctx.anchor_question_text == "Tell me about the bike."
+
+
+async def test_explicit_pick_suppresses_prior_session_summary_in_opener():
+    """An explicit pick from an earlier session must not drag the opener
+    toward the previous session's salient memory: continuity is withheld
+    from the OPENER context (still seeded into Working Memory elsewhere)."""
+    row = (QID, "Tell me about the electrical project.", "dropped_reference")
+    state = _state(
+        {"question_id": str(QID), "prior_session_summary": "Lots about the bus trip."}
+    )
+    await apply_picked_question(state, _Deps(row))
+    ctx = build_starter_context(state)
+    assert ctx.anchor_is_explicit_pick is True
+    assert ctx.prior_session_summary is None
+
+
+async def test_no_pick_keeps_prior_session_summary_in_opener():
+    """Without an explicit pick, the returning-contributor opener keeps its
+    continuity context."""
+    state = _state({"prior_session_summary": "Lots about the bus trip."})
+    ctx = build_starter_context(state)
+    assert ctx.anchor_is_explicit_pick is False
+    assert ctx.prior_session_summary == "Lots about the bus trip."
