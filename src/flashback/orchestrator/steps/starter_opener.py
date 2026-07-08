@@ -159,6 +159,18 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         and state.selection.question_id is not None
         and str(state.selection.question_id) == picked_id
     )
+    # When the contributor explicitly picked a feed question, the opener must
+    # anchor on THAT question — not the previous session's salient memory. The
+    # picked question is (by construction) from an earlier session, so feeding
+    # prior-session continuity into the opener drags it back toward whatever
+    # was most vivid last time (invariant #15's cross-session recall) and the
+    # picked topic loses. Suppress continuity in the OPENER context only; it is
+    # still seeded into Working Memory (init_working_memory) for later turns.
+    prior_summary = (
+        None
+        if anchor_is_explicit_pick
+        else _string_or_none(state.session_metadata.get("prior_session_summary"))
+    )
     return StarterContext(
         person_name=state.person_name,
         person_relationship=state.person_relationship,
@@ -176,9 +188,7 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         anchor_question_text=anchor_text,
         anchor_dimension=None,
         anchor_is_explicit_pick=anchor_is_explicit_pick,
-        prior_session_summary=_string_or_none(
-            state.session_metadata.get("prior_session_summary")
-        ),
+        prior_session_summary=prior_summary,
         current_theme_display_name=_string_or_none(
             state.session_metadata.get("current_theme_display_name")
         ),
