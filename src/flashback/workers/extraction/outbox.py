@@ -21,6 +21,13 @@ log = structlog.get_logger("flashback.workers.extraction.outbox")
 
 OutboxJobType = Literal["embedding", "artifact", "thread_detector"]
 
+# Give-up ceiling for a repeatedly-failing job. Backoff caps at 300s, so 25
+# attempts rides out >2h of a provider/queue outage; anything still failing
+# after that is poisoned (unknown job_type, payload the sender rejects) and
+# parks as status='failed' with last_error kept for diagnosis. Re-open by
+# flipping status back to 'pending'. Migration 0038 adds the status value.
+MAX_OUTBOX_ATTEMPTS = 25
+
 
 @dataclass(frozen=True)
 class OutboxJob:
@@ -259,6 +266,37 @@ def _mark_sent(db_pool, outbox_id: str) -> None:
 
 
 def _mark_failed(db_pool, *, job: OutboxJob, error: str) -> None:
+    if job.attempts >= MAX_OUTBOX_ATTEMPTS:
+        # Terminal: stop the retry-forever churn on a poisoned job.
+        log.error(
+            "extraction_outbox.job_dead",
+            outbox_id=job.id,
+            job_type=job.job_type,
+            attempts=job.attempts,
+            error=error[:500],
+        )
+        try:
+            with db_pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE extraction_outbox
+                           SET status = 'failed',
+                               last_error = %s,
+                               updated_at = now()
+                         WHERE id = %s
+                        """,
+                        (error[:2000], job.id),
+                    )
+                    conn.commit()
+            return
+        except Exception:  # noqa: BLE001 — pre-0038 CHECK rejects 'failed'
+            log.warning(
+                "extraction_outbox.failed_status_unavailable",
+                outbox_id=job.id,
+                hint="run migration 0038; falling back to retry backoff",
+            )
+            # fall through to the normal backoff re-queue below
     delay_seconds = min(300, 2 ** min(job.attempts, 8))
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
