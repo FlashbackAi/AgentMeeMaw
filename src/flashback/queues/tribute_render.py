@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
+
 from flashback.queues.client import AsyncSQSClient
+
+log = structlog.get_logger("flashback.queues.tribute_render")
 
 
 class TributeRenderQueueProducer:
@@ -33,6 +37,14 @@ class TributeRenderQueueProducer:
         so the worker can skip stale messages superseded by a newer composition.
         """
         if not self._url:
+            # In prod this strands the tribute at status='generating' forever
+            # (no message, empty DLQ) — make the drop unmissable in logs.
+            log.error(
+                "tribute_render.enqueue_dropped_unconfigured",
+                tribute_id=tribute_id,
+                person_id=person_id,
+                hint="TRIBUTE_RENDER_QUEUE_URL is unset",
+            )
             return None
         payload = {
             "job_id": job_id,

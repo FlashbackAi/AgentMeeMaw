@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
+
 from flashback.queues.client import AsyncSQSClient
+
+log = structlog.get_logger("flashback.queues.storybook_render")
 
 
 class StorybookRenderQueueProducer:
@@ -35,6 +39,14 @@ class StorybookRenderQueueProducer:
         composition.
         """
         if not self._url:
+            # In prod this strands the storybook at status='generating'
+            # forever (no message, empty DLQ) — make the drop unmissable.
+            log.error(
+                "storybook_render.enqueue_dropped_unconfigured",
+                storybook_id=storybook_id,
+                person_id=person_id,
+                hint="STORYBOOK_RENDER_QUEUE_URL is unset",
+            )
             return None
         payload = {
             "job_id": job_id,
