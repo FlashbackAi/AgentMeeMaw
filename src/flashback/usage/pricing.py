@@ -27,6 +27,13 @@ PRICING: dict[tuple[str, str], ModelRate] = {
     ("voyage", "voyage-3"): ModelRate(0.06, 0.0, 0.0, 0.0),  # VERIFY (input-only)
 }
 
+# Flat USD per generated image, keyed by (provider, model). Covers the
+# agent-side Gemini illustration calls (tribute + storybook renders); Node's
+# generation spend arrives pre-costed via POST /usage/events instead.
+IMAGE_PRICING: dict[tuple[str, str], float] = {
+    ("gemini", "gemini-3.1-flash-image"): 0.039,  # VERIFY
+}
+
 
 def compute_cost(
     provider: str,
@@ -47,3 +54,11 @@ def compute_cost(
         + (cache_read_tokens or 0) * rate.cache_read_per_mtok
         + (cache_write_tokens or 0) * rate.cache_write_per_mtok
     ) / 1_000_000.0
+
+
+def compute_image_cost(provider: str, model: str, *, images: int) -> float:
+    rate = IMAGE_PRICING.get((provider, model))
+    if rate is None:
+        log.warning("usage.unknown_image_model", provider=provider, model=model)
+        return 0.0
+    return (images or 0) * rate
