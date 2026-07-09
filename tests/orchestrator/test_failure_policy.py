@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 
 from flashback.llm.errors import LLMError
@@ -72,6 +73,25 @@ async def test_unknown_step_defaults_to_propagate():
             state=state,
         )
     assert state.failures == {}
+
+
+async def test_degrade_catches_db_error():
+    # DEGRADE steps that read Postgres directly (select_coverage_tap, ...)
+    # must degrade on a transient DB blip, not hard-fail the turn.
+    state = SimpleNamespace(failures={})
+
+    async def raising():
+        raise psycopg.OperationalError("connection refused")
+
+    result = await execute(
+        policies={"select_coverage_tap": Policy.DEGRADE},
+        step_name="select_coverage_tap",
+        fn=raising,
+        state=state,
+    )
+
+    assert result is None
+    assert "select_coverage_tap" in state.failures
 
 
 async def test_unexpected_exception_always_propagates():

@@ -10,6 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Awaitable, Callable, TypeVar
 
+import psycopg
 import structlog
 
 from flashback.llm.errors import LLMError
@@ -71,7 +72,12 @@ async def execute(
     policy = policies.get(step_name, Policy.PROPAGATE)
     try:
         return await fn()
-    except (LLMError, PhaseGateError, QueueError) as exc:
+    except (LLMError, PhaseGateError, QueueError, psycopg.Error) as exc:
+        # psycopg.Error is in the degradable family because several DEGRADE
+        # steps (select_coverage_tap, promote_seeded_to_tap, ...) read
+        # Postgres directly — a transient DB blip there must degrade the
+        # step, not hard-fail the turn. Genuinely unexpected exceptions
+        # (programmer errors) still propagate regardless of policy.
         if policy == Policy.DEGRADE:
             log.warning(
                 "step_degraded",
