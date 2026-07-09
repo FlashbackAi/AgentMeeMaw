@@ -213,14 +213,21 @@ def gen_cover_art(
     gt_context: str,
     ref: Image.Image | None,
     art_style: str,
+    age: str = "",
     model: str = DEFAULT_GEMINI_IMAGE_MODEL,
 ) -> Image.Image | None:
-    """A single warm hero illustration of the subject for the cover."""
+    """A single warm hero illustration of the subject for the cover.
+
+    ``age`` is the descriptor of the book's dominant life stage; without an
+    explicit age the model follows the reference sheet / relationship word
+    and paints the subject old on every cover."""
     rel = relationship or "the subject"
+    age_line = f"Depict {name} as {age} on this cover. " if age else ""
     prompt = (
         f"A single cover illustration for a family storybook about {name} "
         f"({rel}) -- {gt_context}. A warm, dignified portrait-scene with "
         f"{name} as the central figure, evocative of their life and world. "
+        f"{age_line}"
         f"{art_style}. Centered composition, fills the frame, soft "
         f"uncluttered background. {identity_rule(name, rel)}"
         f"Draw NO text, NO lettering, NO border anywhere -- pure "

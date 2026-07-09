@@ -85,3 +85,24 @@ async def test_empty_candidates_returns_safe_fallback(monkeypatch):
 
     assert isinstance(book, Book)
     assert called is False  # no LLM call when there are no usable candidates
+
+
+async def test_fallback_book_always_carries_text(monkeypatch):
+    """The degraded book must never ship image-only pages: the opener and
+    closing lines + cover title are template-derived, not empty."""
+    from flashback.llm.errors import LLMError
+
+    async def boom(**kw):
+        raise LLMError("timeout")
+
+    monkeypatch.setattr(assembler, "call_with_tool", boom)
+    book = await assembler.assemble_storybook_video(
+        settings=_Settings(), subject_name="Chandraiah",
+        relationship="Grand Father", gt_context="", candidates=_CANDS,
+        message_text="", archetype_leads=[], n_pages=15)
+
+    assert "Chandraiah" in book.opener.line
+    assert book.opener.line.startswith("Meet my grand father")
+    assert book.closing.line
+    assert book.cover_title
+    assert all(b.line for b in book.beats)

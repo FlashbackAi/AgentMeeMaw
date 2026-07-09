@@ -105,6 +105,8 @@ def render_and_upload(ctx: StorybookRenderContext, *, pool, cfg,
         verifier=verifier,
         out_dir=tmpdir,
         model=cfg.gemini_image_model,
+        gender=ctx.gender,
+        concurrency=getattr(cfg, "render_concurrency", 4),
     )
     pdf_ok = 200 <= transfer.upload_file(
         ctx.pdf_put_url, result.pdf_path,

@@ -22,6 +22,7 @@ from flashback.artifacts.compose import (
 )
 
 from flashback.tribute_video import style
+from flashback.usage import recorder as usage_recorder
 
 STYLE = (
     "painterly realism with soft, visible watercolour brushwork, in the "
@@ -88,10 +89,11 @@ class GeminiError(RuntimeError):
 
 class Artist:
     def __init__(self, *, api_key: str, model: str | None = None,
-                 aspect: str | None = None):
+                 aspect: str | None = None, feature: str = "tribute_image"):
         self.client = genai.Client(api_key=api_key)
         self.model = model or "gemini-3.1-flash-image"
         self.aspect = aspect or style.ART_ASPECT
+        self.feature = feature  # usage_events label for cost attribution
 
     def _generate(self, contents: list, aspect: str) -> Image.Image:
         configs = [
@@ -102,17 +104,26 @@ class Artist:
             types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
         ]
         last = "unknown"
-        for cfg in configs:
+        for ci, cfg in enumerate(configs):
             for attempt in range(3):
                 try:
                     resp = self.client.models.generate_content(
                         model=self.model, contents=contents, config=cfg)
+                    # Meter every request that returned (billed even when no
+                    # image lands). Soft-fail; never breaks the render.
+                    usage_recorder.record_image_usage_sync(
+                        feature=self.feature, provider="gemini",
+                        model=self.model)
                     img = _extract_image(resp)
                     if img is not None:
                         return img
                     last = "no image in response"
                 except Exception as exc:  # transient API/network
                     last = f"{type(exc).__name__}: {str(exc)[:160]}"
+                # Back off before EVERY retry: an immediate re-request after a
+                # no-image response tends to hit the same transient state, and
+                # one exhausted page fails the whole render.
+                if ci < len(configs) - 1 or attempt < 2:
                     time.sleep(1.5 * (attempt + 1))
         raise GeminiError(f"Gemini generation failed: {last}")
 

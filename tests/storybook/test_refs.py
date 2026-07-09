@@ -93,3 +93,45 @@ def test_build_failed_stage_falls_back_to_primary() -> None:
         m.build(MagicMock(), name="S", gt_context="gt", gender=None,
                 anchor_photo=None)
     assert m.for_stage("old") is primary
+
+
+def _png_response() -> MagicMock:
+    import io
+
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buf, format="PNG")
+    part = MagicMock()
+    part.inline_data.data = buf.getvalue()
+    cand = MagicMock()
+    cand.content.parts = [part]
+    resp = MagicMock()
+    resp.candidates = [cand]
+    return resp
+
+
+def test_gen_image_retries_no_image_response(monkeypatch) -> None:
+    """A response that comes back WITHOUT an image (refusal / empty
+    candidates) is retried — previously it shipped a blank panel."""
+    from flashback.storybook import refs as refs_mod
+
+    monkeypatch.setattr(refs_mod.time, "sleep", lambda *_: None)
+    empty = MagicMock()
+    empty.candidates = []
+    client = MagicMock()
+    client.models.generate_content.side_effect = [empty, _png_response()]
+    img = refs_mod._gen_image(client, ["prompt"], "1:1")
+    assert img is not None
+    assert client.models.generate_content.call_count == 2
+
+
+def test_gen_image_returns_none_after_exhausting_tries(monkeypatch) -> None:
+    from flashback.storybook import refs as refs_mod
+
+    monkeypatch.setattr(refs_mod.time, "sleep", lambda *_: None)
+    empty = MagicMock()
+    empty.candidates = []
+    client = MagicMock()
+    client.models.generate_content.return_value = empty
+    img = refs_mod._gen_image(client, ["prompt"], "1:1", net_tries=3)
+    assert img is None
+    assert client.models.generate_content.call_count == 3
