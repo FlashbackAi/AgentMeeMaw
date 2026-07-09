@@ -1028,7 +1028,7 @@ attire, physical features) via the existing tap-card surface, plus a
 - **Onboarding.** `GET /api/v1/onboarding/archetype-questions` now
   appends two questions (`gt_region`, `gt_birth_era`) to every set;
   the answers array on `archetype-answers` must include them
-  (3-8 answers accepted). No other onboarding changes.
+  (3-12 answers accepted). No other onboarding changes.
 - **Reading it.** `persons.ground_truth` JSONB is readable directly
   (one key per field, `{value, provenance, confidence, updated_at}`).
   Read-only for Node — a `POST /ground_truth/upsert` user-edit surface

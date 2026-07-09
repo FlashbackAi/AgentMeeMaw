@@ -9,8 +9,9 @@ Sibling to ``flashback.workers.embedding.worker``. Differences:
   candidates returned from the vector search.
 * Single Postgres transaction per segment covers persistence,
   Coverage Tracker, Handover Check, and the idempotency row.
-* Embedding + artifact queue pushes happen post-commit; Thread
-  Detector trigger logging happens post-commit.
+* Embedding + artifact + Thread Detector trigger jobs land in the
+  ``extraction_outbox`` inside the transaction; the post-commit drain
+  sends them to SQS.
 
 Invariants honoured (CLAUDE.md §4):
 
@@ -150,6 +151,16 @@ def _candidate_question_ids(payload: ExtractionMessage) -> list[str]:
     return deduped
 
 
+class _DuplicateDelivery(Exception):
+    """Raised inside the persist transaction when ``mark_processed`` hits an
+    existing ``processed_extractions`` row — a concurrent redelivery of the
+    same SQS MessageId already committed this segment (the pre-check runs on
+    a separate connection, so two in-flight deliveries can both pass it).
+    Raising here rolls the whole transaction back, so the duplicate's graph
+    writes never land; the caller acks the message like the pre-check path.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Wired worker (dependency container)
 # ---------------------------------------------------------------------------
@@ -235,6 +246,17 @@ class ExtractionWorker:
                 self._extract_and_persist(
                     payload=msg.payload, message_id=msg.message_id
                 )
+        except _DuplicateDelivery:
+            # Concurrent redelivery lost the mark_processed race; the whole
+            # transaction rolled back. Treat it exactly like the pre-check
+            # skip: the other delivery's commit is canonical.
+            log.info(
+                "extraction.duplicate_delivery_rolled_back",
+                message_id=msg.message_id,
+            )
+            self._drain_outbox(source_sqs_message_id=msg.message_id)
+            self.sqs.delete(msg.receipt_handle)
+            return
         except LLMTimeout as exc:
             log.warning(
                 "extraction.transient_llm_timeout_no_ack",
@@ -390,7 +412,7 @@ class ExtractionWorker:
                         extraction.ground_truth_observations,
                     )
                     recompute_era_span_sync(cur, str(payload.person_id))
-                    mark_processed(
+                    inserted = mark_processed(
                         cur,
                         message_id=message_id,
                         person_id=str(payload.person_id),
@@ -401,6 +423,11 @@ class ExtractionWorker:
                         is_final=payload.is_final,
                         status="done",
                     )
+                    if not inserted:
+                        # A concurrent delivery of this MessageId committed
+                        # first. Roll everything back — its graph writes are
+                        # the canonical ones; ours would be duplicates.
+                        raise _DuplicateDelivery(message_id)
                     outbox_jobs = enqueue_extraction_fanout(
                         cur,
                         source_sqs_message_id=message_id,
@@ -512,15 +539,27 @@ class ExtractionWorker:
                 # verbatim without an LLM call.
                 merged_desc = new_desc
             else:
-                merged_desc = merge_trait_description(
-                    cfg=self.trait_merge_cfg,
-                    settings=self.settings,
-                    subject_name=subject_name,
-                    trait_name=trait.name,
-                    existing_description=existing_desc,
-                    new_description=new_desc,
-                )
-                merges_run += 1
+                try:
+                    merged_desc = merge_trait_description(
+                        cfg=self.trait_merge_cfg,
+                        settings=self.settings,
+                        subject_name=subject_name,
+                        trait_name=trait.name,
+                        existing_description=existing_desc,
+                        new_description=new_desc,
+                    )
+                    merges_run += 1
+                except (LLMError, LLMTimeout) as exc:
+                    # Best-effort, mirroring the entity-description merge:
+                    # a merge-LLM hiccup must not fail the whole segment.
+                    # Keep the existing description; edges still route to
+                    # the existing trait (no duplicate insert).
+                    log.warning(
+                        "extraction.trait_description_merge_failed",
+                        trait_name=trait.name,
+                        error_type=type(exc).__name__,
+                    )
+                    merged_desc = existing_desc
             new_traits[i] = trait.model_copy(
                 update={"description": merged_desc}
             )

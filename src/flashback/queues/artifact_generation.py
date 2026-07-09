@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
+
 from flashback.queues.client import AsyncSQSClient
+
+log = structlog.get_logger("flashback.queues.artifact_generation")
 
 
 class ArtifactGenerationQueueProducer:
@@ -43,6 +47,15 @@ class ArtifactGenerationQueueProducer:
         skip stale messages when a newer composition has superseded this one.
         """
         if not self._url:
+            # In prod the artifact silently never generates — make the
+            # drop unmissable in logs.
+            log.error(
+                "artifact_generation.enqueue_dropped_unconfigured",
+                record_type=record_type,
+                record_id=record_id,
+                person_id=person_id,
+                hint="ARTIFACT_QUEUE_URL is unset",
+            )
             return None
 
         payload = {

@@ -100,6 +100,38 @@ async def test_force_overrides_false_decision_and_logs(monkeypatch):
     )
 
 
+async def test_force_with_missing_summary_falls_back_to_prior(monkeypatch):
+    # Invariant #12: the wrap-forced tail flush must never fail. A
+    # disobedient LLM that returns boundary=False AND omits the summary
+    # used to trip the boundary→summary validator here, silently losing
+    # the session tail.
+    monkeypatch.setattr(
+        detector_module,
+        "call_with_tool",
+        AsyncMock(return_value=_args(boundary_detected=False)),
+    )
+
+    result = await _detector().detect(
+        SAMPLE_SEGMENT, "Prior rolling summary.", force=True
+    )
+
+    assert result.boundary_detected is True
+    assert result.rolling_summary == "Prior rolling summary."
+
+
+async def test_force_with_missing_summary_and_empty_prior_still_closes(monkeypatch):
+    monkeypatch.setattr(
+        detector_module,
+        "call_with_tool",
+        AsyncMock(return_value=_args(boundary_detected=False)),
+    )
+
+    result = await _detector().detect(SAMPLE_SEGMENT, "", force=True)
+
+    assert result.boundary_detected is True
+    assert result.rolling_summary == ""
+
+
 async def test_normal_mode_preserves_false_decision(monkeypatch):
     monkeypatch.setattr(
         detector_module,

@@ -56,6 +56,29 @@ async def health(
             checks[name] = f"error: {exc.__class__.__name__}"
             ok = False
 
+    # Render / artifact queues are optional at boot but the features hard-
+    # depend on them (an unset URL silently no-ops the enqueue and strands
+    # rows at status='generating'). Surface their state so monitoring can
+    # alert on a misconfig — "unconfigured" is reported but does NOT flip
+    # health, so boxes that don't run those features stay green; a
+    # configured-but-unreachable queue fails like the core ones.
+    optional_queue_checks = {
+        "sqs.artifact_generation": getattr(cfg, "artifact_queue_url", ""),
+        "sqs.profile_picture": getattr(cfg, "profile_picture_queue_url", ""),
+        "sqs.tribute_render": getattr(cfg, "tribute_render_queue_url", ""),
+        "sqs.storybook_render": getattr(cfg, "storybook_render_queue_url", ""),
+    }
+    for name, queue_url in optional_queue_checks.items():
+        if not queue_url:
+            checks[name] = "unconfigured"
+            continue
+        try:
+            await sqs_client.get_queue_attributes(queue_url)
+            checks[name] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            checks[name] = f"error: {exc.__class__.__name__}"
+            ok = False
+
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return HealthResponse(status="degraded", checks=checks)

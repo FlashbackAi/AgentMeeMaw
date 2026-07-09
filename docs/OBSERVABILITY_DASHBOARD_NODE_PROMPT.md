@@ -133,6 +133,12 @@ writes. Use matching values for your own generation events.
 
 **Agent — embeddings:** `embedding_query`, `embedding_row`.
 
+**Agent — image generation:** `tribute_image`, `storybook_image` — the
+agent's own Gemini illustration calls inside the tribute/storybook render
+workers (`unit_type='images'`, `units` = image count, flat per-image
+pricing). These are agent spend, not yours — do **not** reuse these labels
+for Node-emitted events.
+
 **Node — generation (you emit these):** `artifact_image`, `artifact_video`,
 `voice` (extend as your surfaces grow).
 

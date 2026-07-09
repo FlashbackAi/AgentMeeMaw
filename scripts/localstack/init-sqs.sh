@@ -10,6 +10,9 @@ queues=(
   flashback-profile-summary
   flashback-producers-per-session
   flashback-producers-weekly
+  flashback_agent-profile-picture
+  flashback-tribute-render
+  flashback-storybook-render
 )
 
 for queue in "${queues[@]}"; do

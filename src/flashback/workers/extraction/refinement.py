@@ -58,6 +58,14 @@ def find_refinement_candidates(
     """
     query_vector = voyage.embed(new_moment.narrative)
     if query_vector is None:
+        # Voyage outage/failure — NOT "no similar moments". Refinement stays
+        # best-effort (the segment still persists), but while this fires,
+        # supersession is off and every segment mints fresh duplicates, so
+        # the degradation must be distinguishable/alertable in logs.
+        log.error(
+            "refinement.skipped_voyage_unavailable",
+            person_id=person_id,
+        )
         return []
 
     sql = """

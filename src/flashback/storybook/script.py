@@ -201,6 +201,27 @@ class BookScript:
         )
 
 
+def dominant_age_stage(script: BookScript) -> str:
+    """The age stage the book mostly shows the subject at.
+
+    The cover anchors to this stage's identity ref instead of always the
+    'mid' primary ("a grandfather in his early sixties") — which painted an
+    old subject on every cover regardless of the life the pages actually
+    show. Ties break toward the younger stage.
+    """
+    counts: dict[str, int] = {}
+    for page in script.pages:
+        for p in page.panels:
+            if p.age_stage in AGE_STAGES:
+                counts[p.age_stage] = counts.get(p.age_stage, 0) + 1
+    if not counts:
+        return "mid"
+    return max(
+        AGE_STAGES,
+        key=lambda s: (counts.get(s, 0), -AGE_STAGES.index(s)),
+    )
+
+
 def _text_rule(chapter: bool) -> str:
     if chapter:
         return (

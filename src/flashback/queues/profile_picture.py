@@ -11,7 +11,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+import structlog
+
 from flashback.queues.client import AsyncSQSClient
+
+log = structlog.get_logger("flashback.queues.profile_picture")
 
 
 class ProfilePictureQueueProducer:
@@ -36,6 +40,13 @@ class ProfilePictureQueueProducer:
         so the worker can detect / skip stale messages.
         """
         if not self._url:
+            # In prod the portrait silently never generates — make the
+            # drop unmissable in logs.
+            log.error(
+                "profile_picture.enqueue_dropped_unconfigured",
+                person_id=str(person_id),
+                hint="PROFILE_PICTURE_QUEUE_URL is unset",
+            )
             return None
 
         payload = {

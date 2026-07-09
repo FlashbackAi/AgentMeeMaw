@@ -4,10 +4,13 @@
 #
 #   git pull -> pip install -> (optionally) run migrations -> restart units -> status
 #
-# Fast by default: the package must be installed editable (`pip install -e .`
-# once), so `git pull` + restart picks up code changes with no reinstall. This
-# script only runs `pip install -e .` when it sees pyproject.toml change in the
-# pull (i.e. dependencies may have changed) -- or when you force it.
+# Fast by default: the package is installed editable (`pip install -e .`), so
+# `git pull` + restart picks up code changes with no reinstall. This script
+# only runs `pip install -e .` when it sees pyproject.toml change in the pull
+# (i.e. dependencies may have changed) -- or when you force it. If it detects
+# a NON-editable install (flashback importing from site-packages instead of
+# the checkout), it converts it automatically: a frozen install would make
+# `git pull` + restart silently deploy nothing (new routes 404).
 #
 # Usage (run from anywhere on the box; defaults match the prod install):
 #   sudo bash /opt/AgentMeeMaw/scripts/deploy.sh            # pull + (deps-only)install + ask-migrate + restart
@@ -98,10 +101,17 @@ main() {
     yes) do_install="yes" ;;
     no)  warn "skipping pip install (--skip-install)" ;;
     auto)
-      if echo "$changed" | grep -qE '(^|/)pyproject\.toml$'; then
+      # A non-editable install serves a frozen site-packages copy of the
+      # package -- git pull + restart would deploy nothing. Convert it.
+      local pkg_dir
+      pkg_dir="$("$VENV/bin/python" -c 'import flashback, os; print(os.path.dirname(os.path.abspath(flashback.__file__)))' 2>/dev/null || true)"
+      if [[ "$pkg_dir" != "$APP_DIR/src/flashback" ]]; then
+        do_install="yes"
+        step "non-editable install detected (flashback imports from ${pkg_dir:-nowhere}) -> converting with pip install -e ."
+      elif echo "$changed" | grep -qE '(^|/)pyproject\.toml$'; then
         do_install="yes"; step "pyproject.toml changed -> reinstalling deps"
       else
-        ok "no dependency changes; skipping pip install (editable install picks up code on restart)"
+        ok "editable install, no dependency changes; skipping pip install (restart picks up code)"
       fi
       ;;
   esac

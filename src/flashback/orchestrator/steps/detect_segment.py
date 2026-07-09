@@ -47,7 +47,10 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         return
 
     wm_state = await deps.working_memory.get_state(str(state.session_id))
-    cadence = getattr(deps.settings, "segment_detector_user_turn_cadence", 1)
+    # Fallback mirrors the documented config default (invariant #11) — a 1
+    # here would silently fire the detector ~6x more often if the setting
+    # object ever lacked the attribute.
+    cadence = getattr(deps.settings, "segment_detector_user_turn_cadence", 6)
     # Tribute flow: switch topics aggressively to gather a lot of material, so
     # close segments on a much tighter cadence (default 2 user turns vs 6).
     if getattr(wm_state, "current_tribute_id", None):

@@ -170,8 +170,12 @@ def _beat(raw: dict[str, Any]) -> Beat:
     )
 
 
-def _fallback(candidates: list[dict[str, Any]], *, message_text: str,
+def _fallback(candidates: list[dict[str, Any]], *, subject_name: str,
+              relationship: str | None, message_text: str,
               n_pages: int) -> Book:
+    """Title-derived degraded book. Every page still carries TEXT: an empty
+    opener/closing line renders as an image-only page, which reads as a broken
+    video rather than a plain one."""
     chosen = [c for c in candidates if c.get("id")][:n_pages] or [{"id": ""}]
     beats = [
         Beat(line=(c.get("title") or "A memory").strip(),
@@ -179,11 +183,16 @@ def _fallback(candidates: list[dict[str, Any]], *, message_text: str,
              moment_id=c.get("id", ""))
         for c in chosen
     ]
+    name = (subject_name or "").strip() or "someone we love"
+    rel = (relationship or "").strip()
+    opener_line = (f"Meet my {rel.lower()}, {name}." if rel
+                   else f"This is the story of {name}.")
     return Book(
-        cover_title="",
-        opener=Beat(line="", art_direction=""),
+        cover_title=f"The Story of {name}"[:60],
+        opener=Beat(line=opener_line, art_direction=""),
         beats=beats,
-        closing=Beat(line="", art_direction=""),
+        closing=Beat(line=f"Thank you for everything, {name}.",
+                     art_direction=""),
         message=(message_text or "").strip(),
     )
 
@@ -201,8 +210,14 @@ async def assemble_storybook_video(
     n_pages: int = 15,
 ) -> Book:
     usable = [c for c in candidates if c.get("id")]
+
+    def fallback() -> Book:
+        return _fallback(usable, subject_name=subject_name,
+                         relationship=relationship, message_text=message_text,
+                         n_pages=n_pages)
+
     if not usable or settings is None:
-        return _fallback(usable, message_text=message_text, n_pages=n_pages)
+        return fallback()
 
     by_id = {c["id"] for c in usable}
     user = _user_message(
@@ -220,20 +235,23 @@ async def assemble_storybook_video(
             user_message=user,
             tool=_TOOL,
             max_tokens=5000,
-            timeout=60.0,
+            # A full {n}-page book runs ~30s of generation on the big model;
+            # 60s tripped LLMTimeout under load and silently shipped the
+            # text-less fallback book. 120s matches the storybook assembler.
+            timeout=120.0,
             settings=settings,
             feature="tribute_video",
         )
     except LLMError as exc:
         log.warning("storybook_video.assembly_failed", error=str(exc))
-        return _fallback(usable, message_text=message_text, n_pages=n_pages)
+        return fallback()
     except Exception as exc:  # defensive
         log.warning("storybook_video.assembly_unexpected",
                     error_type=type(exc).__name__, detail=str(exc))
-        return _fallback(usable, message_text=message_text, n_pages=n_pages)
+        return fallback()
 
     if not isinstance(args, dict):
-        return _fallback(usable, message_text=message_text, n_pages=n_pages)
+        return fallback()
     beats: list[Beat] = []
     for raw in (args.get("beats") or [])[:n_pages]:
         if not isinstance(raw, dict):
@@ -242,7 +260,7 @@ async def assemble_storybook_video(
         if b.moment_id in by_id and b.line:
             beats.append(b)
     if not beats:
-        return _fallback(usable, message_text=message_text, n_pages=n_pages)
+        return fallback()
     return Book(
         cover_title=(args.get("cover_title") or "").strip(),
         opener=_beat(args.get("opener") or {}),

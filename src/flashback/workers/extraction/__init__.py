@@ -14,9 +14,10 @@ queue. For each closed segment it:
 * Updates ``persons.coverage_state`` (Coverage Tracker) and conditionally
   flips ``persons.phase`` to ``steady`` (Handover Check) inside the same
   transaction.
-* After commit, pushes embedding jobs (one per embedded row) and artifact
-  jobs (one per artifact-bearing row), and logs the Thread Detector
-  trigger condition. Step 14 will replace the log with a queue push.
+* Inside the same transaction, inserts embedding jobs (one per embedded
+  row), artifact jobs (one per artifact-bearing row), and — when the
+  every-15-new-moments gate trips — a Thread Detector trigger into the
+  ``extraction_outbox``; the post-commit drain sends them to SQS.
 
 Process model mirrors ``flashback.workers.embedding``: sync ``boto3``,
 sync ``psycopg``, no async on the loop. The two LLM calls are async-only,

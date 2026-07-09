@@ -174,7 +174,7 @@ External dependencies we **call** but do not own: the Node Backend
 
 ---
 
-## 4. The 18 invariants
+## 4. The 26 invariants
 
 Every piece of code touching the graph or queues must respect these.
 
@@ -334,13 +334,18 @@ Every piece of code touching the graph or queues must respect these.
     |---------|----------------|-----------------|--------------|-------------|--------|
     | recall  | yes            | yes             | —            | —           | 2      |
     | switch  | —              | —               | yes          | yes         | 0      |
+    | pivot   | —              | yes             | yes          | —           | 1      |
     | clarify | —              | —               | —            | —           | 0      |
     | deepen  | —              | —               | —            | —           | 0      |
     | story   | —              | —               | —            | —           | 0      |
 
+    `pivot` fuses descriptive and named entity references: semantic
+    hits rank first, then the full active catalog is appended for
+    deterministic name lookup.
+
     The `query` argument to vector searches is `state.user_message`
-    (the literal text the user typed) — only meaningful on `recall`,
-    which is why the matrix gates it there.
+    (the literal text the user typed) — only meaningful on `recall`
+    and `pivot`, which is why the matrix gates it there.
 
 20. **Entity-mention scanning is deterministic and intent-independent.**
     Sits between `classify` and `retrieve` in the orchestrator pipeline.
@@ -588,7 +593,9 @@ Every piece of code touching the graph or queues must respect these.
   `(person_id, kind, slug, display_name, description, state,
   archetype_questions, archetype_answers, thread_id, unlocked_at,
   image_url, generation_prompt, status, ...)`. `kind` is
-  `'universal' | 'emergent'`, `state` is `'locked' | 'unlocked'`.
+  `'universal' | 'emergent' | 'tribute'` (the `tribute` kind backs the
+  tribute flow — migrations 0027/0028; like universals it carries no
+  `thread_id`), `state` is `'locked' | 'unlocked'`.
   Partial unique index on `(person_id, slug) WHERE status='active'`
   makes seeding idempotent. Emergent rows reference the originating
   `threads.id`; universals do not. The `active_themes_with_tier`
@@ -625,7 +632,10 @@ in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
 `relation`, `era`.
 
 - **Phase Gate** (code) fires only on switch-intent `/turn` selection.
-  Session openers no longer select an inline starter question.
+  Session openers select a seeded question as the opener's *anchor*
+  (`select_starter_question`; an explicit `session_metadata.question_id`
+  pick overrides it) — the opener weaves it in conversationally rather
+  than emitting a templated inline starter question.
 - **Coverage taps** are global template questions seeded by migration
   (`source='coverage_tap'`, `attributes.dimension`, `attributes.themes`).
   They surface as **archetype-style tap cards** under the agent's reply,
@@ -637,11 +647,14 @@ in each of the **5 anchor dimensions** — `sensory`, `voice`, `place`,
   sensory` (cold to warm — sensory is asked last once we've earned the
   intimacy).
 - **`promote_seeded_to_tap` step** runs on switch turns in starter
-  phase only. When no coverage gap is open but the steady selector
-  picked a question from the producer bank (P2-P5), that seeded
-  question is promoted into a tap card too — so the archetype-style
-  surface continues mid-chat through starter phase. In steady phase
-  this step is a no-op; the bot inlines its question as normal.
+  phase only. Since the invariant-#23 chip surface landed, producer-bank
+  questions (P1–P5) carry their Skip/Suppress/Defer chips *inline* and
+  are explicitly **skipped** here (`PRODUCER_SOURCES` guard) so the same
+  question never renders two competing skip surfaces. Because the steady
+  selector only emits producer sources, this step is effectively a
+  retained no-op backstop for any future non-producer selection. In
+  steady phase it is a no-op by design; the bot inlines its question as
+  normal.
 - **Tap option chips are LLM-generated per turn** (small gpt-5.1 call
   in `flashback.orchestrator.tap_options`). Given the question, subject
   name + relationship, and gap dimension, the call returns 4 short

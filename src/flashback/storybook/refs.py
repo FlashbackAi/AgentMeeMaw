@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import io
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import structlog
 from google.genai import types
 from PIL import Image
+
+from flashback.usage import recorder as usage_recorder
 
 log = structlog.get_logger("flashback.storybook.refs")
 
@@ -132,10 +135,13 @@ def _gen_image(
     net_tries: int = 5,
     model: str = DEFAULT_GEMINI_IMAGE_MODEL,
 ) -> Image.Image | None:
-    """One Gemini image generation, resilient to transient transport errors.
+    """One Gemini image generation, resilient to transient failures.
 
-    Retries with linear backoff; returns None only when every attempt errors
-    (callers surface that as a blank-panel warning, never a silent skip).
+    Retries with linear backoff on transport errors AND on responses that come
+    back without an image (refusals / empty candidates) — previously the
+    no-image case returned immediately and shipped a blank panel. Returns None
+    only when every attempt fails (callers surface that as a blank-panel
+    warning, never a silent skip).
     """
     cfg = types.GenerateContentConfig(
         response_modalities=["IMAGE"],
@@ -143,23 +149,28 @@ def _gen_image(
             aspect_ratio=aspect, image_size=image_size
         ),
     )
+    last = "unknown"
     for attempt in range(net_tries):
         try:
-            return _img_from_resp(
-                client.models.generate_content(
-                    model=model, contents=contents, config=cfg
-                )
+            resp = client.models.generate_content(
+                model=model, contents=contents, config=cfg
             )
+            # Meter every request that returned (billed even when no image
+            # lands). Soft-fail; never breaks the render.
+            usage_recorder.record_image_usage_sync(
+                feature="storybook_image", provider="gemini", model=model
+            )
+            img = _img_from_resp(resp)
+            if img is not None:
+                return img
+            last = "no image in response"
         except Exception as exc:
-            if attempt == net_tries - 1:
-                log.warning(
-                    "storybook.gemini_exhausted",
-                    tries=net_tries,
-                    error=str(exc)[:200],
-                )
-                return None
-            log.info("storybook.gemini_retry", attempt=attempt + 1)
+            last = str(exc)[:200]
+        if attempt < net_tries - 1:
+            log.info("storybook.gemini_retry", attempt=attempt + 1,
+                     reason=last[:80])
             time.sleep(2 * (attempt + 1))
+    log.warning("storybook.gemini_exhausted", tries=net_tries, error=last)
     return None
 
 
@@ -244,23 +255,31 @@ class MasterRefs:
         )
         if primary is not None:
             self._refs[PRIMARY_STAGE] = primary
-        for stage in AGE_STAGES:
-            if stage == PRIMARY_STAGE:
-                continue
-            ref = _gen_stage_ref(
-                client,
-                name=name,
-                gt_context=gt_context,
-                stage=stage,
-                gender=gender,
-                base_ref=primary,
-                photo=anchor_photo,
-                model=model,
-            )
-            if ref is not None:
-                self._refs[stage] = ref
-            elif primary is not None:
-                self._refs[stage] = primary
+        # The non-primary stages are independent calls all conditioned on the
+        # same primary, so they run concurrently — pure scheduling, identical
+        # prompts and conditioning, so identity quality is unchanged.
+        others = [s for s in AGE_STAGES if s != PRIMARY_STAGE]
+        with ThreadPoolExecutor(max_workers=len(others)) as ex:
+            futs = {
+                stage: ex.submit(
+                    _gen_stage_ref,
+                    client,
+                    name=name,
+                    gt_context=gt_context,
+                    stage=stage,
+                    gender=gender,
+                    base_ref=primary,
+                    photo=anchor_photo,
+                    model=model,
+                )
+                for stage in others
+            }
+            for stage, fut in futs.items():
+                ref = fut.result()
+                if ref is not None:
+                    self._refs[stage] = ref
+                elif primary is not None:
+                    self._refs[stage] = primary
         log.info(
             "storybook.master_refs_built", stages=sorted(self._refs)
         )

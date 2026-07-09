@@ -171,3 +171,45 @@ async def test_edit_instructions_reach_the_prompt() -> None:
     user = llm.call_args.kwargs["user_message"]
     assert "family_edit_requests" in user
     assert "more about the pond" in user
+
+
+def _stages_script(stages: list[str]) -> BookScript:
+    return BookScript.from_dict(
+        {
+            "cover_title": "T",
+            "pages": [
+                {
+                    "panels": [
+                        {
+                            "scene": "s",
+                            "text": "t",
+                            "kind": "caption",
+                            "age_stage": st,
+                        }
+                    ]
+                }
+                for st in stages
+            ],
+        }
+    )
+
+
+def test_dominant_age_stage_picks_most_common() -> None:
+    from flashback.storybook.script import dominant_age_stage
+
+    s = _stages_script(["child", "child", "child", "young", "mid"])
+    assert dominant_age_stage(s) == "child"
+
+
+def test_dominant_age_stage_tie_prefers_younger() -> None:
+    from flashback.storybook.script import dominant_age_stage
+
+    s = _stages_script(["young", "old", "young", "old"])
+    assert dominant_age_stage(s) == "young"
+
+
+def test_dominant_age_stage_empty_defaults_to_mid() -> None:
+    from flashback.storybook.script import dominant_age_stage
+
+    s = BookScript.from_dict({"cover_title": "T", "pages": []})
+    assert dominant_age_stage(s) == "mid"

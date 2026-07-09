@@ -69,10 +69,19 @@ class SegmentDetector:
             log.warning(
                 "force_mode_overrode_decision",
                 reason=result.reasoning,
+                summary_missing=not result.rolling_summary,
             )
-            result = SegmentDetectionResult(
+            # Force mode must never fail to close the tail segment
+            # (invariant #12) — if the disobedient LLM also skipped the
+            # summary, fall back to the prior rolling summary instead of
+            # tripping the boundary→summary validator and losing the wrap
+            # flush. model_construct skips that validator; the fields are
+            # ours, not model output.
+            result = SegmentDetectionResult.model_construct(
                 boundary_detected=True,
-                rolling_summary=result.rolling_summary,
+                rolling_summary=result.rolling_summary
+                or prior_rolling_summary
+                or "",
                 reasoning=result.reasoning,
             )
 
