@@ -94,17 +94,22 @@ cd /opt/AgentMeeMaw
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install .
+pip install -e .
 ```
+
+The install MUST be **editable** (`-e`). `scripts/deploy.sh` relies on it:
+the script skips `pip install` unless `pyproject.toml` changed, so a
+non-editable install keeps serving the frozen site-packages copy after
+`git pull` + restart — new routes silently 404.
 
 For updates later:
 
 ```bash
-cd /opt/AgentMeeMaw
-git pull
-source .venv/bin/activate
-pip install .
+sudo bash /opt/AgentMeeMaw/scripts/deploy.sh
 ```
+
+(`deploy.sh` detects a non-editable install and converts it to editable
+automatically; `--install` forces a reinstall if you ever need one.)
 
 ## 4. Create The Env File
 
