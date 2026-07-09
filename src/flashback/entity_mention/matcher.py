@@ -69,15 +69,40 @@ def find_entity_mentions(
     sorted_entries = sorted(entries, key=_name_length, reverse=True)
     matches: list[EntityMatch] = []
     surface_to_ids: dict[str, set[UUID]] = defaultdict(set)
+    surface_original: dict[str, str] = {}
     masked = list(user_message)
 
     for entry in sorted_entries:
+        # Same-surface collision first: an earlier entry already claimed
+        # (and masked) this exact surface form — e.g. "Priya" as an alias
+        # of two distinct entities. The mask would hide it from the regex,
+        # silently resolving to whichever entry sorted first; register the
+        # collision instead so the ambiguity flag fires and both entities
+        # load (invariant #20).
+        forms = {
+            f.strip().lower()
+            for f in (entry.name, *entry.aliases)
+            if f and f.strip()
+        }
+        collided = forms & surface_to_ids.keys()
+        if collided:
+            surface = next(iter(collided))
+            surface_to_ids[surface].add(entry.id)
+            matches.append(
+                EntityMatch(
+                    entity_id=entry.id,
+                    matched_text=surface_original.get(surface, surface),
+                )
+            )
+            continue
+
         pattern = _compile_pattern(entry)
         scan_text = "".join(masked)
         hit_text: str | None = None
         for m in pattern.finditer(scan_text):
             hit_text = m.group(0)
             surface_to_ids[hit_text.lower()].add(entry.id)
+            surface_original.setdefault(hit_text.lower(), hit_text)
             for i in range(m.start(), m.end()):
                 masked[i] = "\x00"
             break  # one match per entry per turn is enough for context
