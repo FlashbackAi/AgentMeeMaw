@@ -151,6 +151,23 @@ External dependencies we **call** but do not own: the Node Backend
   from moments that don't fit it. Backfill existing legacies with
   `scripts/backfill_storybook_collections.py`. Spec:
   `docs/superpowers/specs/2026-07-06-storybook-collection-eligibility-design.md`.
+- **Tribute occasion/relationship config lives in Postgres, written ONLY
+  via the agent admin API.** `tribute_campaigns` (occasion wrapper) ×
+  `relationship_profiles` (tone owner: voice/opener/art directives,
+  question bank, synonyms) × `tribute_visual_themes` (generated page
+  template + fonts/inks/audio) — migration 0039, spec
+  `docs/superpowers/specs/2026-07-14-tribute-campaign-crm-design.md`.
+  Node's CRM screens proxy to `/admin/tribute_config/*` (dashboard-admin
+  gated on their side; `X-Admin-User` → audit); Node never writes these
+  tables directly. Lifecycle: `state` draft→published→archived + house
+  supersession (edit = new row, new id, version+1). **Renders read
+  snapshots, never live config**: `/generate` composes directives + pins
+  config row ids into `latest_generation_context`; a CRM edit affects a
+  video only via manual regenerate (which re-resolves fresh). The `other`
+  profile is the delete-protected safety floor reproducing neutral
+  behavior; missing/malformed config always degrades there — a render
+  never blocks on config. Work order:
+  `docs/TRIBUTE_CRM_NODE_PROMPT.md`.
 - **We never write to Node-owned tables** (users, future
   `person_roles`, etc.). In v1 onboarding state is stored on the
   agent-owned `persons` row because there is only one contributor per
@@ -1027,10 +1044,13 @@ We expose an HTTP service. Node calls us; we never call Node.
   approved merge): the survivor stays intact and the merged-away entity
   is resurrected as a fresh standalone entity with its edges moved back.
   Pushes a re-embed for the resurrected entity.
-- `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id }`.
-  Returns the cached or lazily-generated archetype MC questions
-  for a locked theme, plus any `archetype_answers_draft` so the
-  UI can restore mid-flow chip selections. Does **not** flip the
+- `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id,
+  campaign? }`. Returns the cached or lazily-generated archetype MC
+  questions for a locked theme, plus any `archetype_answers_draft` so the
+  UI can restore mid-flow chip selections. For tribute themes the bank
+  resolves campaign override → relationship-profile bank → LLM generation
+  seeded with the relationship + the campaign's occasion context
+  (`campaign` falls back to the date-windowed featured campaign). Does **not** flip the
   theme to unlocked; that happens atomically inside the next
   `/session/start` when `theme_id` is carried in `session_metadata`.
   Repeat calls return cached payload at no LLM cost.
@@ -1081,6 +1101,15 @@ We expose an HTTP service. Node calls us; we never call Node.
   `archetype_ready` column was removed (it was an internal
   cache state; use `archetype_progress` instead for user-facing
   signal).
+
+- **Tribute CRM admin surface** (service token + admin token;
+  `X-Admin-User` → audit): `GET|POST /admin/tribute_config/{table}`,
+  `PUT .../{id}`, `POST .../{id}/publish|archive|rollback`,
+  `GET /admin/asset-library`, `GET /admin/visual_themes/{id}/image`,
+  `POST /admin/tribute_config/generate` (brief → structured draft),
+  `POST /admin/visual_themes/generate` (≤4 template candidates),
+  `POST /admin/tribute_preview` (real assembly + optional composited
+  sample page). See `docs/TRIBUTE_CRM_NODE_PROMPT.md` for shapes.
 
 We do **not** auth these endpoints. Node is the auth boundary.
 

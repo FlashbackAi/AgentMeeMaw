@@ -1110,3 +1110,16 @@ agent's, default to:
 The 17 invariants in `CLAUDE.md` §4 are the formal version of all of
 the above. If a proposed integration step would violate one, that's a
 flag — surface it before shipping.
+
+---
+
+## Tribute CRM (2026-07-14)
+
+Tribute campaigns / relationship profiles / visual themes are agent-owned
+Postgres config. Node builds the CRM screens and proxies every write to
+the agent admin API (`/admin/tribute_config/*` etc.) behind the existing
+dashboard-admin gate, passing the admin identity as `X-Admin-User`; Node
+never writes these tables directly. One runtime change: forward the
+campaign slug on `POST /themes/{id}/unlock_prepare` (body field). The full
+work order incl. endpoint shapes and the frontend screen contract:
+`docs/TRIBUTE_CRM_NODE_PROMPT.md`.

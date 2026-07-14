@@ -1413,3 +1413,39 @@ There is no `/v1/` URL prefix today. Breaking changes to request /
 response shapes are coordinated repo-to-repo via PRs that update both
 this `API.md` and the Node client at the same time. If the surface
 becomes externally consumed, prefix all routes with `/v1/` and bump.
+
+---
+
+## 11. Tribute CRM admin surface (2026-07-14)
+
+Occasion campaigns, relationship tone profiles, and visual themes are
+Postgres config (migration 0039) managed through admin endpoints (service
+token + admin token; `X-Admin-User` header lands in the audit trail).
+Full request/response shapes + the CRM screen contract live in
+`docs/TRIBUTE_CRM_NODE_PROMPT.md`; the design in
+`docs/superpowers/specs/2026-07-14-tribute-campaign-crm-design.md`.
+
+- `GET|POST /admin/tribute_config/{table}` and
+  `PUT /admin/tribute_config/{table}/{id}` — `{table}` is
+  `relationship_profiles | tribute_campaigns | visual_themes`. Create
+  lands as `draft`; edit supersedes (new row id, version+1); 422 bodies
+  carry `{"errors": ["field: message", ...]}`.
+- `POST /admin/tribute_config/{table}/{id}/publish` (re-validates, returns
+  overlap `warnings`), `/archive` (409 on the protected `other` profile),
+  `/rollback` (`{to_row_id}` republishes an old version as a new row).
+- `GET /admin/asset-library` — curated font/audio slugs.
+- `GET /admin/visual_themes/{id}/image` — template bytes (404 = built-in).
+- `POST /admin/tribute_config/generate` — `{kind, relationship_group?,
+  occasion?, brief}` -> `{payload, errors}` structured AI draft (4/min).
+- `POST /admin/visual_themes/generate` — `{brief, slug, display_name,
+  n_candidates<=4, ...}` -> draft rows with generated template images
+  (503 without a Gemini key).
+- `POST /admin/tribute_preview` — `{person_id, profile_id?|profile_draft?,
+  campaign_id?|campaign_draft?, visual_theme_id?, render_sample_page?,
+  sample_page_role?}` -> `{book, resolved, sample_page_b64}`; real
+  assembly over the legacy, drafts accepted inline (6/min).
+
+Related runtime changes: `POST /themes/{id}/unlock_prepare` accepts an
+optional `campaign` slug; `GET /tribute-campaigns` is DB-backed (same
+shape); `GET /tributes/{id}/progress` prefers the campaign stamped on the
+tribute row at entry over the query param.
