@@ -34,7 +34,18 @@ from flashback.tribute.config_schema import (
     validate_ink,
     validate_profile_payload,
 )
-from flashback.tribute_video.style import AUDIO_REGISTRY, FONT_REGISTRY
+from flashback.tribute.preview import (
+    build_preview,
+    campaign_from_payload,
+    profile_from_payload,
+    render_sample_page,
+)
+from flashback.tribute.relationships import ensure_relationship_group
+from flashback.tribute_video.style import (
+    AUDIO_REGISTRY,
+    FONT_REGISTRY,
+    kit_from_style_dict,
+)
 from flashback.tribute_video.template_gen import generate_template_candidates
 
 router = APIRouter(
@@ -497,12 +508,154 @@ async def generate_visual_themes(
     return {"candidates": candidates}
 
 
-def _make_artist(settings: HttpConfig):
+def _make_artist(settings: HttpConfig, feature: str = "tribute_template_generate"):
     """Factory kept separate so tests can monkeypatch it."""
     from flashback.page_render.art import Artist
 
     return Artist(
         api_key=settings.gemini_api_key,
         model=settings.gemini_image_model,
-        feature="tribute_template_generate",
+        feature=feature,
     )
+
+
+# --- preview -------------------------------------------------------------------
+
+
+class TributePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: str = Field(min_length=1)
+    profile_id: str | None = None
+    profile_draft: dict | None = None
+    campaign_id: str | None = None
+    campaign_draft: dict | None = None
+    visual_theme_id: str | None = None
+    render_sample_page: bool = False
+    sample_page_role: Literal["opener", "beat", "closing"] = "opener"
+    sample_beat_index: int = Field(0, ge=0, le=15)
+
+
+@router.post("/tribute_preview")
+async def tribute_preview(
+    body: TributePreviewRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    settings: HttpConfig = Depends(get_http_config),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    """Real assembly over a real legacy with draft/persisted config.
+
+    Drafts work inline — nothing must be saved to be tried (spec §5).
+    Text-only by default; ``render_sample_page`` composites ONE page through
+    the real compositor (separate button in the CRM — cheap vs expensive
+    loop).
+    """
+    if not allow(f"preview:{updated_by}", 6):
+        raise HTTPException(status_code=429, detail="preview rate limited")
+    if body.render_sample_page and not settings.gemini_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="GEMINI_API_KEY not configured for sample-page rendering",
+        )
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            # --- profile: draft > id > resolved-from-person ------------------
+            if body.profile_draft is not None:
+                errors = validate_profile_payload(body.profile_draft)
+                if errors:
+                    raise HTTPException(
+                        status_code=422, detail={"errors": errors}
+                    )
+                profile = profile_from_payload(body.profile_draft)
+            elif body.profile_id:
+                profile = await repo.fetch_profile_by_id(cur, body.profile_id)
+                if profile is None:
+                    raise HTTPException(status_code=404, detail="no profile")
+            else:
+                group = await ensure_relationship_group(
+                    cur, settings=settings, person_id=body.person_id
+                )
+                profile = await repo.fetch_profile_by_group(cur, group)
+                if profile is None:
+                    profile = await repo.fetch_profile_by_group(cur, "other")
+                if profile is None:
+                    raise HTTPException(
+                        status_code=404, detail="no published profiles"
+                    )
+
+            # --- campaign: draft > id > neutral -------------------------------
+            if body.campaign_draft is not None:
+                errors = validate_campaign_payload(body.campaign_draft)
+                if errors:
+                    raise HTTPException(
+                        status_code=422, detail={"errors": errors}
+                    )
+                campaign = campaign_from_payload(body.campaign_draft)
+            elif body.campaign_id:
+                campaign = await repo.fetch_campaign_by_id(cur, body.campaign_id)
+                if campaign is None:
+                    raise HTTPException(status_code=404, detail="no campaign")
+            else:
+                from flashback.tribute.config_schema import NEUTRAL_CAMPAIGN
+
+                campaign = NEUTRAL_CAMPAIGN
+
+            payload, book, directives = await build_preview(
+                settings, cur, person_id=body.person_id,
+                profile=profile, campaign=campaign,
+            )
+
+            sample_b64: str | None = None
+            if body.render_sample_page:
+                theme_id = body.visual_theme_id or directives.visual_theme_id
+                style_dict = None
+                template_path = None
+                if theme_id:
+                    vt = await repo.fetch_visual_theme_by_id(cur, theme_id)
+                    if vt is not None:
+                        style_dict = {
+                            "visual_theme_id": vt.id,
+                            "fonts": vt.fonts,
+                            "ink": vt.ink,
+                            "audio_slug": vt.audio_slug,
+                        }
+                        found = await repo.fetch_visual_theme_image(cur, vt.id)
+                        if found is not None:
+                            import tempfile
+
+                            image_bytes, _mime = found
+                            tmp = tempfile.NamedTemporaryFile(
+                                suffix=".img", delete=False
+                            )
+                            tmp.write(image_bytes)
+                            tmp.close()
+                            template_path = tmp.name
+                kit = kit_from_style_dict(
+                    style_dict, template_override_path=template_path
+                )
+                artist = _make_artist(settings, feature="tribute_preview")
+                try:
+                    import asyncio
+                    import base64
+
+                    sample_bytes = await asyncio.to_thread(
+                        render_sample_page,
+                        artist, book=book, kit=kit,
+                        role=body.sample_page_role,
+                        beat_index=body.sample_beat_index,
+                    )
+                    sample_b64 = base64.b64encode(sample_bytes).decode("ascii")
+                finally:
+                    if template_path:
+                        import os
+
+                        try:
+                            os.unlink(template_path)
+                        except OSError:
+                            pass
+
+    payload["sample_page_b64"] = sample_b64
+    log.info("tribute_preview.served", person_id=body.person_id,
+             sample=body.render_sample_page, updated_by=updated_by)
+    return payload
