@@ -27,22 +27,60 @@ from .book import Beat, Book
 
 log = structlog.get_logger("flashback.tribute_video.assembler")
 
-_SYSTEM = """\
+_DEFAULT_VOICE_SLOT = """\
 You are someone in the family who loved this person -- a child, a grandchild --
 telling the story of their life and quiet greatness to a reader who never met
-them. You receive the subject (with their family relationship), their world, the
-candidate memories (each an id + a short memory), the archetype LEADS the family
-already shared, and -- when present -- the contributor's own message. Build a
-book: an OPENING page, exactly {n} memory pages, and a CLOSING page.
+them.
 
 VOICE -- a loved one speaking, warm and proud:
 Speak about the subject as "he"/"she" or by name. You MAY use "we/our/us/my"
 sparingly to make it personal, but keep the spotlight on THEM and their
-greatness. Tender, admiring, plain-spoken, true. Never an encyclopedia.
+greatness. Tender, admiring, plain-spoken, true. Never an encyclopedia."""
 
+_DEFAULT_OPENER_SLOT = """\
 THE OPENING -- "Meet my {relationship}, ...": one warm sentence naming them and,
 in a breath, who they were and why they mattered (~8-16 words). A dedication,
-not a memory.
+not a memory."""
+
+
+def _voice_slot(voice_block: str | None) -> str:
+    """CRM-composed register wrapped in the non-negotiable voice guardrails."""
+    if not voice_block or not voice_block.strip():
+        return _DEFAULT_VOICE_SLOT
+    return (
+        "You are telling the story of this person's life to a reader who "
+        "never met them.\n\nVOICE:\n"
+        + voice_block.strip()
+        + '\nSpeak about the subject as "he"/"she" or by name; keep the '
+        "spotlight on THEM. Plain-spoken, true. Never an encyclopedia."
+    )
+
+
+def _opener_slot(opener_style: str | None) -> str:
+    if not opener_style or not opener_style.strip():
+        return _DEFAULT_OPENER_SLOT
+    return (
+        "THE OPENING -- "
+        + opener_style.strip()
+        + " One sentence (~8-16 words) that names them. Not a memory."
+    )
+
+
+def _art_mood_slot(art_mood: str | None) -> str:
+    if not art_mood or not art_mood.strip():
+        return ""
+    return "\n" + art_mood.strip() + " Ground every page's brief in this mood."
+
+
+_SYSTEM = """\
+{voice_slot}
+
+You receive the subject (with their family relationship), their world, the
+candidate memories (each an id + a short memory), the archetype LEADS the family
+already shared, and -- when present -- the contributor's own message. Build a
+book: an OPENING page, exactly {n} memory pages, and a CLOSING page.
+
+{opener_slot}
 
 EACH MEMORY PAGE -- one line, 8-10 words:
 - One short, COMPLETE sentence (8 to 10 words; count them). Never a cryptic
@@ -74,7 +112,7 @@ character -> the late years) so each page follows from the one before.
 
 ART DIRECTION (every page incl. opener + closing): a vivid VISUAL brief -- what
 we SEE: the action, the ONE concrete object, the place, the time of day, the
-light (~20-35 words, grounded in that beat). Paint it; don't restate the line.
+light (~20-35 words, grounded in that beat). Paint it; don't restate the line.{art_mood_slot}
 NEVER a face or recognizable likeness -- render figures from behind, at a
 distance, or implied (hands, silhouette, the thing they are doing).
 
@@ -170,12 +208,25 @@ def _beat(raw: dict[str, Any]) -> Beat:
     )
 
 
+class _SafeDict(dict):
+    """format_map mapping that collapses unknown placeholders to ''."""
+
+    def __missing__(self, key: str) -> str:  # noqa: D105
+        return ""
+
+
+def _fill_template(template: str, *, name: str, relationship: str) -> str:
+    return template.format_map(_SafeDict(name=name, relationship=relationship))
+
+
 def _fallback(candidates: list[dict[str, Any]], *, subject_name: str,
               relationship: str | None, message_text: str,
-              n_pages: int) -> Book:
+              n_pages: int, fallback_opener: str = "",
+              fallback_closing: str = "") -> Book:
     """Title-derived degraded book. Every page still carries TEXT: an empty
     opener/closing line renders as an image-only page, which reads as a broken
-    video rather than a plain one."""
+    video rather than a plain one. Profile-authored {name}/{relationship}
+    templates keep even the degraded book in the right register."""
     chosen = [c for c in candidates if c.get("id")][:n_pages] or [{"id": ""}]
     beats = [
         Beat(line=(c.get("title") or "A memory").strip(),
@@ -185,14 +236,22 @@ def _fallback(candidates: list[dict[str, Any]], *, subject_name: str,
     ]
     name = (subject_name or "").strip() or "someone we love"
     rel = (relationship or "").strip()
-    opener_line = (f"Meet my {rel.lower()}, {name}." if rel
-                   else f"This is the story of {name}.")
+    if fallback_opener.strip():
+        opener_line = _fill_template(
+            fallback_opener, name=name, relationship=rel.lower())
+    else:
+        opener_line = (f"Meet my {rel.lower()}, {name}." if rel
+                       else f"This is the story of {name}.")
+    if fallback_closing.strip():
+        closing_line = _fill_template(
+            fallback_closing, name=name, relationship=rel.lower())
+    else:
+        closing_line = f"Thank you for everything, {name}."
     return Book(
         cover_title=f"The Story of {name}"[:60],
         opener=Beat(line=opener_line, art_direction=""),
         beats=beats,
-        closing=Beat(line=f"Thank you for everything, {name}.",
-                     art_direction=""),
+        closing=Beat(line=closing_line, art_direction=""),
         message=(message_text or "").strip(),
     )
 
@@ -208,13 +267,20 @@ async def assemble_storybook_video(
     archetype_leads: list[str] | None = None,
     edit_instructions: list[str] | None = None,
     n_pages: int = 15,
+    voice_block: str | None = None,
+    opener_style: str | None = None,
+    art_mood: str | None = None,
+    fallback_opener: str = "",
+    fallback_closing: str = "",
+    feature: str = "tribute_video",
 ) -> Book:
     usable = [c for c in candidates if c.get("id")]
 
     def fallback() -> Book:
         return _fallback(usable, subject_name=subject_name,
                          relationship=relationship, message_text=message_text,
-                         n_pages=n_pages)
+                         n_pages=n_pages, fallback_opener=fallback_opener,
+                         fallback_closing=fallback_closing)
 
     if not usable or settings is None:
         return fallback()
@@ -225,8 +291,17 @@ async def assemble_storybook_video(
         gt_context=gt_context, candidates=usable, message_text=message_text,
         archetype_leads=archetype_leads or [],
         edit_instructions=edit_instructions or [])
-    system = _SYSTEM.replace("{n}", str(n_pages)).replace(
-        "{relationship}", relationship or "grandfather")
+    system = (
+        _SYSTEM
+        .replace("{voice_slot}", _voice_slot(voice_block))
+        .replace("{opener_slot}", _opener_slot(opener_style))
+        .replace("{art_mood_slot}", _art_mood_slot(art_mood))
+        .replace("{n}", str(n_pages))
+        .replace("{relationship}", relationship or "grandfather")
+    )
+    if voice_block or opener_style or art_mood:
+        # CRM opener examples carry {name}; ground them on THIS subject.
+        system = system.replace("{name}", subject_name)
     try:
         args = await call_with_tool(
             provider=settings.llm_big_provider,
@@ -240,7 +315,7 @@ async def assemble_storybook_video(
             # text-less fallback book. 120s matches the storybook assembler.
             timeout=120.0,
             settings=settings,
-            feature="tribute_video",
+            feature=feature,
         )
     except LLMError as exc:
         log.warning("storybook_video.assembly_failed", error=str(exc))
