@@ -168,14 +168,18 @@ config-driven bank resolution.
 
 ## 5. Admin API (all under `/admin`, service-token trust, Node authenticates)
 
-CRUD + lifecycle (uniform across the three tables):
+CRUD + lifecycle (uniform across the three tables, consolidated under one
+path family — `{table}` ∈ `relationship_profiles | tribute_campaigns |
+visual_themes`):
 
-- `GET /admin/relationship_profiles` · `GET /admin/tribute_campaigns` ·
-  `GET /admin/visual_themes` (list, `include_archived` flag)
-- `POST` create (as `draft`), `PUT /{id}` edit (supersedes),
-  `POST /{id}/publish`, `POST /{id}/archive`,
-  `POST /{id}/rollback {to_version}`
+- `GET /admin/tribute_config/{table}` (list, `include_archived` flag)
+- `POST /admin/tribute_config/{table}` create (as `draft`),
+  `PUT /admin/tribute_config/{table}/{id}` edit (supersedes),
+  `POST .../{id}/publish`, `POST .../{id}/archive`,
+  `POST .../{id}/rollback {to_row_id}` (a superseded row of the same slug)
 - `GET /admin/visual_themes/{id}/image` — serves the template bytea.
+  Template image bytes enter ONLY via the generation endpoint (≤2 MB
+  enforced there); CRUD payloads carrying `template_image` are rejected.
 - `GET /admin/asset-library` — curated font + audio slugs for CRM dropdowns.
 
 Authoring + judgment:
@@ -232,8 +236,11 @@ published campaign rows.
    re-resolves fresh.
 5. **Safety floor:** missing/malformed config → `other` profile → built-in
    kit. A render never blocks on config.
-6. **Caching:** Valkey cache-aside on config reads, DEL on publish (same
-   pattern as `entity_names:*`).
+6. **Caching:** none in v1 — config tables are tiny and every read is a
+   single indexed SELECT (published+active row by slug). The per-turn
+   touchpoint already does a progress read on the same connection. Add a
+   cache only if measured; the render path reads snapshots, never live
+   config, so correctness never depends on cache freshness.
 
 ## 7. Node work-order (separate doc, handed off on API freeze)
 
