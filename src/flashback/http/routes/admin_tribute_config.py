@@ -10,27 +10,32 @@ CRUD payloads.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict, deque
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel, ConfigDict, Field
 
+from flashback.config import HttpConfig
 from flashback.http.auth import (
     require_admin_service_token,
     require_service_token,
 )
-from flashback.http.deps import get_db_pool
+from flashback.http.deps import get_db_pool, get_http_config
+from flashback.llm.errors import LLMError
 from flashback.tribute import config_repository as repo
+from flashback.tribute.config_llm import generate_config_draft
 from flashback.tribute.config_schema import (
     validate_campaign_payload,
     validate_ink,
     validate_profile_payload,
 )
 from flashback.tribute_video.style import AUDIO_REGISTRY, FONT_REGISTRY
+from flashback.tribute_video.template_gen import generate_template_candidates
 
 router = APIRouter(
     prefix="/admin",
@@ -147,6 +152,53 @@ class RollbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     to_row_id: str = Field(min_length=1)
+
+
+class ConfigGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["profile", "campaign"]
+    relationship_group: str | None = Field(None, max_length=40)
+    occasion: str | None = Field(None, max_length=80)
+    brief: str = Field(min_length=1, max_length=1000)
+
+
+# --- generate-first authoring (registered BEFORE /tribute_config/{table} so
+# the literal path wins over the parametrized one) ----------------------------
+
+
+@router.post("/tribute_config/generate")
+async def generate_config(
+    body: ConfigGenerateRequest,
+    settings: HttpConfig = Depends(get_http_config),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    """A brief -> a validated structured draft. Never stored; the CRM lands
+    it in the form for tuning and saves via the normal create endpoint."""
+    if not allow(f"gen:{updated_by}", 4):
+        raise HTTPException(status_code=429, detail="generation rate limited")
+    try:
+        payload = await generate_config_draft(
+            settings,
+            kind=body.kind,
+            relationship_group=body.relationship_group,
+            occasion=body.occasion,
+            brief=body.brief,
+        )
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=f"draft failed: {exc}")
+    if body.kind == "profile":
+        if body.relationship_group:
+            payload.setdefault("group_slug", body.relationship_group)
+        errors = validate_profile_payload(payload)
+    else:
+        if body.occasion:
+            payload.setdefault(
+                "slug",
+                body.occasion.strip().lower().replace(" ", "_")[:64],
+            )
+        errors = validate_campaign_payload(payload)
+    return {"payload": payload, "errors": errors}
 
 
 # --- CRUD + lifecycle ----------------------------------------------------------
@@ -361,3 +413,96 @@ async def get_asset_library() -> dict:
         "fonts": sorted(FONT_REGISTRY.keys()),
         "audio": sorted(AUDIO_REGISTRY.keys()),
     }
+
+
+# --- visual-theme candidate generation ----------------------------------------
+
+
+class VisualThemeGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brief: str = Field(min_length=1, max_length=1000)
+    slug: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=80)
+    n_candidates: int = Field(3, ge=1, le=4)
+    fonts: dict | None = None
+    ink: dict | None = None
+    audio_slug: str | None = None
+
+
+@router.post("/visual_themes/generate")
+async def generate_visual_themes(
+    body: VisualThemeGenerateRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    settings: HttpConfig = Depends(get_http_config),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    """Generate <=4 page-template candidates as DRAFT visual-theme rows.
+
+    Fonts/ink/audio default to the classic kit; the CRM fetches each
+    candidate's image via GET /admin/visual_themes/{id}/image, the content
+    person picks one and publishes it (the rest stay drafts/archived).
+    """
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            status_code=503, detail="GEMINI_API_KEY not configured"
+        )
+    if not allow(f"visual:{updated_by}", 4):
+        raise HTTPException(status_code=429, detail="generation rate limited")
+
+    fonts = body.fonts or {
+        "main_slug": "playfair_italic", "eyebrow_slug": "eb_garamond",
+    }
+    ink = body.ink or {"main_fill": "#3a2c1c", "eyebrow_fill": "#967648"}
+    audio_slug = body.audio_slug or "sentimental_piano"
+    base_payload = {
+        "display_name": body.display_name,
+        "fonts": fonts,
+        "ink": ink,
+        "audio_slug": audio_slug,
+    }
+    errors = _validate("tribute_visual_themes", {**base_payload, "slug": body.slug})
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+    artist = _make_artist(settings)
+    try:
+        images = await asyncio.to_thread(
+            generate_template_candidates,
+            artist, brief=body.brief, n=body.n_candidates,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"template generation failed: {exc}"
+        )
+
+    candidates = []
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                for i, image_bytes in enumerate(images, start=1):
+                    payload = {
+                        **base_payload,
+                        "slug": f"{body.slug}_c{i}",
+                        "template_image": image_bytes,
+                        "template_mime": "image/jpeg",
+                    }
+                    new_id = await repo.create_row(
+                        cur, "tribute_visual_themes", payload,
+                        updated_by=updated_by,
+                    )
+                    candidates.append({"id": new_id, "slug": payload["slug"]})
+    log.info("visual_theme.candidates_generated", count=len(candidates),
+             updated_by=updated_by)
+    return {"candidates": candidates}
+
+
+def _make_artist(settings: HttpConfig):
+    """Factory kept separate so tests can monkeypatch it."""
+    from flashback.page_render.art import Artist
+
+    return Artist(
+        api_key=settings.gemini_api_key,
+        model=settings.gemini_image_model,
+        feature="tribute_template_generate",
+    )

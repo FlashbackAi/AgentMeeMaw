@@ -325,6 +325,11 @@ class HttpConfig:
     max_request_body_bytes: int = 262144
     turn_rate_limit_per_minute: int = 60
     trusted_hosts: tuple[str, ...] = ("*",)
+    # Tribute CRM (spec 2026-07-14): template generation + sample-page
+    # preview run Gemini image calls from the HTTP service. Optional — the
+    # admin generate/preview-image endpoints 503 when the key is unset.
+    gemini_api_key: str = field(default="", repr=False)
+    gemini_image_model: str = "gemini-3.1-flash-image"
 
     @classmethod
     def from_env(cls) -> "HttpConfig":
@@ -414,6 +419,10 @@ class HttpConfig:
             ),
             llm_response_max_tokens=int(
                 os.environ.get("LLM_RESPONSE_MAX_TOKENS", "400")
+            ),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+            gemini_image_model=os.environ.get(
+                "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
             ),
             extraction_queue_url=_required("EXTRACTION_QUEUE_URL"),
             trait_synthesizer_queue_url=_required("TRAIT_SYNTHESIZER_QUEUE_URL"),
