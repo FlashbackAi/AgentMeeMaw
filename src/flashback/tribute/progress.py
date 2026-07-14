@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from flashback.tribute.campaigns import Campaign
 from flashback.tribute.checklist import MEMORIES_TARGET, SLOTS
+from flashback.tribute.config_schema import CampaignConfig as Campaign
 from flashback.tribute.theme import TRIBUTE_DISPLAY_NAME
 
 

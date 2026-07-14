@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from flashback.tribute.campaigns import resolve_campaign
+from flashback.tribute.config_schema import CampaignConfig
 from flashback.tribute.progress import fetch_tribute_progress_sync
 from flashback.tribute.repository import insert_tribute_sync, set_message_sync
 
@@ -232,7 +232,17 @@ def test_progress_campaign_skins_title_and_message_hint(db_pool, make_person) ->
     # The Father's Day skin overrides the meter title and the message hint;
     # other hints stay skin-neutral.
     person_id = make_person("Dad")
-    campaign = resolve_campaign("fathers_day_2026")
+    campaign = CampaignConfig(
+        id="c-fd", slug="fathers_day_2026", display_name="A Letter to Dad",
+        message_card_copy=(
+            "Fathers and sons don't always say it out loud. If he could "
+            "hear one thing from you right now — what is it?"
+        ),
+        archetype_extra_context="", video_target_seconds=45, featured=True,
+        active_start=None, active_end=None, archetype_bank_override=None,
+        deage_cover_override=True, visual_theme_id=None,
+        closing_card_copy=None, state="published", version=1,
+    )
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             tribute_id = insert_tribute_sync(cur, person_id=person_id)

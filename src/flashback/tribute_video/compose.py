@@ -28,17 +28,19 @@ from .style import ART_BOX, Box, EYEBROW_BOX, LAYOUTS, TEXT_BOX
 
 
 # --- template ---------------------------------------------------------------
-def load_template() -> Image.Image:
-    return Image.open(style.TEMPLATE_PATH).convert("RGB")
+def load_template(kit: style.StyleKit | None = None) -> Image.Image:
+    return Image.open((kit or style.DEFAULT_KIT).template_path).convert("RGB")
 
 
 def _fit_main(text: str, max_w: int, max_h: int,
-              hi: int = 86, lo: int = 30, line_gap: float = 1.18):
+              hi: int = 86, lo: int = 30, line_gap: float = 1.18,
+              kit: style.StyleKit | None = None):
+    kit = kit or style.DEFAULT_KIT
     words = text.split()
     best = None
     for size in range(hi, lo - 1, -2):
-        font = _font(style.MAIN_FONT, size, style.MAIN_FONT_FALLBACK,
-                     style.MAIN_FONT_WEIGHT)
+        font = _font(kit.main_font, size, style.MAIN_FONT_FALLBACK,
+                     kit.main_font_weight)
         lines = _wrap(words, font, max_w)
         asc, desc = font.getmetrics()
         block_h = int((asc + desc) * line_gap * len(lines))
@@ -47,18 +49,20 @@ def _fit_main(text: str, max_w: int, max_h: int,
             best = (font, lines, asc, desc, line_gap)
             break
     if best is None:
-        font = _font(style.MAIN_FONT, lo, style.MAIN_FONT_FALLBACK,
-                     style.MAIN_FONT_WEIGHT)
+        font = _font(kit.main_font, lo, style.MAIN_FONT_FALLBACK,
+                     kit.main_font_weight)
         asc, desc = font.getmetrics()
         best = (font, _wrap(words, font, max_w), asc, desc, line_gap)
     return best
 
 
-def draw_main_line(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px):
+def draw_main_line(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px,
+                   kit: style.StyleKit | None = None):
+    kit = kit or style.DEFAULT_KIT
     w, h = size_px
     x0, y0, x1, y1 = box.px(w, h)
     bw, bh = x1 - x0, y1 - y0
-    font, lines, asc, desc, line_gap = _fit_main(text, bw, bh)
+    font, lines, asc, desc, line_gap = _fit_main(text, bw, bh, kit=kit)
     line_h = int((asc + desc) * line_gap)
     block_h = line_h * len(lines)
     cy = y0 + (bh - block_h) // 2
@@ -66,18 +70,20 @@ def draw_main_line(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px):
     for i, ln in enumerate(lines):
         lw = _text_w(font, ln)
         draw.text((cx - lw // 2, cy + i * line_h), ln,
-                  font=font, fill=style.MAIN_FONT_FILL)
+                  font=font, fill=kit.main_fill)
 
 
-def draw_eyebrow(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px):
+def draw_eyebrow(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px,
+                 kit: style.StyleKit | None = None):
     if not text:
         return
+    kit = kit or style.DEFAULT_KIT
     w, h = size_px
     x0, y0, x1, y1 = box.px(w, h)
     bw, bh = x1 - x0, y1 - y0
     text = text.upper()
     size = max(14, int(bh * 0.62))
-    font = _font(style.EYEBROW_FONT, size, style.EYEBROW_FONT_FALLBACK)
+    font = _font(kit.eyebrow_font, size, style.EYEBROW_FONT_FALLBACK)
     track = int(size * style.EYEBROW_TRACKING)
     widths = [_text_w(font, c if c != " " else " ") for c in text]
     total = sum(widths) + track * (len(text) - 1)
@@ -87,7 +93,7 @@ def draw_eyebrow(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px):
     cy = y0 + (bh - (asc + desc)) // 2
     x = sx
     for c, cw in zip(text, widths):
-        draw.text((x, cy), c, font=font, fill=style.EYEBROW_FILL)
+        draw.text((x, cy), c, font=font, fill=kit.eyebrow_fill)
         x += cw + track
 
 
@@ -132,21 +138,24 @@ def illustration_layer(template: Image.Image, illo: Image.Image | None,
 
 
 def text_layer(template: Image.Image, eyebrow: str, line: str,
-               box: Box | None = None) -> Image.Image:
+               box: Box | None = None,
+               kit: style.StyleKit | None = None) -> Image.Image:
     layer = Image.new("RGBA", template.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    draw_eyebrow(draw, eyebrow, EYEBROW_BOX, template.size)
-    draw_main_line(draw, line, box or TEXT_BOX, template.size)
+    draw_eyebrow(draw, eyebrow, EYEBROW_BOX, template.size, kit=kit)
+    draw_main_line(draw, line, box or TEXT_BOX, template.size, kit=kit)
     return layer
 
 
 def compose_page(*, eyebrow: str, line: str, illo: Image.Image | None,
                  blend: str = "cream", template: Image.Image | None = None,
-                 layout=None) -> Image.Image:
-    base = (template or load_template())
+                 layout=None,
+                 kit: style.StyleKit | None = None) -> Image.Image:
+    base = (template or load_template(kit))
     lay = layout or LAYOUTS["text_top"]
     page = base.convert("RGBA")
     page = Image.alpha_composite(
         page, illustration_layer(base, illo, blend, lay.art_box, lay.art_valign))
-    page = Image.alpha_composite(page, text_layer(base, eyebrow, line, lay.text_box))
+    page = Image.alpha_composite(
+        page, text_layer(base, eyebrow, line, lay.text_box, kit=kit))
     return page.convert("RGB")

@@ -13,7 +13,9 @@ entering the transcript (so it can't be mined-and-lost by extraction):
     required for `ready`, so without this a contributor whose warm turns
     never line up is stuck below 100% forever.
 
-The invitation copy is neutral here; Plan 4's campaign skin overrides it.
+The invitation copy resolves campaign -> relationship profile -> neutral
+(tribute CRM, spec 2026-07-14): the campaign the tribute was created under
+wins, else the person's relationship-profile copy, else the neutral line.
 """
 
 from __future__ import annotations
@@ -26,8 +28,13 @@ from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.protocol import Tap
 from flashback.orchestrator.state import TurnState
-from flashback.tribute.campaigns import resolve_campaign
+from flashback.tribute.config_repository import (
+    fetch_campaign_by_id,
+    fetch_profile_by_group,
+    resolve_campaign_db,
+)
 from flashback.tribute.progress import fetch_tribute_progress_async
+from flashback.tribute.repository import fetch_tribute_campaign_id_async
 from flashback.tribute.theme import MESSAGE_INVITATION_COPY
 
 log = structlog.get_logger("flashback.orchestrator")
@@ -37,6 +44,39 @@ MESSAGE_TAP_COOLDOWN_USER_TURNS = 2
 # appearance + signature alone (no message) top out at 70; requiring 40
 # means at least a couple of memories plus another slot are in place.
 MESSAGE_INVITATION_PERCENT_FLOOR = 40
+
+
+async def _resolve_invitation_copy(
+    cur,
+    *,
+    tribute_id: str,
+    person_id: str,
+    wm_campaign_slug: str | None,
+) -> str:
+    """campaign copy -> profile copy -> neutral. Best-effort, never raises."""
+    try:
+        campaign = None
+        campaign_id = await fetch_tribute_campaign_id_async(
+            cur, tribute_id=tribute_id
+        )
+        if campaign_id:
+            campaign = await fetch_campaign_by_id(cur, campaign_id)
+        if campaign is None:
+            campaign = await resolve_campaign_db(cur, wm_campaign_slug)
+        if campaign.message_card_copy:
+            return campaign.message_card_copy
+
+        await cur.execute(
+            "SELECT relationship_group FROM persons WHERE id = %s", (person_id,)
+        )
+        row = await cur.fetchone()
+        group = (row[0] if row else None) or "other"
+        profile = await fetch_profile_by_group(cur, group)
+        if profile is not None and profile.message_invitation_copy:
+            return profile.message_invitation_copy
+    except Exception:
+        log.warning("message_tap.copy_resolution_failed", exc_info=True)
+    return MESSAGE_INVITATION_COPY
 
 
 async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) -> None:
@@ -67,6 +107,12 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
             async with conn.cursor() as cur:
                 progress = await fetch_tribute_progress_async(
                     cur, tribute_id=tribute_id
+                )
+                invitation_copy = await _resolve_invitation_copy(
+                    cur,
+                    tribute_id=tribute_id,
+                    person_id=str(state.person_id),
+                    wm_campaign_slug=wm_state.current_tribute_campaign or None,
                 )
         if progress is None:
             return
@@ -106,10 +152,6 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
                 only_slot_left=only_slot_left,
             )
             return
-
-        # Skin copy (e.g. Father's Day) overrides the neutral default.
-        campaign = resolve_campaign(wm_state.current_tribute_campaign or None)
-        invitation_copy = campaign.message_card_copy or MESSAGE_INVITATION_COPY
 
         tap = Tap(
             question_id=None,

@@ -64,6 +64,9 @@ class FakeProfilePictureQueue:
         return "fake-message-id"
 
 
+ADMIN_SERVICE_TOKEN = "admin-test-token"
+
+
 def _make_test_config() -> HttpConfig:
     return HttpConfig(
         database_url="postgresql://unused-in-no-db-tests/x",
@@ -75,6 +78,7 @@ def _make_test_config() -> HttpConfig:
         working_memory_transcript_limit=30,
         db_pool_min_size=1,
         db_pool_max_size=2,
+        admin_service_token=ADMIN_SERVICE_TOKEN,
     )
 
 
@@ -295,6 +299,14 @@ async def client_with_db(app_with_db):
 
 def auth_headers(token: str = SERVICE_TOKEN) -> dict[str, str]:
     return {"X-Service-Token": token}
+
+
+def admin_headers(user: str = "tester@flashback") -> dict[str, str]:
+    return {
+        "X-Service-Token": SERVICE_TOKEN,
+        "X-Admin-Service-Token": ADMIN_SERVICE_TOKEN,
+        "X-Admin-User": user,
+    }
 
 
 def new_uuids() -> tuple[str, str, str]:

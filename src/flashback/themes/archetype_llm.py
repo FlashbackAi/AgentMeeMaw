@@ -173,6 +173,7 @@ async def generate_archetype_questions(
     context_moments: list[ArchetypeContextMoment] | None = None,
     min_questions: int = 3,
     max_questions: int = 4,
+    extra_context: str = "",
 ) -> list[ArchetypeQuestion]:
     """Best-effort LLM-driven archetype generation.
 
@@ -180,7 +181,8 @@ async def generate_archetype_questions(
     free-text-only unlock UX when the list is empty.
 
     ``min_questions`` / ``max_questions`` default to the universal 3-4
-    range; the tribute theme passes a wider band (6-8).
+    range; the tribute theme passes a wider band (6-8). ``extra_context``
+    carries a campaign's occasion framing (tribute CRM) into the prompt.
     """
     if settings is None or not theme_slug or not subject_name:
         return []
@@ -194,6 +196,11 @@ async def generate_archetype_questions(
         subject_relationship=subject_relationship,
         context_moments=context_moments or [],
     )
+    if extra_context.strip():
+        user_message += (
+            f"\n<occasion_context>{xml_text(extra_context.strip())}"
+            "</occasion_context>"
+        )
 
     # The base prompt/tool hard-code the universal 3-4 band. Override the
     # count for callers (the tribute theme) that want a wider range, leaving

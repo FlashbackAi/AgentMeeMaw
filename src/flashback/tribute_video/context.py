@@ -40,6 +40,17 @@ class RenderContext:
     fps: int = 30
     deage: bool = False
     composed_at: str = ""
+    # Tribute CRM (spec 2026-07-14): composed voice directives + the pinned
+    # visual style. Every default reproduces pre-CRM behavior so snapshots
+    # written before migration 0039 render identically.
+    style: dict[str, Any] | None = None
+    profile_id: str = ""
+    campaign_id: str = ""
+    voice_block: str = ""
+    opener_style: str = ""
+    art_mood: str = ""
+    fallback_opener: str = ""
+    fallback_closing: str = ""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any], *, tribute_id: str,
@@ -64,6 +75,14 @@ class RenderContext:
             fps=int(d.get("fps") or 30),
             deage=bool(d.get("deage") or False),
             composed_at=(d.get("composed_at") or ""),
+            style=d.get("style") or None,
+            profile_id=(d.get("profile_id") or ""),
+            campaign_id=(d.get("campaign_id") or ""),
+            voice_block=(d.get("voice_block") or ""),
+            opener_style=(d.get("opener_style") or ""),
+            art_mood=(d.get("art_mood") or ""),
+            fallback_opener=(d.get("fallback_opener") or ""),
+            fallback_closing=(d.get("fallback_closing") or ""),
         )
 
 
@@ -86,6 +105,14 @@ def build_context_dict(
     fps: int = 30,
     deage: bool = False,
     composed_at: str = "",
+    style: dict[str, Any] | None = None,
+    profile_id: str = "",
+    campaign_id: str = "",
+    voice_block: str = "",
+    opener_style: str = "",
+    art_mood: str = "",
+    fallback_opener: str = "",
+    fallback_closing: str = "",
 ) -> dict[str, Any]:
     """The dict stored under latest_generation_context['tribute_video']."""
     return {
@@ -106,4 +133,12 @@ def build_context_dict(
         "fps": fps,
         "deage": deage,
         "composed_at": composed_at,
+        "style": style,
+        "profile_id": profile_id,
+        "campaign_id": campaign_id,
+        "voice_block": voice_block,
+        "opener_style": opener_style,
+        "art_mood": art_mood,
+        "fallback_opener": fallback_opener,
+        "fallback_closing": fallback_closing,
     }

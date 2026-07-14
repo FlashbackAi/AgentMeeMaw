@@ -37,6 +37,25 @@ def load_render_context(pool, *, tribute_id: str,
         ctx_dict, tribute_id=str(tribute_id), person_id=person_id)
 
 
+def load_visual_theme_image_sync(pool, *, theme_id: str) -> tuple[bytes, str] | None:
+    """Template image bytes for a pinned visual theme, or None (built-in kit).
+
+    The snapshot pins the row id (supersession = new id), so this read is
+    stable no matter what the CRM published since /generate composed it.
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT template_image, template_mime FROM tribute_visual_themes "
+                "WHERE id = %s AND template_image IS NOT NULL",
+                (str(theme_id),),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return bytes(row[0]), row[1] or "image/jpeg"
+
+
 def mark_complete(pool, *, tribute_id: str, person_id: str,
                   video_present: bool, pdf_present: bool,
                   poster_present: bool = False) -> None:

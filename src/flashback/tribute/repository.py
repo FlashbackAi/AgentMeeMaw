@@ -179,6 +179,27 @@ async def ensure_open_tribute_async(
     return tribute_id
 
 
+async def fetch_tribute_campaign_id_async(cur, *, tribute_id: UUID | str) -> str | None:
+    """The campaign the tribute was created under (stamped at entry), or None."""
+    await cur.execute(
+        "SELECT campaign_id::text FROM tributes WHERE id = %s",
+        (str(tribute_id),),
+    )
+    row = await cur.fetchone()
+    return row[0] if row is not None else None
+
+
+async def stamp_tribute_campaign_async(
+    cur, *, tribute_id: UUID | str, campaign_id: str
+) -> None:
+    """Stamp the entry campaign once; never overwrites an earlier stamp."""
+    await cur.execute(
+        "UPDATE tributes SET campaign_id = %s "
+        "WHERE id = %s AND campaign_id IS NULL",
+        (str(campaign_id), str(tribute_id)),
+    )
+
+
 async def set_message_async(
     cur,
     *,

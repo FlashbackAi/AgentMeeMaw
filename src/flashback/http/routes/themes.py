@@ -44,11 +44,17 @@ from flashback.themes.repository import (
     upsert_archetype_draft_async,
 )
 from flashback.themes.universal import get_universal_theme
-from flashback.tribute.campaigns import active_featured_campaign
+from flashback.tribute.composer import compose_directives
+from flashback.tribute.config_repository import (
+    active_featured_campaign_db,
+    fetch_profile_by_group,
+    resolve_campaign_db,
+)
+from flashback.tribute.config_schema import bank_to_archetype_questions
+from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.theme import (
     TRIBUTE_ARCHETYPE_MAX,
     TRIBUTE_ARCHETYPE_MIN,
-    build_fathers_day_archetype_questions,
 )
 
 router = APIRouter(prefix="/themes", dependencies=[Depends(require_service_token)])
@@ -64,6 +70,9 @@ class UnlockPrepareRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     person_id: UUID
+    # Campaign skin slug the UI is featuring (tribute themes only). Absent ->
+    # the date-windowed featured campaign, else neutral.
+    campaign: str | None = Field(None, max_length=64)
 
 
 class ArchetypeOption(BaseModel):
@@ -191,42 +200,74 @@ async def unlock_prepare(
     questions: list[ArchetypeQuestion]
     if theme.archetype_questions:
         questions = _rehydrate_archetype_questions(theme.archetype_questions)
-    else:
-        # Father's Day skin: serve the fixed authored bank (no LLM) during the
-        # campaign window. Ephemeral priors only (invariant #22).
-        fd_campaign = active_featured_campaign(datetime.now(timezone.utc).date())
-        if theme.kind == "tribute" and fd_campaign and fd_campaign.confession_voice:
-            questions = build_fathers_day_archetype_questions()
-        else:
-            description = theme.description
-            if not description and theme.kind == "universal":
-                universal = get_universal_theme(theme.slug)
-                description = (
-                    universal.description
-                    if universal is not None
-                    else theme.display_name
+    elif theme.kind == "tribute":
+        # Tribute CRM chain (spec 2026-07-14 §6.3): campaign bank override ->
+        # relationship-profile bank -> LLM generation seeded with relationship
+        # + occasion context. Ephemeral priors only (invariant #22).
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                campaign = await resolve_campaign_db(cur, body.campaign)
+                if not campaign.id and not body.campaign:
+                    featured = await active_featured_campaign_db(
+                        cur, datetime.now(timezone.utc).date()
+                    )
+                    if featured is not None:
+                        campaign = featured
+                group = await ensure_relationship_group(
+                    cur, settings=cfg, person_id=str(body.person_id)
                 )
-            if not description:
-                description = theme.display_name
-
-            # The tribute theme collects more upfront than universals (spec §5).
-            if theme.kind == "tribute":
-                q_min, q_max = TRIBUTE_ARCHETYPE_MIN, TRIBUTE_ARCHETYPE_MAX
-            else:
-                q_min, q_max = 3, 4
-
+                profile = await fetch_profile_by_group(cur, group)
+                if profile is None and group != "other":
+                    profile = await fetch_profile_by_group(cur, "other")
+                await cur.execute(
+                    "SELECT relationship FROM persons WHERE id = %s",
+                    (str(body.person_id),),
+                )
+                rel_row = await cur.fetchone()
+        subject_relationship = rel_row[0] if rel_row else None
+        bank = None
+        if profile is not None:
+            bank = compose_directives(profile, campaign).bank
+        if bank:
+            questions = bank_to_archetype_questions(bank)
+        else:
             questions = await generate_archetype_questions(
                 settings=cfg,
                 theme_slug=theme.slug,
                 theme_display_name=theme.display_name,
-                theme_description=description,
+                theme_description=theme.description or theme.display_name,
                 theme_kind=theme.kind,
                 subject_name=subject_name,
-                subject_relationship=None,
+                subject_relationship=subject_relationship,
                 context_moments=None,
-                min_questions=q_min,
-                max_questions=q_max,
+                min_questions=TRIBUTE_ARCHETYPE_MIN,
+                max_questions=TRIBUTE_ARCHETYPE_MAX,
+                extra_context=campaign.archetype_extra_context,
             )
+    else:
+        description = theme.description
+        if not description and theme.kind == "universal":
+            universal = get_universal_theme(theme.slug)
+            description = (
+                universal.description
+                if universal is not None
+                else theme.display_name
+            )
+        if not description:
+            description = theme.display_name
+
+        questions = await generate_archetype_questions(
+            settings=cfg,
+            theme_slug=theme.slug,
+            theme_display_name=theme.display_name,
+            theme_description=description,
+            theme_kind=theme.kind,
+            subject_name=subject_name,
+            subject_relationship=None,
+            context_moments=None,
+            min_questions=3,
+            max_questions=4,
+        )
         if questions:
             payload = [q.to_payload() for q in questions]
             async with db_pool.connection() as conn:

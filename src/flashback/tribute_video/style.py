@@ -47,6 +47,71 @@ class Box:
                 round(self.x1 * w), round(self.y1 * h))
 
 
+# --- configurable style kit (tribute CRM, spec 2026-07-14) -------------------
+# The compositor/renderer consume a StyleKit instead of module constants so a
+# visual theme (generated page template + fonts + inks + track) can restyle a
+# render without code. DEFAULT_KIT is the shipped Father's Day look; the
+# registries are the curated libraries the CRM picks from — expanding them is
+# a content task: drop the file in assets/ and add one entry.
+
+
+@dataclass(frozen=True)
+class StyleKit:
+    template_path: str = TEMPLATE_PATH
+    main_font: str = MAIN_FONT
+    eyebrow_font: str = EYEBROW_FONT
+    main_font_weight: int = MAIN_FONT_WEIGHT
+    main_fill: tuple[int, int, int] = MAIN_FONT_FILL
+    eyebrow_fill: tuple[int, int, int] = EYEBROW_FILL
+    audio_path: str = AUDIO_PATH
+
+
+DEFAULT_KIT = StyleKit()
+
+FONT_REGISTRY: dict[str, str] = {
+    "playfair_italic": MAIN_FONT,
+    "eb_garamond": EYEBROW_FONT,
+}
+AUDIO_REGISTRY: dict[str, str] = {
+    "sentimental_piano": AUDIO_PATH,
+}
+
+
+def _hex_to_rgb(value: str, default: tuple[int, int, int]) -> tuple[int, int, int]:
+    s = (value or "").strip().lstrip("#")
+    if len(s) != 6:
+        return default
+    try:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except ValueError:
+        return default
+
+
+def kit_from_style_dict(
+    style: dict | None, *, template_override_path: str | None = None
+) -> StyleKit:
+    """A render-context ``style`` dict as a StyleKit.
+
+    Unknown slugs and missing fields fall back to DEFAULT_KIT members — a
+    render never blocks on config (spec section 6.5). ``template_override_path``
+    (the worker's tmp file holding DB template bytes) wins over the built-in.
+    """
+    if style is None and template_override_path is None:
+        return DEFAULT_KIT
+    style = style or {}
+    fonts = style.get("fonts") or {}
+    ink = style.get("ink") or {}
+    return StyleKit(
+        template_path=template_override_path or TEMPLATE_PATH,
+        main_font=FONT_REGISTRY.get(fonts.get("main_slug"), MAIN_FONT),
+        eyebrow_font=FONT_REGISTRY.get(fonts.get("eyebrow_slug"), EYEBROW_FONT),
+        main_font_weight=MAIN_FONT_WEIGHT,
+        main_fill=_hex_to_rgb(ink.get("main_fill", ""), MAIN_FONT_FILL),
+        eyebrow_fill=_hex_to_rgb(ink.get("eyebrow_fill", ""), EYEBROW_FILL),
+        audio_path=AUDIO_REGISTRY.get(style.get("audio_slug"), AUDIO_PATH),
+    )
+
+
 # Header band — unused while headers are off, kept so the compositor stays generic.
 EYEBROW_BOX = Box(0.12, 0.185, 0.88, 0.225)
 # Default boxes (the "text_top" layout).

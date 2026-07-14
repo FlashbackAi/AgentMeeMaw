@@ -127,6 +127,14 @@ class Artist:
                     time.sleep(1.5 * (attempt + 1))
         raise GeminiError(f"Gemini generation failed: {last}")
 
+    def raw(self, prompt: str, aspect: str) -> Image.Image:
+        """One image from a caller-authored prompt (no house scene framing).
+
+        Used by the tribute CRM's page-template generation, whose prompt is
+        a layout contract rather than a scene brief.
+        """
+        return self._generate([prompt], aspect)
+
     def character_reference(self, *, name: str, relationship: str | None,
                             gt_context: str) -> Image.Image:
         who = relationship or "an elder"
