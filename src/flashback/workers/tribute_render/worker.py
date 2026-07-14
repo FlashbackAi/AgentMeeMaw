@@ -24,6 +24,7 @@ from flashback.tribute_video.assembler import assemble_storybook_video
 from flashback.tribute_video.book import Book
 from flashback.tribute_video.context import RenderContext
 from flashback.tribute_video.render import render_book
+from flashback.tribute_video.style import StyleKit, kit_from_style_dict
 
 from . import persistence
 from .sqs_client import SQSClient, TributeRenderMessage
@@ -48,11 +49,42 @@ def assemble_book(ctx: RenderContext, *, settings) -> Book:
         archetype_leads=ctx.archetype_leads,
         edit_instructions=ctx.edit_instructions,
         n_pages=ctx.n_pages,
+        voice_block=ctx.voice_block or None,
+        opener_style=ctx.opener_style or None,
+        art_mood=ctx.art_mood or None,
+        fallback_opener=ctx.fallback_opener,
+        fallback_closing=ctx.fallback_closing,
     ))
 
 
+def build_style_kit(ctx: RenderContext, *, pool, tmpdir: str) -> StyleKit:
+    """Resolve the snapshot's style dict into a StyleKit.
+
+    When the snapshot pins a visual theme whose row carries template bytes,
+    write them to a tmp file for Pillow; anything missing falls back to the
+    built-in kit fields (a render never blocks on config).
+    """
+    template_path: str | None = None
+    theme_id = (ctx.style or {}).get("visual_theme_id")
+    if theme_id and pool is not None:
+        try:
+            found = persistence.load_visual_theme_image_sync(pool, theme_id=theme_id)
+        except Exception:
+            log.warning("tribute_render.template_load_failed",
+                        tribute_id=ctx.tribute_id, theme_id=str(theme_id),
+                        exc_info=True)
+            found = None
+        if found is not None:
+            image_bytes, _mime = found
+            template_path = os.path.join(tmpdir, "page-template-override.img")
+            with open(template_path, "wb") as fh:
+                fh.write(image_bytes)
+    return kit_from_style_dict(ctx.style, template_override_path=template_path)
+
+
 def render_and_upload(ctx: RenderContext, *, artist: Artist,
-                      tmpdir: str, settings) -> tuple[bool, bool, bool]:
+                      tmpdir: str, settings,
+                      kit: StyleKit | None = None) -> tuple[bool, bool, bool]:
     """Assemble the Book, render the artifacts, and PUT them to the URLs.
 
     Returns (video_ok, pdf_ok, poster_ok). The poster is the opener page (the
@@ -77,6 +109,7 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
         prime_photo=photo, deage=ctx.deage, blend=ctx.blend,
         transition=ctx.transition, fps=ctx.fps,
         concurrency=getattr(settings, "render_concurrency", 4),
+        kit=kit,
     )
     video_ok = 200 <= transfer.upload_file(
         ctx.video_put_url, mp4_path, content_type="video/mp4") < 300
@@ -150,7 +183,9 @@ def run_forever(*, pool, cfg, sqs: SQSClient, stop: _StopSignal | None = None) -
 
     def _render(ctx: RenderContext) -> tuple[bool, bool, bool]:
         with tempfile.TemporaryDirectory() as td:
-            return render_and_upload(ctx, artist=artist, tmpdir=td, settings=cfg)
+            kit = build_style_kit(ctx, pool=pool, tmpdir=td)
+            return render_and_upload(ctx, artist=artist, tmpdir=td,
+                                     settings=cfg, kit=kit)
 
     def _complete(tid: str, pid: str, video: bool, pdf: bool,
                   poster: bool) -> None:
