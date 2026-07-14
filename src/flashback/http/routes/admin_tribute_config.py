@@ -1,0 +1,363 @@
+"""Admin API for the tribute CRM config tables (spec 2026-07-14 §5).
+
+Node's CRM screens proxy here (dashboard-admin gated on their side, the
+X-Admin-Service-Token pair on ours — no auth in this service, CLAUDE.md §3).
+Uniform CRUD + lifecycle over the three 0039 tables; validation errors are
+human-readable strings the CRM shows next to the field. Template image
+bytes enter ONLY through the generation endpoint (Task 10), never through
+CRUD payloads.
+"""
+
+from __future__ import annotations
+
+import time
+from collections import defaultdict, deque
+from typing import Any
+
+import structlog
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from psycopg_pool import AsyncConnectionPool
+from pydantic import BaseModel, ConfigDict, Field
+
+from flashback.http.auth import (
+    require_admin_service_token,
+    require_service_token,
+)
+from flashback.http.deps import get_db_pool
+from flashback.tribute import config_repository as repo
+from flashback.tribute.config_schema import (
+    validate_campaign_payload,
+    validate_ink,
+    validate_profile_payload,
+)
+from flashback.tribute_video.style import AUDIO_REGISTRY, FONT_REGISTRY
+
+router = APIRouter(
+    prefix="/admin",
+    dependencies=[
+        Depends(require_service_token),
+        Depends(require_admin_service_token),
+    ],
+)
+log = structlog.get_logger("flashback.http.admin_tribute_config")
+
+_TABLES: dict[str, repo.ConfigTable] = {
+    "relationship_profiles": "relationship_profiles",
+    "tribute_campaigns": "tribute_campaigns",
+    "visual_themes": "tribute_visual_themes",
+}
+
+
+def _table_or_404(table: str) -> repo.ConfigTable:
+    resolved = _TABLES.get(table)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail=f"unknown table {table!r}")
+    return resolved
+
+
+def admin_user(x_admin_user: str | None = Header(default=None)) -> str:
+    return (x_admin_user or "").strip() or "unknown"
+
+
+# --- in-process rate limiter (per admin identity) ---------------------------
+# Generation/preview endpoints burn real LLM/image calls; CRUD is free.
+_BUCKETS: dict[str, deque] = defaultdict(deque)
+
+
+def allow(key: str, per_minute: int, *, now: float | None = None) -> bool:
+    ts = time.monotonic() if now is None else now
+    bucket = _BUCKETS[key]
+    while bucket and ts - bucket[0] > 60.0:
+        bucket.popleft()
+    if len(bucket) >= per_minute:
+        return False
+    bucket.append(ts)
+    return True
+
+
+# --- payload validation ------------------------------------------------------
+
+
+def _validate(table: repo.ConfigTable, payload: dict) -> list[str]:
+    if table == "relationship_profiles":
+        return validate_profile_payload(payload)
+    if table == "tribute_campaigns":
+        return validate_campaign_payload(payload)
+    # visual themes
+    errors: list[str] = []
+    if "template_image" in payload or "template_mime" in payload:
+        errors.append(
+            "template_image: image bytes enter only via /admin/visual_themes/"
+            "generate, never CRUD payloads"
+        )
+    if not isinstance(payload.get("slug"), str) or not payload["slug"].strip():
+        errors.append("slug: required")
+    if (
+        not isinstance(payload.get("display_name"), str)
+        or not payload["display_name"].strip()
+    ):
+        errors.append("display_name: required")
+    fonts = payload.get("fonts")
+    if not isinstance(fonts, dict):
+        errors.append("fonts: required object {main_slug, eyebrow_slug}")
+    else:
+        for key in ("main_slug", "eyebrow_slug"):
+            if fonts.get(key) not in FONT_REGISTRY:
+                errors.append(
+                    f"fonts.{key}: unknown font slug (see /admin/asset-library)"
+                )
+    errors.extend(validate_ink(payload.get("ink")))
+    if payload.get("audio_slug") not in AUDIO_REGISTRY:
+        errors.append("audio_slug: unknown track slug (see /admin/asset-library)")
+    return errors
+
+
+def _row_as_payload(table: repo.ConfigTable, row: dict) -> dict:
+    payload = {
+        k: v
+        for k, v in row.items()
+        if k not in ("id", "state", "status", "version", "updated_by",
+                     "updated_at", "has_image")
+    }
+    if table == "tribute_campaigns":
+        for key in ("active_start", "active_end"):
+            if payload.get(key) is not None:
+                payload[key] = str(payload[key])
+    return payload
+
+
+async def _fetch_row_or_404(cur, table: repo.ConfigTable, row_id: str) -> dict:
+    rows = await repo.list_rows(cur, table, include_archived=True)
+    row = next((r for r in rows if r["id"] == row_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no active row")
+    return row
+
+
+# --- models -------------------------------------------------------------------
+
+
+class ConfigPayloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payload: dict[str, Any]
+
+
+class RollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    to_row_id: str = Field(min_length=1)
+
+
+# --- CRUD + lifecycle ----------------------------------------------------------
+
+
+@router.get("/tribute_config/{table}")
+async def list_config(
+    table: str,
+    include_archived: bool = Query(False),
+    include_superseded: bool = Query(False),
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> dict:
+    resolved = _table_or_404(table)
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            rows = await repo.list_rows(
+                cur,
+                resolved,
+                include_archived=include_archived,
+                include_superseded=include_superseded,
+            )
+    return {"rows": rows}
+
+
+@router.post("/tribute_config/{table}")
+async def create_config(
+    table: str,
+    body: ConfigPayloadRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    resolved = _table_or_404(table)
+    errors = _validate(resolved, body.payload)
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                new_id = await repo.create_row(
+                    cur, resolved, body.payload, updated_by=updated_by
+                )
+    log.info("tribute_config.created", table=resolved, row_id=new_id,
+             updated_by=updated_by)
+    return {"id": new_id}
+
+
+@router.put("/tribute_config/{table}/{row_id}")
+async def edit_config(
+    table: str,
+    row_id: str,
+    body: ConfigPayloadRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    resolved = _table_or_404(table)
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                # Validate the MERGED row (payload over current fields) so a
+                # partial edit can't sneak an invalid combination past the
+                # per-field checks.
+                current = await _fetch_row_or_404(cur, resolved, row_id)
+                merged = {**_row_as_payload(resolved, current), **body.payload}
+                errors = _validate(resolved, merged)
+                if errors:
+                    raise HTTPException(
+                        status_code=422, detail={"errors": errors}
+                    )
+                try:
+                    new_id = await repo.supersede_edit(
+                        cur, resolved, row_id, body.payload,
+                        updated_by=updated_by,
+                    )
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc))
+                await cur.execute(
+                    f"SELECT version FROM {resolved} WHERE id = %s", (new_id,)
+                )
+                version = (await cur.fetchone())[0]
+    log.info("tribute_config.edited", table=resolved, row_id=new_id,
+             version=version, updated_by=updated_by)
+    return {"id": new_id, "version": version}
+
+
+async def _campaign_overlap_warnings(cur, row_id: str) -> list[str]:
+    await cur.execute(
+        """
+        SELECT other.slug FROM tribute_campaigns me
+        JOIN tribute_campaigns other
+          ON other.id != me.id
+         AND other.status = 'active' AND other.state = 'published'
+         AND other.featured
+         AND other.active_start IS NOT NULL AND me.active_start IS NOT NULL
+         AND other.active_start <= me.active_end
+         AND other.active_end >= me.active_start
+        WHERE me.id = %s AND me.featured
+        """,
+        (row_id,),
+    )
+    return [
+        f"featured window overlaps campaign '{r[0]}'"
+        for r in await cur.fetchall()
+    ]
+
+
+@router.post("/tribute_config/{table}/{row_id}/publish")
+async def publish_config(
+    table: str,
+    row_id: str,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    resolved = _table_or_404(table)
+    warnings: list[str] = []
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                # Full-row re-validation before anything goes live.
+                row = await _fetch_row_or_404(cur, resolved, row_id)
+                errors = _validate(resolved, _row_as_payload(resolved, row))
+                if errors:
+                    raise HTTPException(
+                        status_code=422, detail={"errors": errors}
+                    )
+                try:
+                    await repo.set_state(
+                        cur, resolved, row_id, "published",
+                        updated_by=updated_by,
+                    )
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc))
+                if resolved == "tribute_campaigns":
+                    warnings = await _campaign_overlap_warnings(cur, row_id)
+    log.info("tribute_config.published", table=resolved, row_id=row_id,
+             updated_by=updated_by, warnings=warnings)
+    return {"id": row_id, "state": "published", "warnings": warnings}
+
+
+@router.post("/tribute_config/{table}/{row_id}/archive")
+async def archive_config(
+    table: str,
+    row_id: str,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    resolved = _table_or_404(table)
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                try:
+                    await repo.set_state(
+                        cur, resolved, row_id, "archived", updated_by=updated_by
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc))
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc))
+    return {"id": row_id, "state": "archived"}
+
+
+@router.post("/tribute_config/{table}/{row_id}/rollback")
+async def rollback_config(
+    table: str,
+    row_id: str,
+    body: RollbackRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    """Republish a superseded version's content as a fresh active row.
+
+    ``row_id`` in the path is the CURRENT row (kept for URL symmetry);
+    ``to_row_id`` is the historical row whose content comes back.
+    """
+    resolved = _table_or_404(table)
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                try:
+                    new_id = await repo.rollback_to(
+                        cur, resolved, body.to_row_id, updated_by=updated_by
+                    )
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc))
+    log.info("tribute_config.rolled_back", table=resolved,
+             restored_from=body.to_row_id, new_id=new_id,
+             updated_by=updated_by)
+    return {"id": new_id}
+
+
+# --- assets ------------------------------------------------------------------
+
+
+@router.get("/visual_themes/{row_id}/image")
+async def get_visual_theme_image(
+    row_id: str,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> Response:
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            found = await repo.fetch_visual_theme_image(cur, row_id)
+    if found is None:
+        raise HTTPException(
+            status_code=404, detail="no template image (built-in kit)"
+        )
+    image_bytes, mime = found
+    return Response(content=image_bytes, media_type=mime)
+
+
+@router.get("/asset-library")
+async def get_asset_library() -> dict:
+    return {
+        "fonts": sorted(FONT_REGISTRY.keys()),
+        "audio": sorted(AUDIO_REGISTRY.keys()),
+    }
