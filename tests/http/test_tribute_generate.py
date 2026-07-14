@@ -156,6 +156,52 @@ async def test_video_200_stores_context_inputs_and_enqueues(
     assert ctx["composed_at"]
 
 
+async def test_video_snapshot_carries_crm_config(
+    client_with_db, async_db_pool
+) -> None:
+    """The snapshot pins config ids + composed directives (spec §6.4)."""
+    person_id, tribute_id, _ = await _seed(async_db_pool, ready=True)
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE persons SET relationship = 'best friend' WHERE id = %s",
+                (person_id,),
+            )
+
+    resp = await client_with_db.post(
+        f"/tributes/{tribute_id}/generate",
+        json={
+            "person_id": person_id,
+            "artifact_kind": "tribute_video",
+            "campaign": "fathers_day_2026",
+            "video_put_url": "https://s3.example/put/video?sig=1",
+            "pdf_put_url": "https://s3.example/put/pdf?sig=1",
+        },
+        headers=_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT t.latest_generation_context -> 'tribute_video', "
+                "p.relationship_group FROM tributes t "
+                "JOIN persons p ON p.id = t.person_id WHERE t.id = %s",
+                (tribute_id,),
+            )
+            ctx, group = await cur.fetchone()
+    assert group == "friend"  # resolved + cached during generate
+    assert ctx["profile_id"] and ctx["campaign_id"]
+    # friend register composed into the voice slots
+    assert "partner-in-crime" in ctx["voice_block"]
+    assert "{name}" in ctx["fallback_opener"]
+    # FD campaign's deage override wins over the friend profile's False
+    assert ctx["deage"] is True
+    # visual theme pinned (classic_keepsake via profile default)
+    assert ctx["style"]["audio_slug"] == "sentimental_piano"
+    assert ctx["style"]["visual_theme_id"]
+
+
 async def test_video_400_when_missing_presigned_urls(
     client_with_db, async_db_pool
 ) -> None:

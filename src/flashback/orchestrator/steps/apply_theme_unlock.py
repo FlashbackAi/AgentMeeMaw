@@ -27,8 +27,13 @@ from flashback.themes.repository import (
     fetch_theme_by_id_async,
     unlock_theme_async,
 )
+from flashback.tribute.config_repository import fetch_campaign_by_slug
 from flashback.tribute.leads import build_leads, leads_to_json
-from flashback.tribute.repository import ensure_open_tribute_async
+from flashback.tribute.relationships import ensure_relationship_group
+from flashback.tribute.repository import (
+    ensure_open_tribute_async,
+    stamp_tribute_campaign_async,
+)
 
 log = structlog.get_logger("flashback.orchestrator.apply_theme_unlock")
 
@@ -92,6 +97,28 @@ async def apply_theme_unlock(
                     if theme.kind == "tribute":
                         tribute_id = await ensure_open_tribute_async(
                             cur, person_id=person_id, theme_id=theme_id
+                        )
+                        # Tribute CRM: stamp the entry campaign on the row
+                        # (once) and cache the relationship group so every
+                        # later touchpoint resolves config identically.
+                        slug = state.session_metadata.get("campaign")
+                        if slug:
+                            campaign_row = await fetch_campaign_by_slug(
+                                cur, str(slug)
+                            )
+                            if campaign_row is not None:
+                                await stamp_tribute_campaign_async(
+                                    cur,
+                                    tribute_id=tribute_id,
+                                    campaign_id=campaign_row.id,
+                                )
+                            else:
+                                log.info(
+                                    "theme_unlock.unknown_campaign_slug",
+                                    campaign=str(slug)[:64],
+                                )
+                        await ensure_relationship_group(
+                            cur, settings=deps.settings, person_id=person_id
                         )
 
         # Propagate theme context downstream via session_metadata so the

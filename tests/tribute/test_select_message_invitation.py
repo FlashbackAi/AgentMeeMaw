@@ -42,12 +42,14 @@ class _WMState:
 
 
 class _TurnState:
-    def __init__(self, *, intent="deepen", temp="high", taps=None, wm=None) -> None:
+    def __init__(self, *, intent="deepen", temp="high", taps=None, wm=None,
+                 person_id="00000000-0000-0000-0000-000000000001") -> None:
         self.intent_result = _Intent(intent)
         self.effective_temperature = temp
         self.taps = taps or []
         self.working_memory_state = wm
         self.session_id = "s1"
+        self.person_id = person_id
 
 
 class _WM:
@@ -107,7 +109,7 @@ async def _seed_tribute(pool, *, with_signature: bool) -> str:
                 tribute_id = await ensure_open_tribute_async(
                     cur, person_id=person_id, theme_id=theme_id
                 )
-    return tribute_id
+    return person_id, tribute_id
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +118,9 @@ async def _seed_tribute(pool, *, with_signature: bool) -> str:
 
 
 async def test_warm_climax_emits_message_tap(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(wm=_WMState(current_tribute_id=tribute_id))
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert len(state.taps) == 1
     assert state.taps[0].kind == "message"
@@ -126,17 +128,17 @@ async def test_warm_climax_emits_message_tap(async_pool) -> None:
 
 
 async def test_warm_gate_wrong_intent_no_tap(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(intent="switch", wm=_WMState(current_tribute_id=tribute_id))
+    state = _TurnState(person_id=person_id, intent="switch", wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert state.taps == []
 
 
 async def test_warm_gate_low_temp_no_tap(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(temp="low", wm=_WMState(current_tribute_id=tribute_id))
+    state = _TurnState(person_id=person_id, temp="low", wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert state.taps == []
 
@@ -144,9 +146,9 @@ async def test_warm_gate_low_temp_no_tap(async_pool) -> None:
 async def test_warm_gate_already_asked_no_tap(async_pool) -> None:
     # Signature still missing, so the fallback can't rescue it: a one-time
     # warm card that's already been asked stays silent.
-    tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
     deps = _Deps(async_pool)
-    state = _TurnState(
+    state = _TurnState(person_id=person_id, 
         wm=_WMState(current_tribute_id=tribute_id, message_invitation_asked=True)
     )
     await select_message_invitation(state, deps)
@@ -159,9 +161,9 @@ async def test_warm_gate_already_asked_no_tap(async_pool) -> None:
 
 
 async def test_fallback_fires_on_cold_clarify_turn(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(
+    state = _TurnState(person_id=person_id, 
         intent="clarify", temp="low", wm=_WMState(current_tribute_id=tribute_id)
     )
     await select_message_invitation(state, deps)
@@ -171,9 +173,9 @@ async def test_fallback_fires_on_cold_clarify_turn(async_pool) -> None:
 
 
 async def test_fallback_reoffers_even_after_asked(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(
+    state = _TurnState(person_id=person_id, 
         intent="clarify",
         temp="low",
         wm=_WMState(current_tribute_id=tribute_id, message_invitation_asked=True),
@@ -184,9 +186,9 @@ async def test_fallback_reoffers_even_after_asked(async_pool) -> None:
 
 
 async def test_fallback_respects_cooldown(async_pool) -> None:
-    tribute_id = await _seed_tribute(async_pool, with_signature=True)
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(
+    state = _TurnState(person_id=person_id, 
         intent="clarify",
         temp="low",
         wm=_WMState(current_tribute_id=tribute_id, user_turns_since_last_tap=1),

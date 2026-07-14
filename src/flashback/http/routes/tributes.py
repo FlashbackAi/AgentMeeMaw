@@ -37,18 +37,29 @@ from flashback.http.models import (
     TributeProgressResponse,
     TributeRegenerateRequest,
 )
-from flashback.tribute.campaigns import (
-    active_featured_campaign,
-    list_campaigns,
-    resolve_campaign,
+from flashback.tribute.composer import ComposedDirectives, compose_directives
+from flashback.tribute.config_repository import (
+    active_featured_campaign_db,
+    fetch_campaign_by_id,
+    fetch_profile_by_group,
+    fetch_visual_theme_by_id,
+    list_rows,
+    resolve_campaign_db,
+)
+from flashback.tribute.config_schema import (
+    NEUTRAL_CAMPAIGN,
+    CampaignConfig,
+    VisualThemeConfig,
 )
 from flashback.tribute.progress import (
     fetch_tribute_progress_async,
     progress_to_payload,
 )
+from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
     fetch_scene_moments_async,
     fetch_theme_scene_moments_async,
+    fetch_tribute_campaign_id_async,
     fetch_tribute_for_assembly_async,
     fetch_tribute_generation_context_async,
     set_status_async,
@@ -67,6 +78,77 @@ if TYPE_CHECKING:
 
 router = APIRouter(dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.tributes")
+
+
+async def _resolve_render_config(
+    cur,
+    *,
+    person_id: str,
+    tribute_id: UUID | str | None = None,
+    campaign_slug: str | None = None,
+    settings=None,
+):
+    """Resolve (campaign, profile, directives, visual_theme) for a render.
+
+    Campaign: the tribute row's stamped campaign_id wins, else the slug the
+    caller passed, else neutral. Profile: the person's cached relationship
+    group (resolved lazily when settings are provided), safety-floored on
+    'other'. Never raises — a render never blocks on config (spec §6.5).
+    """
+    campaign = NEUTRAL_CAMPAIGN
+    profile = None
+    directives: ComposedDirectives | None = None
+    visual_theme: VisualThemeConfig | None = None
+    try:
+        if tribute_id is not None:
+            campaign_id = await fetch_tribute_campaign_id_async(
+                cur, tribute_id=tribute_id
+            )
+            if campaign_id:
+                campaign = await fetch_campaign_by_id(cur, campaign_id) or (
+                    NEUTRAL_CAMPAIGN
+                )
+        if not campaign.id:
+            campaign = await resolve_campaign_db(cur, campaign_slug)
+
+        if settings is not None:
+            group = await ensure_relationship_group(
+                cur, settings=settings, person_id=person_id
+            )
+        else:
+            await cur.execute(
+                "SELECT relationship_group FROM persons WHERE id = %s",
+                (person_id,),
+            )
+            row = await cur.fetchone()
+            group = (row[0] if row else None) or "other"
+
+        profile = await fetch_profile_by_group(cur, group)
+        if profile is None and group != "other":
+            profile = await fetch_profile_by_group(cur, "other")
+        if profile is not None:
+            directives = compose_directives(profile, campaign)
+            if directives.visual_theme_id:
+                visual_theme = await fetch_visual_theme_by_id(
+                    cur, directives.visual_theme_id
+                )
+                if visual_theme is not None and visual_theme.state != "published":
+                    visual_theme = None
+    except Exception:
+        log.warning("tribute.config_resolution_failed",
+                    person_id=person_id, exc_info=True)
+    return campaign, profile, directives, visual_theme
+
+
+def _style_dict(visual_theme: VisualThemeConfig | None) -> dict | None:
+    if visual_theme is None:
+        return None
+    return {
+        "visual_theme_id": visual_theme.id,
+        "fonts": visual_theme.fonts,
+        "ink": visual_theme.ink,
+        "audio_slug": visual_theme.audio_slug,
+    }
 
 
 @router.get(
@@ -92,9 +174,18 @@ async def get_tribute_progress(
     side effects -- render status (video/PDF URLs) is a separate concern
     Node reads from the tribute_status view directly.
     """
-    resolved_campaign = resolve_campaign(campaign or None)
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
+            # The stamped entry campaign wins; the query param stays accepted
+            # as the fallback for pre-0039 tributes.
+            resolved_campaign = None
+            stamped_id = await fetch_tribute_campaign_id_async(
+                cur, tribute_id=tribute_id
+            )
+            if stamped_id:
+                resolved_campaign = await fetch_campaign_by_id(cur, stamped_id)
+            if resolved_campaign is None:
+                resolved_campaign = await resolve_campaign_db(cur, campaign or None)
             progress = await fetch_tribute_progress_async(
                 cur,
                 tribute_id=tribute_id,
@@ -117,6 +208,7 @@ async def generate_tribute(
     tribute_render_queue: "TributeRenderQueueProducer | None" = Depends(
         get_tribute_render_queue
     ),
+    settings: "HttpConfig" = Depends(get_http_config),
 ) -> TributeGenerateResponse:
     # 1) Gate + ownership via the status view + the tribute row.
     async with db_pool.connection() as conn:
@@ -139,6 +231,7 @@ async def generate_tribute(
             progress=progress,
             ground_truth=ground_truth,
             tribute_render_queue=tribute_render_queue,
+            settings=settings,
         )
 
     # The tribute STORYBOOK artifact is retired -- a tribute now produces a
@@ -163,6 +256,7 @@ async def _generate_video(
     progress,
     ground_truth: dict | None,
     tribute_render_queue: "TributeRenderQueueProducer | None",
+    settings: "HttpConfig | None" = None,
 ) -> TributeGenerateResponse:
     """Python-owned tribute video: store the render context (assembly inputs +
     presigned URLs) on the row and enqueue tribute_render. Unlocks at 100%. The
@@ -179,7 +273,10 @@ async def _generate_video(
             detail="video_put_url and pdf_put_url are required for tribute_video",
         )
 
-    # FD-flow story: theme-tagged moments, falling back to the qualifying pool.
+    # Tribute story: theme-tagged moments, falling back to the qualifying
+    # pool. Config (campaign + relationship profile + visual theme) is
+    # resolved HERE and snapshotted below — the render worker reads only the
+    # snapshot (spec 2026-07-14 §6.4).
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
             candidates: list = []
@@ -190,11 +287,16 @@ async def _generate_video(
             if not candidates:
                 candidates = await fetch_scene_moments_async(
                     cur, person_id=body.person_id, limit=STORYBOOK_MAX_PAGES)
+            campaign, profile, directives, visual_theme = (
+                await _resolve_render_config(
+                    cur, person_id=str(body.person_id),
+                    tribute_id=tribute_id, campaign_slug=body.campaign,
+                    settings=settings))
 
     gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or ""
 
     composed_at = datetime.now(timezone.utc).isoformat()
-    campaign = resolve_campaign(body.campaign)
+    deage_default = directives.deage_cover if directives is not None else False
     # Store the assembly INPUTS, not a pre-built Book -- the worker assembles
     # the storybook (a ~30s big-LLM call) at render time so this request stays
     # fast and never trips Node's HTTP timeout.
@@ -210,8 +312,16 @@ async def _generate_video(
         pdf_put_url=body.pdf_put_url,
         poster_put_url=body.poster_put_url or "",
         prime_photo_get_url=body.prime_photo_get_url or "",
-        deage=campaign.deage_cover and not body.cover_photo_is_prime_years,
+        deage=deage_default and not body.cover_photo_is_prime_years,
         composed_at=composed_at,
+        style=_style_dict(visual_theme),
+        profile_id=profile.id if profile is not None else "",
+        campaign_id=campaign.id,
+        voice_block=directives.voice_block if directives else "",
+        opener_style=directives.opener_style if directives else "",
+        art_mood=directives.art_mood if directives else "",
+        fallback_opener=directives.fallback_opener if directives else "",
+        fallback_closing=directives.fallback_closing if directives else "",
     )
 
     async with db_pool.connection() as conn:
@@ -256,10 +366,38 @@ async def _reenqueue_tribute_render(
 ) -> TributeGenerateResponse:
     """Re-render a tribute_video from its stored inputs (shared by regenerate +
     edit). Rebuilds the context through the canonical builder so the shape is
-    guaranteed and stray keys drop; only the URLs, ``edit_instructions``, and a
-    fresh ``composed_at`` change. The bumped ``composed_at`` makes any in-flight
-    older render go stale and skip."""
+    guaranteed and stray keys drop. Content inputs (candidates, message, leads,
+    deage) are reused verbatim; the CONFIG layer (voice directives + visual
+    style) is re-resolved fresh — manual regenerate is the recovery path after
+    a CRM edit (spec 2026-07-14 §6.4). The bumped ``composed_at`` makes any
+    in-flight older render go stale and skip."""
     composed_at = datetime.now(timezone.utc).isoformat()
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            campaign, profile, directives, visual_theme = (
+                await _resolve_render_config(
+                    cur, person_id=str(person_id), tribute_id=tribute_id))
+    if directives is not None:
+        style = _style_dict(visual_theme)
+        profile_id = profile.id if profile is not None else ""
+        campaign_id = campaign.id
+        voice_block = directives.voice_block
+        opener_style = directives.opener_style
+        art_mood = directives.art_mood
+        fallback_opener = directives.fallback_opener
+        fallback_closing = directives.fallback_closing
+    else:
+        # Config unreachable — carry the prior snapshot's fields unchanged.
+        style = stored.get("style") or None
+        profile_id = stored.get("profile_id") or ""
+        campaign_id = stored.get("campaign_id") or ""
+        voice_block = stored.get("voice_block") or ""
+        opener_style = stored.get("opener_style") or ""
+        art_mood = stored.get("art_mood") or ""
+        fallback_opener = stored.get("fallback_opener") or ""
+        fallback_closing = stored.get("fallback_closing") or ""
+
     context = build_context_dict(
         subject_name=stored.get("subject_name") or "",
         relationship=stored.get("relationship"),
@@ -278,6 +416,14 @@ async def _reenqueue_tribute_render(
         poster_put_url=poster_put_url or "",
         prime_photo_get_url=prime_photo_get_url or "",
         composed_at=composed_at,
+        style=style,
+        profile_id=profile_id,
+        campaign_id=campaign_id,
+        voice_block=voice_block,
+        opener_style=opener_style,
+        art_mood=art_mood,
+        fallback_opener=fallback_opener,
+        fallback_closing=fallback_closing,
     )
 
     async with db_pool.connection() as conn:
@@ -461,26 +607,43 @@ async def tribute_edit_suggestions(
 
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)
-async def get_tribute_campaigns() -> TributeCampaignsResponse:
-    """Public campaign list + which campaign is featured today (for Node)."""
+async def get_tribute_campaigns(
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+) -> TributeCampaignsResponse:
+    """Public campaign list + which campaign is featured today (for Node).
+
+    DB-backed (tribute CRM): published campaign rows, neutral first — the
+    same shape the code registry served before migration 0039.
+    """
     today = datetime.now(timezone.utc).date()
-    active = active_featured_campaign(today)
-    out = []
-    for c in list_campaigns():
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            active = await active_featured_campaign_db(cur, today)
+            rows = await list_rows(cur, "tribute_campaigns")
+
+    out = [
+        TributeCampaignOut(
+            slug=NEUTRAL_CAMPAIGN.slug,
+            display_name=NEUTRAL_CAMPAIGN.display_name,
+            featured=False,
+            is_active=False,
+        )
+    ]
+    for r in rows:
+        if r.get("state") != "published":
+            continue
+        start, end = r.get("active_start"), r.get("active_end")
         is_active = bool(
-            c.featured
-            and c.active_start
-            and c.active_end
-            and c.active_start <= today <= c.active_end
+            r.get("featured") and start and end and start <= today <= end
         )
         out.append(
             TributeCampaignOut(
-                slug=c.slug,
-                display_name=c.display_name,
-                featured=c.featured,
+                slug=r["slug"],
+                display_name=r["display_name"],
+                featured=bool(r.get("featured")),
                 is_active=is_active,
-                active_start=c.active_start.isoformat() if c.active_start else None,
-                active_end=c.active_end.isoformat() if c.active_end else None,
+                active_start=start.isoformat() if start else None,
+                active_end=end.isoformat() if end else None,
             )
         )
     return TributeCampaignsResponse(
