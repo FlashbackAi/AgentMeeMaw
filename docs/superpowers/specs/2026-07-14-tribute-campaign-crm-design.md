@@ -98,6 +98,7 @@ delete/archive-protected in the API.
 | `archetype_bank_override` | JSONB NULL | campaign-pinned bank (FD's 22 live here) |
 | `deage_cover_override` | BOOL NULL | |
 | `visual_theme_id` | UUID NULL | occasion-pinned kit, else profile default |
+| `closing_card_copy` | TEXT NULL | reserved for the share/end card (viral hook); NOT rendered in v1 and excluded from the CRM form — column only |
 
 ### 3.3 `tribute_visual_themes`
 
@@ -124,7 +125,12 @@ served to the CRM via an admin GET.
 
 - 8 relationship profiles with authored starting content (friend = playful
   register incl. authored friendship bank; parent = current FD tender
-  register; `other` = neutral).
+  register; `other` = neutral). **Authoring constraint:** all opener
+  examples + fallback lines use consistent third-person address (the
+  current system's register), and the generate-first prompt enforces the
+  same — so a future `address_mode` (second vs third person, for
+  living-subject "letter to you" tributes) stays a clean additive field,
+  never a content rewrite.
 - FD campaign retrofitted as `published` with its June 2026 window (inert
   by date), the 22-question bank as `archetype_bank_override`,
   `deage_cover_override=true`.
@@ -182,7 +188,14 @@ Authoring + judgment:
   campaign_id?|campaign_draft?, visual_theme_id?, render_sample_page?,
   sample_page_role?}` → `{book, sample_page_b64?, resolved_versions}`.
   Profile omitted → resolved from the person's relationship (same path as
-  runtime), so a campaign can be previewed alone.
+  runtime), so a campaign can be previewed alone. Text-only preview is the
+  default; `render_sample_page` is opt-in per call (the work-order tells
+  Node to surface it as a separate button — cheap loop vs expensive loop).
+
+Cost accounting: every new LLM call site (relationship classify, config
+generate, template generation, preview assembly, sample-page art) emits a
+`usage_events` row with a distinct feature tag (existing 0037 pattern,
+e.g. `tribute_config_generate`, `tribute_preview`).
   Runs the real assembler over the person's real moments with draft
   config; sample page composites one page (opener default) through the
   real compositor with one generated art image. Drafts work inline —
@@ -210,9 +223,11 @@ published campaign rows.
 4. **Snapshot at generate:** `/tributes/{id}/generate` resolves everything
    — composed voice/opener/art blocks, leads, visual theme id + font/track
    slugs + inks, target seconds, de-age — into `latest_generation_context`
-   (per the §3 hard rule) plus config ids + versions. **The render worker
-   reads only the snapshot**; template bytes are loaded by
-   `visual_theme_id` at render time (id + version pinned in snapshot).
+   (per the §3 hard rule) plus the config **row ids**. Supersession creates
+   a new row with a new id, so pinning ids alone pins the exact config
+   version — no separate version field in the snapshot. **The render worker
+   reads only the snapshot**; template bytes are loaded by the pinned
+   `visual_theme_id` at render time.
    Mid-render CRM edits cannot shift an in-flight video; regenerate
    re-resolves fresh.
 5. **Safety floor:** missing/malformed config → `other` profile → built-in
@@ -269,3 +284,7 @@ slug at tribute entry. `GET /tribute-campaigns` shape unchanged.
   dashboards; multi-language copy; Node-owned config tables (rejected —
   agent stays the write authority); auto-selecting campaigns without Node
   passing the slug at entry.
+- `address_mode` (second- vs third-person, living-subject "letter to you")
+  — deferred; seed authoring constraint in §3.5 keeps it additive.
+- Group tributes, birthday campaigns, directional occasions, dual-address
+  example sets per profile.
