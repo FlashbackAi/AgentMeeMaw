@@ -100,40 +100,9 @@ async def classify_relationship_llm(settings, label: str) -> str:
 
 
 async def _fetch_active_profiles(cur) -> list[ProfileConfig]:
-    """Published profiles, synonyms only — enough for matching.
+    from flashback.tribute.config_repository import fetch_all_published_profiles
 
-    Swapped to flashback.tribute.config_repository once it exists (Task 4);
-    kept private so the call sites never notice.
-    """
-    await cur.execute(
-        """
-        SELECT id::text, group_slug, display_name, synonyms
-          FROM relationship_profiles
-         WHERE status = 'active' AND state = 'published'
-        """
-    )
-    rows = await cur.fetchall()
-    return [
-        ProfileConfig(
-            id=r[0],
-            group_slug=r[1],
-            display_name=r[2],
-            synonyms=tuple(r[3] or ()),
-            voice={},
-            opener={},
-            art={},
-            fallback_opener="",
-            fallback_closing="",
-            archetype_bank=None,
-            message_invitation_copy=None,
-            deage_cover=False,
-            video_target_seconds=None,
-            visual_theme_id=None,
-            state="published",
-            version=0,
-        )
-        for r in rows
-    ]
+    return await fetch_all_published_profiles(cur)
 
 
 async def ensure_relationship_group(cur, *, settings, person_id: str) -> str:
