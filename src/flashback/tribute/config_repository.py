@@ -392,7 +392,9 @@ async def supersede_edit(
         f"FROM {table} old WHERE old.id = %s RETURNING id::text",
         [_adapt(c, payload[c]) for c in edited] + [updated_by, str(row_id)],
     )
-    return (await cur.fetchone())[0]
+    new_id = (await cur.fetchone())[0]
+    await repoint_references(cur, table, str(row_id), new_id)
+    return new_id
 
 
 async def set_state(
@@ -435,9 +437,10 @@ async def rollback_to(
     # Supersede whatever is currently active for this slug (may be none).
     await cur.execute(
         f"UPDATE {table} SET status = 'superseded', updated_by = %s "
-        f"WHERE {slug_col} = %s AND status = 'active'",
+        f"WHERE {slug_col} = %s AND status = 'active' RETURNING id::text",
         (updated_by, slug),
     )
+    replaced = [r[0] for r in await cur.fetchall()]
     cols = ", ".join(_COLUMNS[table])
     old_cols = ", ".join(f"old.{c}" for c in _COLUMNS[table])
     await cur.execute(
@@ -447,4 +450,38 @@ async def rollback_to(
         f"FROM {table} old WHERE old.id = %s RETURNING id::text",
         (slug, updated_by, str(old_row_id)),
     )
-    return (await cur.fetchone())[0]
+    new_id = (await cur.fetchone())[0]
+    for old_id in replaced:
+        await repoint_references(cur, table, old_id, new_id)
+    return new_id
+
+
+async def repoint_references(
+    cur, table: ConfigTable, old_id: str, new_id: str
+) -> None:
+    """Follow a supersession: rows referencing the old config row id now
+    reference the new one.
+
+    Live config references (profile/campaign -> visual theme, tribute ->
+    campaign) point at ROW IDS, and every edit mints a new row — without
+    this, editing a theme silently orphans every campaign/profile that
+    attached it (they keep rendering the stale version forever). Render
+    SNAPSHOTS are untouched: they pin the exact id that was live at
+    /generate time, which is the point of snapshots.
+    """
+    if table == "tribute_visual_themes":
+        for ref_table in ("relationship_profiles", "tribute_campaigns"):
+            await cur.execute(
+                f"UPDATE {ref_table} SET visual_theme_id = %s "
+                "WHERE visual_theme_id = %s AND status = 'active'",
+                (new_id, old_id),
+            )
+    elif table == "tribute_campaigns":
+        # In-flight tributes follow campaign edits until their /generate
+        # snapshot freezes config; completed tributes keep their stamp
+        # resolving via the (still readable) superseded row.
+        await cur.execute(
+            "UPDATE tributes SET campaign_id = %s "
+            "WHERE campaign_id = %s AND status IN ('draft', 'ready', 'generating')",
+            (new_id, old_id),
+        )

@@ -67,6 +67,32 @@ Cheaper than regenerating all four when one is almost right.
   "The AI couldn't process this — try again"; `429` → "Rate limited —
   wait a minute"; `503` → "Image generation is not configured").
 
+## 6. "Visual theme" dropdown on the campaign + profile editors (attach flow)
+
+Today attaching a published theme means pasting its raw row id into the
+ExtraFields JSON — unusable for a content person. Add a proper selector to
+BOTH the campaign editor and the profile editor:
+
+- A labeled select **"Visual theme"**: options = the visual_themes list
+  filtered to `state === 'published'`, label `display_name (slug)`,
+  **value = row `id`**; first option `(default — classic)` sending
+  `visual_theme_id: null`/omitted.
+- Bind it to the payload key `visual_theme_id` (move it out of
+  ExtraFields into KNOWN_*_KEYS for both tables).
+- Optional but great: a 60px thumbnail of the selected theme next to the
+  select, via the existing authed image hook (404 → classic asset).
+- Precedence hint under the select — campaigns: "Overrides the
+  relationship profile's theme while this campaign applies." — profiles:
+  "Used for every video of this relationship unless a campaign overrides
+  it."
+- Post-publish nudge on the Themes screen links here: "Published. Attach
+  it: [campaign editor] [profile editor]".
+
+**Ids are safe to hold now:** the agent repoints `visual_theme_id`
+references automatically when a theme is edited/rolled back (supersession
+mints a new id, references follow). So the dropdown can store the id it
+saw at selection time without going stale.
+
 ## Acceptance
 
 - [ ] Zones overlay renders on cards AND in the lightbox, toggleable.

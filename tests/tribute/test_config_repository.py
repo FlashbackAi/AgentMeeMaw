@@ -156,6 +156,90 @@ async def test_create_row_starts_draft(async_pool) -> None:
             pass
 
 
+async def test_editing_a_theme_repoints_profile_and_campaign(async_pool) -> None:
+    """Live config references follow supersession: editing a visual theme
+    must not orphan the profiles/campaigns that attached it."""
+    async with async_pool.connection() as conn:
+        try:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    vt = await repo.fetch_visual_theme_by_slug(
+                        cur, "classic_keepsake"
+                    )
+                    # a campaign pointing at the theme
+                    camp_id = await repo.create_row(
+                        cur, "tribute_campaigns",
+                        {"slug": "repoint_test", "display_name": "R",
+                         "visual_theme_id": vt.id},
+                        updated_by="t",
+                    )
+                    new_theme_id = await repo.supersede_edit(
+                        cur, "tribute_visual_themes", vt.id,
+                        {"display_name": "Classic v2"}, updated_by="t",
+                    )
+                    assert new_theme_id != vt.id
+                    # campaign followed the edit
+                    camp = await repo.fetch_campaign_by_slug(
+                        cur, "repoint_test", published_only=False
+                    )
+                    assert camp.visual_theme_id == new_theme_id
+                    # seeded profiles followed too
+                    friend = await repo.fetch_profile_by_group(cur, "friend")
+                    assert friend.visual_theme_id == new_theme_id
+                raise _Rollback()
+        except _Rollback:
+            pass
+    _ = camp_id
+
+
+async def test_editing_a_campaign_repoints_open_tributes(async_pool) -> None:
+    from flashback.themes.repository import ensure_tribute_theme_async
+    from flashback.tribute.repository import ensure_open_tribute_async
+    from flashback.tribute.theme import (
+        TRIBUTE_DESCRIPTION,
+        TRIBUTE_DISPLAY_NAME,
+        TRIBUTE_SLUG,
+    )
+
+    async with async_pool.connection() as conn:
+        try:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    camp = await repo.fetch_campaign_by_slug(
+                        cur, "fathers_day_2026"
+                    )
+                    await cur.execute(
+                        "INSERT INTO persons (name) VALUES ('T') "
+                        "RETURNING id::text"
+                    )
+                    person_id = (await cur.fetchone())[0]
+                    theme_id = await ensure_tribute_theme_async(
+                        cur, person_id=person_id, slug=TRIBUTE_SLUG,
+                        display_name=TRIBUTE_DISPLAY_NAME,
+                        description=TRIBUTE_DESCRIPTION,
+                    )
+                    tribute_id = await ensure_open_tribute_async(
+                        cur, person_id=person_id, theme_id=theme_id
+                    )
+                    await cur.execute(
+                        "UPDATE tributes SET campaign_id = %s WHERE id = %s",
+                        (camp.id, tribute_id),
+                    )
+                    new_camp_id = await repo.supersede_edit(
+                        cur, "tribute_campaigns", camp.id,
+                        {"display_name": "A Letter to Dad (v2)"},
+                        updated_by="t",
+                    )
+                    await cur.execute(
+                        "SELECT campaign_id::text FROM tributes WHERE id = %s",
+                        (tribute_id,),
+                    )
+                    assert (await cur.fetchone())[0] == new_camp_id
+                raise _Rollback()
+        except _Rollback:
+            pass
+
+
 async def test_visual_theme_image_none_for_classic(async_pool) -> None:
     async with async_pool.connection() as conn:
         async with conn.cursor() as cur:
