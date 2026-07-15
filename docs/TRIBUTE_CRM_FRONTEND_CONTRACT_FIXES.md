@@ -62,6 +62,23 @@ export interface PreviewResponse {
 Render `opener.line` as the text; `art_direction` is the picture
 description (show it the same way beats show theirs).
 
+## Fix 3 — theme generate `fonts`/`ink` types (agent now lenient; no FE change needed)
+
+The original frontend prompt typed `GenerateThemesRequest.fonts` as
+`string[]` and `ink` as `string`. The agent's canonical shapes are
+`fonts: {main_slug, eyebrow_slug}` and `ink: {main_fill, eyebrow_fill}` —
+the mismatch produced `422 dict_type` on every font pick. As of
+2026-07-15 the agent **accepts both**: a single slug (string or
+one-element array) becomes the main font (eyebrow keeps the classic
+default), and a bare hex string becomes the main ink. Keep the
+single-dropdown UX; just know the canonical dict shapes exist if you ever
+want independent eyebrow control. Corrected types:
+
+```ts
+fonts?: { main_slug: string; eyebrow_slug: string } | string[] | string;
+ink?:   { main_fill: string; eyebrow_fill: string } | string;
+```
+
 ## Notes (no code change required)
 
 1. **Theme candidate slugs are suffixed.** Generating with slug

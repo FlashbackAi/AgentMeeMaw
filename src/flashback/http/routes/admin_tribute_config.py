@@ -430,15 +430,47 @@ async def get_asset_library() -> dict:
 
 
 class VisualThemeGenerateRequest(BaseModel):
+    """Lenient on ``fonts``/``ink`` shapes (Postel's law for the CRM).
+
+    Canonical: ``fonts={"main_slug", "eyebrow_slug"}``,
+    ``ink={"main_fill", "eyebrow_fill"}``. Also accepted — because the
+    dashboard's single-input UX sends them — ``fonts="caveat"`` or
+    ``fonts=["caveat"]`` (main font; eyebrow keeps the classic default)
+    and ``ink="#1a1a19"`` (main ink; eyebrow default).
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     brief: str = Field(min_length=1, max_length=1000)
     slug: str = Field(min_length=1, max_length=64)
     display_name: str = Field(min_length=1, max_length=80)
     n_candidates: int = Field(3, ge=1, le=4)
-    fonts: dict | None = None
-    ink: dict | None = None
+    fonts: dict | list | str | None = None
+    ink: dict | str | None = None
     audio_slug: str | None = None
+
+    def fonts_dict(self) -> dict | None:
+        v = self.fonts
+        if v is None or isinstance(v, dict):
+            return v or None
+        slugs = [s for s in (v if isinstance(v, list) else [v])
+                 if isinstance(s, str) and s.strip()]
+        if not slugs:
+            return None
+        out = {"main_slug": slugs[0].strip()}
+        out["eyebrow_slug"] = (
+            slugs[1].strip() if len(slugs) > 1 else "eb_garamond"
+        )
+        return out
+
+    def ink_dict(self) -> dict | None:
+        v = self.ink
+        if v is None or isinstance(v, dict):
+            return v or None
+        s = v.strip()
+        if not s:
+            return None
+        return {"main_fill": s, "eyebrow_fill": "#967648"}
 
 
 @router.post("/visual_themes/generate")
@@ -461,10 +493,10 @@ async def generate_visual_themes(
     if not allow(f"visual:{updated_by}", 4):
         raise HTTPException(status_code=429, detail="generation rate limited")
 
-    fonts = body.fonts or {
+    fonts = body.fonts_dict() or {
         "main_slug": "playfair_italic", "eyebrow_slug": "eb_garamond",
     }
-    ink = body.ink or {"main_fill": "#3a2c1c", "eyebrow_fill": "#967648"}
+    ink = body.ink_dict() or {"main_fill": "#3a2c1c", "eyebrow_fill": "#967648"}
     audio_slug = body.audio_slug or "sentimental_piano"
     base_payload = {
         "display_name": body.display_name,
@@ -476,13 +508,16 @@ async def generate_visual_themes(
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 
-    artist = _make_artist(settings)
     try:
+        artist = _make_artist(settings)
         images = await asyncio.to_thread(
             generate_template_candidates,
             artist, brief=body.brief, n=body.n_candidates,
         )
     except Exception as exc:
+        # Full traceback to the logs — the client gets a clean 502, never a
+        # bare internal_server_error.
+        log.exception("visual_theme.generation_failed", brief=body.brief[:80])
         raise HTTPException(
             status_code=502, detail=f"template generation failed: {exc}"
         )

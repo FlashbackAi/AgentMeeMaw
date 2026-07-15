@@ -137,6 +137,60 @@ async def test_visual_generate_creates_draft_rows_with_images(
     assert row["state"] == "draft" and row["has_image"] is True
 
 
+async def test_visual_generate_accepts_dashboard_shapes(
+    client_with_db, app_with_db, async_db_pool, monkeypatch
+) -> None:
+    """The CRM sends fonts as a single slug/array and ink as a bare hex
+    string (its single-input UX); the agent coerces to the canonical
+    dicts instead of 422ing."""
+    app_with_db.state.http_config = dataclasses.replace(
+        app_with_db.state.http_config, gemini_api_key="test-key"
+    )
+
+    class FakeArtist:
+        def raw(self, prompt, aspect):
+            return Image.new("RGB", (9, 16), (240, 230, 210))
+
+    monkeypatch.setattr(admin_route, "_make_artist", lambda s: FakeArtist())
+    admin_route._BUCKETS.clear()
+
+    resp = await client_with_db.post(
+        "/admin/visual_themes/generate",
+        json={
+            "brief": "comic border, red and gold on cream",
+            "slug": "comic_pop",
+            "display_name": "Comic Pop",
+            "n_candidates": 1,
+            "fonts": ["caveat"],
+            "ink": "#1a1a19",
+        },
+        headers=admin_headers(user="shapes@flashback"),
+    )
+    assert resp.status_code == 200, resp.text
+    cid = resp.json()["candidates"][0]["id"]
+
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT fonts, ink FROM tribute_visual_themes WHERE id = %s",
+                (cid,),
+            )
+            fonts, ink = await cur.fetchone()
+    assert fonts == {"main_slug": "caveat", "eyebrow_slug": "eb_garamond"}
+    assert ink == {"main_fill": "#1a1a19", "eyebrow_fill": "#967648"}
+
+    # bare-string font works too
+    resp2 = await client_with_db.post(
+        "/admin/visual_themes/generate",
+        json={
+            "brief": "b", "slug": "comic_pop2", "display_name": "Comic Pop 2",
+            "n_candidates": 1, "fonts": "nunito",
+        },
+        headers=admin_headers(user="shapes@flashback"),
+    )
+    assert resp2.status_code == 200, resp2.text
+
+
 async def test_generate_rate_limit_429(client_with_db, monkeypatch) -> None:
     async def fake_draft(settings, **kw):
         return dict(FRIEND_DRAFT)
