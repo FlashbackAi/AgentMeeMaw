@@ -770,6 +770,7 @@ async def tribute_preview(
                         artist, book=book, kit=kit,
                         role=body.sample_page_role,
                         beat_index=body.sample_beat_index,
+                        art_mood=directives.art_mood or None,
                     )
                     sample_b64 = base64.b64encode(sample_bytes).decode("ascii")
                 finally:

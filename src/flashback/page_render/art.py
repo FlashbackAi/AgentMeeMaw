@@ -24,12 +24,21 @@ from flashback.artifacts.compose import (
 from flashback.tribute_video import style
 from flashback.usage import recorder as usage_recorder
 
-STYLE = (
+# The REGISTER is the product invariant (painterly, never photoreal); the MOOD
+# is themeable. A relationship profile's art directives (composed art_mood)
+# replace DEFAULT_MOOD at paint time — before 2026-07-16 the mood only steered
+# the art-direction TEXT and this fixed sepia mood overrode it on every image,
+# so playful themes still painted like Father's Day.
+REGISTER = (
     "painterly realism with soft, visible watercolour brushwork, in the "
     "naturalistic register of Red Dead Redemption 2 -- sitting between "
-    "photorealism and cartoon; muted earthy palette, gentle natural light, "
-    "tender and restrained, not sentimental"
+    "photorealism and cartoon"
 )
+DEFAULT_MOOD = (
+    "muted earthy palette, gentle natural light, tender and restrained, "
+    "not sentimental"
+)
+STYLE = f"{REGISTER}; {DEFAULT_MOOD}"
 
 NEGATIVE = (
     SCENE_NEGATIVE_PROMPT
@@ -53,8 +62,10 @@ def _background_instruction(blend: str) -> str:
     )
 
 
-def build_prompt(art_direction: str, gt_context: str, blend: str) -> str:
-    parts = [art_direction.strip(), STYLE]
+def build_prompt(art_direction: str, gt_context: str, blend: str,
+                 art_mood: str | None = None) -> str:
+    mood = (art_mood or "").strip() or DEFAULT_MOOD
+    parts = [art_direction.strip(), f"{REGISTER}; {mood}"]
     if gt_context:
         parts.append(gt_context.strip())
     parts.append(_background_instruction(blend))
@@ -168,8 +179,9 @@ class Artist:
 
     def illustrate(self, art_direction: str, gt_context: str, blend: str, *,
                    reference: Image.Image | None = None,
-                   aspect: str | None = None) -> Image.Image:
-        prompt = build_prompt(art_direction, gt_context, blend)
+                   aspect: str | None = None,
+                   art_mood: str | None = None) -> Image.Image:
+        prompt = build_prompt(art_direction, gt_context, blend, art_mood)
         contents: list = [prompt]
         if reference is not None:
             contents.append(

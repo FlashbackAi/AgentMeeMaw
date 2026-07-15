@@ -148,6 +148,7 @@ def render_sample_page(
     kit: tv_style.StyleKit,
     role: str = "opener",
     beat_index: int = 0,
+    art_mood: str | None = None,
 ) -> bytes:
     """One page, composited exactly as the renderer would. JPEG bytes."""
     if role == "closing":
@@ -159,7 +160,11 @@ def render_sample_page(
 
     illo: Image.Image | None = None
     if beat.art_direction.strip():
-        illo = artist.illustrate(beat.art_direction, "", "cream")
+        # Themed paint mood rides only on CRM-generated templates — a sample
+        # on the shipped (Father's Day) template paints exactly as production.
+        illo = artist.illustrate(
+            beat.art_direction, "", "cream",
+            art_mood=art_mood if kit.generated_template else None)
     layout = tv_style.layout_for(role, beat_index)
     page = page_compose.compose_page(
         eyebrow=getattr(beat, "eyebrow", ""),

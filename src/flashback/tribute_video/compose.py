@@ -100,8 +100,14 @@ def draw_eyebrow(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px,
 # --- illustration placement --------------------------------------------------
 def place_illustration(page: Image.Image, illo: Image.Image, box: Box,
                        blend: str, paper: tuple[int, int, int],
-                       valign: str = "bottom") -> None:
-    """Composite the illustration into ``box`` (centered horizontally)."""
+                       valign: str = "bottom",
+                       tight_crop: bool = False) -> None:
+    """Composite the illustration into ``box`` (centered horizontally).
+
+    ``tight_crop`` (CRM-generated templates only) crops through the vignette's
+    faint halo so the visible art fills the zone instead of floating small;
+    the shipped Father's Day template keeps the original loose crop.
+    """
     w, h = page.size
     x0, y0, x1, y1 = box.px(w, h)
     zw, zh = x1 - x0, y1 - y0
@@ -111,7 +117,8 @@ def place_illustration(page: Image.Image, illo: Image.Image, box: Box,
         if bbox:
             art = art.crop(bbox)
     else:
-        art = _autocrop_content(illo)
+        art = _autocrop_content(illo,
+                                bounds_thresh=60 if tight_crop else None)
         art = _tone_match(art, paper)
         art = art.convert("RGBA")
         art.putalpha(_feather_mask(art.size))
@@ -129,11 +136,13 @@ def place_illustration(page: Image.Image, illo: Image.Image, box: Box,
 # --- layers + page ----------------------------------------------------------
 def illustration_layer(template: Image.Image, illo: Image.Image | None,
                        blend: str = "cream", box: Box | None = None,
-                       valign: str = "bottom") -> Image.Image:
+                       valign: str = "bottom",
+                       tight_crop: bool = False) -> Image.Image:
     layer = Image.new("RGBA", template.size, (0, 0, 0, 0))
     if illo is not None:
         place_illustration(layer, illo, box or ART_BOX, blend,
-                           paper_color(template), valign)
+                           paper_color(template), valign,
+                           tight_crop=tight_crop)
     return layer
 
 
@@ -153,9 +162,13 @@ def compose_page(*, eyebrow: str, line: str, illo: Image.Image | None,
                  kit: style.StyleKit | None = None) -> Image.Image:
     base = (template or load_template(kit))
     lay = layout or LAYOUTS["text_top"]
+    generated = (kit or style.DEFAULT_KIT).generated_template
+    if generated:
+        lay = style.safe_layout(lay)
     page = base.convert("RGBA")
     page = Image.alpha_composite(
-        page, illustration_layer(base, illo, blend, lay.art_box, lay.art_valign))
+        page, illustration_layer(base, illo, blend, lay.art_box, lay.art_valign,
+                                 tight_crop=generated))
     page = Image.alpha_composite(
         page, text_layer(base, eyebrow, line, lay.text_box, kit=kit))
     return page.convert("RGB")

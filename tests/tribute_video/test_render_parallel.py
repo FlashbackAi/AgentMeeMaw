@@ -44,7 +44,7 @@ class _FakeArtist:
         return self._tag("opener_portrait")
 
     def illustrate(self, art_direction, gt_context, blend, *, reference=None,
-                   aspect=None):
+                   aspect=None, art_mood=None):
         return self._tag(f"illustrate:{art_direction}")
 
 
@@ -108,11 +108,12 @@ def test_scene_refusal_still_propagates():
     # render so SQS redrives and the row is eventually marked 'failed'.
     class _RefusingBeatArtist(_FakeArtist):
         def illustrate(self, art_direction, gt_context, blend, *,
-                       reference=None, aspect=None):
+                       reference=None, aspect=None, art_mood=None):
             if art_direction == "B2":
                 raise GeminiError("Gemini generation failed: no image in response")
             return super().illustrate(art_direction, gt_context, blend,
-                                      reference=reference, aspect=aspect)
+                                      reference=reference, aspect=aspect,
+                                      art_mood=art_mood)
 
     import pytest
     with pytest.raises(GeminiError):

@@ -64,6 +64,11 @@ class StyleKit:
     main_fill: tuple[int, int, int] = MAIN_FONT_FILL
     eyebrow_fill: tuple[int, int, int] = EYEBROW_FILL
     audio_path: str = AUDIO_PATH
+    # True when the template came from a CRM visual theme (DB bytes). Generated
+    # borders are allowed the outer band of the page, so layout boxes must be
+    # clamped inward (safe_layout) or text lands on the frame art. The shipped
+    # thin-frame template keeps the original, wider boxes.
+    generated_template: bool = False
 
 
 DEFAULT_KIT = StyleKit()
@@ -112,6 +117,7 @@ def kit_from_style_dict(
         main_fill=_hex_to_rgb(ink.get("main_fill", ""), MAIN_FONT_FILL),
         eyebrow_fill=_hex_to_rgb(ink.get("eyebrow_fill", ""), EYEBROW_FILL),
         audio_path=AUDIO_REGISTRY.get(style.get("audio_slug"), AUDIO_PATH),
+        generated_template=template_override_path is not None,
     )
 
 
@@ -146,3 +152,25 @@ def layout_for(role: str, index: int) -> Layout:
     if role in ("opener", "closing", "message"):
         return LAYOUTS["text_top"]
     return LAYOUTS[_BEAT_CYCLE[index % len(_BEAT_CYCLE)]]
+
+
+# --- generated-template safe zones -------------------------------------------
+# A CRM-generated border owns the outer band of the page (the template prompt
+# budgets ~8%, older published themes used up to 10% and bleed). The default
+# boxes reach x=0.10/0.90 and y=0.985 — flush against that budget — so on a
+# generated template the widest text line lands ON the frame art. These bounds
+# keep composited content on clean interior paper; the shipped thin-frame
+# template is untouched (kit.generated_template=False).
+SAFE_TEXT_BOUNDS = Box(0.15, 0.13, 0.85, 0.90)
+SAFE_ART_BOUNDS = Box(0.11, 0.13, 0.89, 0.90)
+
+
+def _clamp_box(box: Box, bounds: Box) -> Box:
+    return Box(max(box.x0, bounds.x0), max(box.y0, bounds.y0),
+               min(box.x1, bounds.x1), min(box.y1, bounds.y1))
+
+
+def safe_layout(lay: Layout) -> Layout:
+    return Layout(_clamp_box(lay.text_box, SAFE_TEXT_BOUNDS),
+                  _clamp_box(lay.art_box, SAFE_ART_BOUNDS),
+                  lay.art_valign)

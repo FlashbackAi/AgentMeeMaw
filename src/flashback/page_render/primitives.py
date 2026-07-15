@@ -1,7 +1,6 @@
 """Shared Pillow compositing primitives (extracted from tribute_video.compose).
 
-Byte-identical behavior to the tribute originals; both the tribute compositor
-and the storybook compositor build on these.
+Both the tribute compositor and the storybook compositor build on these.
 """
 from __future__ import annotations
 
@@ -95,8 +94,22 @@ def feather_mask(size: tuple[int, int], frac: float = 0.06) -> Image.Image:
 
 
 def autocrop_content(img: Image.Image, thresh: int = 24,
-                     pad_frac: float = 0.015) -> Image.Image:
-    """Trim the blank paper margin around the painted content."""
+                     pad_frac: float = 0.015, bounds_thresh: int | None = None,
+                     min_density: float = 0.01) -> Image.Image:
+    """Trim the blank paper margin around the painted content.
+
+    Default behavior (``bounds_thresh=None``) is the original any-pixel box —
+    the shipped Father's Day pipeline depends on it staying byte-identical.
+
+    With ``bounds_thresh`` set, the crop BOUNDS use a stricter test: a
+    row/column counts only when at least ``min_density`` of its pixels differ
+    from the corner paper tone by more than ``bounds_thresh`` (summed over
+    RGB). Vignette illustrations fade into the paper through a wide faint
+    halo, and a single stray fleck used to extend the box to the frame edge —
+    either way the box ended up mostly invisible paper, so after fit-to-zone
+    the VISIBLE art floated small inside its layout box. CRM-generated visual
+    themes opt in via the tribute compositor's ``tight_crop``.
+    """
     arr = np.asarray(img.convert("RGB")).astype(np.int16)
     h, w = arr.shape[:2]
     c = max(4, int(min(h, w) * 0.03))
@@ -109,8 +122,17 @@ def autocrop_content(img: Image.Image, thresh: int = 24,
     mask = diff > thresh
     if not mask.any():
         return img
-    ys, xs = np.where(mask)
+    rows = cols = None
+    if bounds_thresh is not None:
+        strong = diff > max(bounds_thresh, thresh)
+        r = np.where(strong.mean(axis=1) >= min_density)[0]
+        c2 = np.where(strong.mean(axis=0) >= min_density)[0]
+        if r.size and c2.size:
+            rows, cols = r, c2
+    if rows is None:
+        ys, xs = np.where(mask)
+        rows, cols = ys, xs
     pad = int(min(h, w) * pad_frac)
-    y0, y1 = max(0, int(ys.min()) - pad), min(h, int(ys.max()) + pad)
-    x0, x1 = max(0, int(xs.min()) - pad), min(w, int(xs.max()) + pad)
+    y0, y1 = max(0, int(rows.min()) - pad), min(h, int(rows.max()) + pad)
+    x0, x1 = max(0, int(cols.min()) - pad), min(w, int(cols.max()) + pad)
     return img.crop((x0, y0, x1, y1))

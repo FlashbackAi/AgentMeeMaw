@@ -118,3 +118,50 @@ def test_compose_page_with_custom_kit(tmp_path) -> None:
     page = compose.compose_page(eyebrow="", line="A short bright line.",
                                 illo=None, kit=kit)
     assert page.size == (100, 160)
+
+
+def test_generated_template_flag() -> None:
+    assert kit_from_style_dict({"audio_slug": "x"}).generated_template is False
+    kit = kit_from_style_dict({}, template_override_path="/tmp/t.jpg")
+    assert kit.generated_template is True
+
+
+def test_safe_layout_clamps_every_layout_inside_bounds() -> None:
+    for lay in style.LAYOUTS.values():
+        safe = style.safe_layout(lay)
+        tb, ab = safe.text_box, safe.art_box
+        assert tb.x0 >= style.SAFE_TEXT_BOUNDS.x0
+        assert tb.x1 <= style.SAFE_TEXT_BOUNDS.x1
+        assert tb.y1 <= style.SAFE_TEXT_BOUNDS.y1
+        assert ab.x0 >= style.SAFE_ART_BOUNDS.x0
+        assert ab.x1 <= style.SAFE_ART_BOUNDS.x1
+        assert ab.y1 <= style.SAFE_ART_BOUNDS.y1
+        assert tb.x0 < tb.x1 and tb.y0 < tb.y1  # still a real box
+        assert ab.x0 < ab.x1 and ab.y0 < ab.y1
+        assert safe.art_valign == lay.art_valign
+
+
+def test_generated_template_keeps_ink_off_the_border_band(tmp_path) -> None:
+    """On a generated border template the text must stay inside the safe
+    interior — the 2026-07-15 sample page had lines overlapping the frame
+    art because TEXT_BOX ran flush against the border budget."""
+    import numpy as np
+
+    w, h = 450, 800
+    override = tmp_path / "t.jpg"
+    Image.new("RGB", (w, h), (250, 245, 235)).save(override, "JPEG")
+    kit = kit_from_style_dict(
+        {"ink": {"main_fill": "#000000"}},
+        template_override_path=str(override),
+    )
+    line = "Every family has a beginning, and ours is called Chandraiah."
+    page = compose.compose_page(eyebrow="", line=line, illo=None, kit=kit)
+    arr = np.asarray(page.convert("L"))
+    ink_cols = np.where((arr < 128).any(axis=0))[0]
+    assert ink_cols.size > 0  # something rendered
+    assert ink_cols.min() >= int(style.SAFE_TEXT_BOUNDS.x0 * w)
+    assert ink_cols.max() <= int(style.SAFE_TEXT_BOUNDS.x1 * w)
+    # the builtin (thin-frame) template keeps the original wider box
+    default_page = compose.compose_page(eyebrow="", line=line, illo=None,
+                                        kit=DEFAULT_KIT)
+    assert default_page.size == Image.open(DEFAULT_KIT.template_path).size

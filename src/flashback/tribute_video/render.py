@@ -43,6 +43,7 @@ def _generate_illustrations(
     deage: bool,
     blend: str,
     concurrency: int = DEFAULT_CONCURRENCY,
+    art_mood: str | None = None,
 ) -> tuple[Image.Image, list[Image.Image], Image.Image]:
     """Generate (opener, [beat...], closing) illustrations concurrently.
 
@@ -57,7 +58,7 @@ def _generate_illustrations(
 
     def _illustrated_opener() -> Image.Image:
         return artist.illustrate(book.opener.art_direction, gt_context, blend,
-                                 reference=reference)
+                                 reference=reference, art_mood=art_mood)
 
     def gen_opener() -> Image.Image:
         if prime_photo is not None:
@@ -78,11 +79,11 @@ def _generate_illustrations(
 
     def gen_beat(b: Beat) -> Image.Image:
         return artist.illustrate(b.art_direction, gt_context, blend,
-                                 reference=reference)
+                                 reference=reference, art_mood=art_mood)
 
     def gen_closing() -> Image.Image:
         return artist.illustrate(book.closing.art_direction, gt_context, blend,
-                                 reference=reference)
+                                 reference=reference, art_mood=art_mood)
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
         fut_opener = ex.submit(gen_opener)
@@ -120,16 +121,23 @@ def render_book(
     concurrency: int = DEFAULT_CONCURRENCY,
     audio_path: str | None = _DEFAULT_AUDIO,  # type: ignore[assignment]
     kit: style.StyleKit | None = None,
+    art_mood: str | None = None,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
     template = compose.load_template(kit)
     template_rgba = template.convert("RGBA")
 
+    # The new-look levers (themed paint mood, halo-tight crop, border-safe
+    # zones) ride ONLY on CRM-generated templates; a render on the shipped
+    # template — Father's Day above all — stays byte-identical.
+    if not kit.generated_template:
+        art_mood = None
+
     opener_illo, beat_illos, closing_illo = _generate_illustrations(
         artist=artist, book=book, subject_name=subject_name,
         relationship=relationship, gt_context=gt_context,
         prime_photo=prime_photo, deage=deage, blend=blend,
-        concurrency=concurrency)
+        concurrency=concurrency, art_mood=art_mood)
 
     # Assemble pages in order; the message page reuses the opener illustration
     # as a visual bookend (no extra generation).
@@ -146,8 +154,11 @@ def render_book(
     video_pages: list[video.Page] = []
     for i, (role, beat, illo) in enumerate(ordered):
         layout = style.layout_for(role, i - 1)  # beat index 0-based
+        if kit.generated_template:
+            layout = style.safe_layout(layout)
         illo_layer = compose.illustration_layer(
-            template, illo, blend, layout.art_box, layout.art_valign)
+            template, illo, blend, layout.art_box, layout.art_valign,
+            tight_crop=kit.generated_template)
         txt_layer = compose.text_layer(template, beat.eyebrow, beat.line,
                                        layout.text_box, kit=kit)
         page = Image.alpha_composite(

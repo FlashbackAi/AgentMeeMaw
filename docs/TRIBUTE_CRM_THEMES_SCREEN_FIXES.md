@@ -18,8 +18,12 @@ fractional rectangles of the image (x0, y0, x1, y1 as fractions of
 width/height):
 
 ```ts
-export const TEXT_ZONE = { x0: 0.10, y0: 0.205, x1: 0.90, y1: 0.45 };
-export const ART_ZONE  = { x0: 0.03, y0: 0.47,  x1: 0.97, y1: 0.985 };
+// UPDATED 2026-07-16: generated templates now compose into border-safe
+// zones (the old zones ran flush against the border budget and text was
+// landing on the frame art). These are the effective zones for ANY
+// generated template — use these numbers, not the old 0.10/0.90 ones.
+export const TEXT_ZONE = { x0: 0.15, y0: 0.205, x1: 0.85, y1: 0.45 };
+export const ART_ZONE  = { x0: 0.11, y0: 0.47,  x1: 0.89, y1: 0.90 };
 ```
 
 Render each candidate with two labeled translucent overlays ("TEXT",

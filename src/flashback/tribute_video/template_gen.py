@@ -23,30 +23,44 @@ MAX_TEMPLATE_BYTES = 2 * 1024 * 1024  # spec §3.3 size cap
 # Lesson from the first live candidates (2026-07-15): describing the text/art
 # zones as "bands" made the model PAINT visible rectangular bands and seams
 # across the interior. The contract now describes ONE uninterrupted interior
-# surface and names those artifacts as hard negatives, and it anchors palette
-# discipline so a loud brief ("fun comic style") still composes like a book
-# page instead of a poster.
+# surface and names those artifacts as hard negatives.
+#
+# Second lesson (2026-07-16): with the contract FIRST and the brief trailing,
+# the model anchored on the contract's own style vocabulary ("keepsake book",
+# "hand-painted") and every candidate came out in the ornate Father's Day
+# register regardless of brief. The brief now LEADS and owns the style; the
+# contract carries only geometry + print discipline, no style words. The
+# border budget also tightened (tenth -> 8%) with an explicit clean gutter,
+# because the text layout begins where the old budget ended and generated
+# frames were bleeding onto the widest text lines.
 _LAYOUT_CONTRACT = (
-    "A decorative PAGE BACKGROUND TEMPLATE for a printed keepsake book, "
-    "portrait orientation. Decoration lives ONLY in a border frame hugging "
-    "the outer edges and corners (at most the outer tenth of the page). "
-    "EVERYTHING inside the frame is one single continuous sheet of plain, "
-    "evenly-lit paper in one tone — one uninterrupted surface, as if the "
-    "border were drawn around a blank page. STRICTLY FORBIDDEN: visible "
-    "rectangles, panels, bands, stripes, seams, tonal steps, boxes, inner "
-    "frames, or any second page inside the page; text, lettering, logos, "
-    "watermarks; figures, faces, or objects in the interior; drop shadows; "
-    "gradients across the interior. The border may be characterful but must "
-    "use a harmonious palette of at most three accent colors that would sit "
-    "well in a printed storybook — decorative frame art, not a poster. "
-    "Hand-painted, print-quality, flat even lighting."
+    "It is a PAGE BACKGROUND TEMPLATE for a printed book page, portrait "
+    "orientation. Decoration lives ONLY in a border frame hugging the outer "
+    "edges and corners, confined to the outer 8 percent of the page, with a "
+    "clear margin of untouched paper just inside the frame. EVERYTHING "
+    "inside the frame is one single continuous sheet of plain, evenly-lit "
+    "paper in one tone — one uninterrupted surface, as if the border were "
+    "drawn around a blank page. STRICTLY FORBIDDEN: visible rectangles, "
+    "panels, bands, stripes, seams, tonal steps, boxes, inner frames, or any "
+    "second page inside the page; text, lettering, logos, watermarks; "
+    "figures, faces, or objects in the interior; drop shadows; gradients "
+    "across the interior. Use at most three accent colors in the border — "
+    "decorative frame art, not a poster. Print-quality, flat even lighting."
+)
+
+# Style owner of last resort when the CRM sends an empty brief.
+_DEFAULT_BRIEF = (
+    "a warm classic keepsake border with delicate line flourishes, "
+    "muted gold on cream paper"
 )
 
 
 def build_template_prompt(brief: str) -> str:
+    b = brief.strip() or _DEFAULT_BRIEF
     return (
-        f"{_LAYOUT_CONTRACT} Style brief for the border decoration ONLY "
-        f"(the interior always stays plain paper): {brief.strip()}"
+        f"A decorative page border in this style, following the brief "
+        f"faithfully — its mood, motifs, and colors decide the whole look: "
+        f"{b}. {_LAYOUT_CONTRACT}"
     )
 
 

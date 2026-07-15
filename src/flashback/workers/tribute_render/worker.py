@@ -109,7 +109,7 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
         prime_photo=photo, deage=ctx.deage, blend=ctx.blend,
         transition=ctx.transition, fps=ctx.fps,
         concurrency=getattr(settings, "render_concurrency", 4),
-        kit=kit,
+        kit=kit, art_mood=ctx.art_mood or None,
     )
     video_ok = 200 <= transfer.upload_file(
         ctx.video_put_url, mp4_path, content_type="video/mp4") < 300
