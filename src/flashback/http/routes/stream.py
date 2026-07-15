@@ -45,7 +45,10 @@ from flashback.http.deps import (
     get_working_memory,
 )
 from flashback.http.ground_truth_answer import persist_ground_truth_answer
-from flashback.tribute.message_capture import persist_message_answer
+from flashback.tribute.message_capture import (
+    maybe_capture_typed_message,
+    persist_message_answer,
+)
 from flashback.http.models import SessionStartRequest, TurnRequest
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
@@ -140,6 +143,17 @@ async def turn_stream(
             session_id=body.session_id,
             person_id=body.person_id,
             answer=body.message_answer,
+            wm=wm,
+            db_pool=db_pool,
+            settings=cfg,
+        )
+    else:
+        # Card offered but answered as a typed chat reply — capture it
+        # (one-shot; see maybe_capture_typed_message).
+        await maybe_capture_typed_message(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            user_message=body.message,
             wm=wm,
             db_pool=db_pool,
             settings=cfg,

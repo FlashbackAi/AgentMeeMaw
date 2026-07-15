@@ -1,12 +1,10 @@
-"""Gating + both firing paths for select_message_invitation.
+"""Gating for select_message_invitation — warm-climax only.
 
-Two ways the message card fires:
-  - WARM CLIMAX (one-time): warm story/deepen turn, other slots mostly
-    filled. Built on a tribute with memories + appearance but NO signature
-    (percent 60), so only the warm path can fire it -- the fallback can't.
-  - FALLBACK (re-offering): the message is the ONLY unfilled slot. Built on
-    a tribute with memories + appearance + signature all filled, message
-    empty -- fires on a cold clarify turn and even after `asked`.
+The card fires exactly once, on a warm story/deepen turn with the other
+slots mostly filled. The old message-only-left FALLBACK (re-offer every
+cooldown) is retired: the tribute card outside chat owns that job via
+POST /tributes/{id}/message (design 2026-07-15), so a cold clarify turn
+must never emit the card — even when the message is the only gap.
 
 Cheap gates (no tribute / other tap pending / cooldown) short-circuit
 before any DB call.
@@ -156,45 +154,42 @@ async def test_warm_gate_already_asked_no_tap(async_pool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fallback path: memories + appearance + signature all filled, message empty.
+# Fallback retirement: message-only-left must NOT fire the in-chat card.
 # ---------------------------------------------------------------------------
 
 
-async def test_fallback_fires_on_cold_clarify_turn(async_pool) -> None:
+async def test_message_only_left_cold_turn_stays_silent(async_pool) -> None:
+    """The old fallback trigger — retired. The tribute card outside chat
+    owns this case now (POST /tributes/{id}/message)."""
     person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(person_id=person_id, 
+    state = _TurnState(person_id=person_id,
         intent="clarify", temp="low", wm=_WMState(current_tribute_id=tribute_id)
     )
     await select_message_invitation(state, deps)
-    assert len(state.taps) == 1
-    assert state.taps[0].kind == "message"
-    assert deps.working_memory.emitted is True
+    assert state.taps == []
 
 
-async def test_fallback_reoffers_even_after_asked(async_pool) -> None:
+async def test_message_only_left_never_reoffers_after_asked(async_pool) -> None:
     person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(person_id=person_id, 
+    state = _TurnState(person_id=person_id,
         intent="clarify",
         temp="low",
         wm=_WMState(current_tribute_id=tribute_id, message_invitation_asked=True),
     )
     await select_message_invitation(state, deps)
-    assert len(state.taps) == 1
-    assert state.taps[0].kind == "message"
+    assert state.taps == []
 
 
-async def test_fallback_respects_cooldown(async_pool) -> None:
+async def test_warm_climax_still_fires_when_all_other_slots_full(async_pool) -> None:
+    """Retiring the fallback must not break the warm path on a rich tribute."""
     person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
-    state = _TurnState(person_id=person_id, 
-        intent="clarify",
-        temp="low",
-        wm=_WMState(current_tribute_id=tribute_id, user_turns_since_last_tap=1),
-    )
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
-    assert state.taps == []
+    assert len(state.taps) == 1
+    assert state.taps[0].kind == "message"
 
 
 # ---------------------------------------------------------------------------

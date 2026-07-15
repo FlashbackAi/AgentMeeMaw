@@ -34,6 +34,7 @@ from flashback.http.models import (
     TributeEditSuggestionsResponse,
     TributeGenerateRequest,
     TributeGenerateResponse,
+    TributeMessageRequest,
     TributeProgressResponse,
     TributeRegenerateRequest,
 )
@@ -55,6 +56,8 @@ from flashback.tribute.progress import (
     fetch_tribute_progress_async,
     progress_to_payload,
 )
+from flashback.tribute.invitation import resolve_invitation_copy
+from flashback.tribute.message_capture import polish_and_store_message
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
     fetch_scene_moments_async,
@@ -186,14 +189,93 @@ async def get_tribute_progress(
                 resolved_campaign = await fetch_campaign_by_id(cur, stamped_id)
             if resolved_campaign is None:
                 resolved_campaign = await resolve_campaign_db(cur, campaign or None)
+            hint = await resolve_invitation_copy(
+                cur,
+                tribute_id=str(tribute_id),
+                person_id=str(person_id),
+                wm_campaign_slug=campaign or None,
+            )
             progress = await fetch_tribute_progress_async(
                 cur,
                 tribute_id=tribute_id,
                 campaign=resolved_campaign,
                 person_id=person_id,
+                message_hint_override=hint,
             )
     if progress is None:
         raise HTTPException(status_code=404, detail="tribute not found")
+    return TributeProgressResponse(**progress_to_payload(progress))
+
+
+@router.post(
+    "/tributes/{tribute_id}/message", response_model=TributeProgressResponse
+)
+async def submit_tribute_message(
+    tribute_id: UUID,
+    body: TributeMessageRequest,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    settings: "HttpConfig" = Depends(get_http_config),
+) -> TributeProgressResponse:
+    """Capture the tribute message directly from the tribute card — no chat.
+
+    The finish-without-chat lane (design 2026-07-15): when the message is
+    the only unfilled slot, Node shows the resolved invitation question on
+    the tribute card and POSTs the answer here. The text is polished by the
+    same small LLM as the in-chat lane, written to the row (re-answering
+    before generate simply replaces it), and the fresh progress comes back
+    so the card can flip to 100% + Generate in one round trip.
+    """
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT person_id::text, status FROM tributes WHERE id = %s",
+                (str(tribute_id),),
+            )
+            row = await cur.fetchone()
+    if row is None or row[0] != str(body.person_id):
+        raise HTTPException(status_code=404, detail="tribute not found")
+    if row[1] in ("complete", "superseded"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "tribute already rendered; edit the message via a new "
+                "tribute or /regenerate flows"
+            ),
+        )
+
+    await polish_and_store_message(
+        person_id=body.person_id,
+        tribute_id=str(tribute_id),
+        raw=body.text,
+        db_pool=db_pool,
+        settings=settings,
+        source="tribute_card",
+    )
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            campaign = None
+            stamped_id = await fetch_tribute_campaign_id_async(
+                cur, tribute_id=tribute_id
+            )
+            if stamped_id:
+                campaign = await fetch_campaign_by_id(cur, stamped_id)
+            if campaign is None:
+                campaign = await resolve_campaign_db(cur, None)
+            hint = await resolve_invitation_copy(
+                cur,
+                tribute_id=str(tribute_id),
+                person_id=str(body.person_id),
+            )
+            progress = await fetch_tribute_progress_async(
+                cur,
+                tribute_id=tribute_id,
+                campaign=campaign,
+                person_id=body.person_id,
+                message_hint_override=hint,
+            )
+    if progress is None:
+        raise HTTPException(status_code=404, detail="tribute status unavailable")
     return TributeProgressResponse(**progress_to_payload(progress))
 
 
