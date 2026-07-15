@@ -188,6 +188,61 @@ async def test_image_404_for_builtin_theme(client_with_db) -> None:
     assert resp.status_code == 404
 
 
+async def test_theme_ref_must_be_uuid_422_not_500(
+    client_with_db, async_db_pool
+) -> None:
+    """Prod 2026-07-15: a slug pasted into visual_theme_id 500d with
+    InvalidTextRepresentation. Must be a field-level 422; a real row id
+    still works; empty string detaches."""
+    h = admin_headers(user="attach@flashback")
+    bad = await client_with_db.post(
+        "/admin/tribute_config/tribute_campaigns",
+        json={"payload": {"slug": "attach_bad", "display_name": "A",
+                          "visual_theme_id": "test1"}},
+        headers=h,
+    )
+    assert bad.status_code == 422
+    assert any(
+        e.startswith("visual_theme_id:")
+        for e in bad.json()["detail"]["errors"]
+    )
+
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id::text FROM tribute_visual_themes "
+                "WHERE slug = 'classic_keepsake' AND status = 'active'"
+            )
+            (theme_id,) = await cur.fetchone()
+    good = await client_with_db.post(
+        "/admin/tribute_config/tribute_campaigns",
+        json={"payload": {"slug": "attach_good", "display_name": "A",
+                          "visual_theme_id": theme_id}},
+        headers=h,
+    )
+    assert good.status_code == 200, good.text
+
+    detached = await client_with_db.put(
+        f"/admin/tribute_config/tribute_campaigns/{good.json()['id']}",
+        json={"payload": {"visual_theme_id": ""}},
+        headers=h,
+    )
+    assert detached.status_code == 200, detached.text
+
+
+async def test_bad_date_format_is_422_not_500(client_with_db) -> None:
+    h = admin_headers(user="dates@flashback")
+    resp = await client_with_db.post(
+        "/admin/tribute_config/tribute_campaigns",
+        json={"payload": {"slug": "bad_date", "display_name": "B",
+                          "active_start": "28-07-2026",
+                          "active_end": "2026-08-03"}},
+        headers=h,
+    )
+    assert resp.status_code == 422
+    assert "detail" in resp.json()
+
+
 async def test_asset_library(client_with_db) -> None:
     resp = await client_with_db.get(
         "/admin/asset-library", headers=admin_headers()

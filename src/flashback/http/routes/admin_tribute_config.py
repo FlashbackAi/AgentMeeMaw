@@ -11,6 +11,7 @@ CRUD payloads.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import defaultdict, deque
 from typing import Any, Literal
@@ -147,6 +148,38 @@ def _row_as_payload(table: repo.ConfigTable, row: dict) -> dict:
     return payload
 
 
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+async def _resolve_theme_ref(cur, payload: dict) -> dict:
+    """Guard ``visual_theme_id``: must be a theme ROW ID (or empty = detach).
+
+    A non-UUID here (prod 2026-07-15: someone pasted a slug — `invalid
+    input syntax for type uuid: "test1"`) becomes a field-level 422 the
+    CRM can render, never a DB-level 500. Slugs are deliberately NOT
+    resolved — the dashboard's theme dropdown supplies ids; keeping the
+    API strict keeps the contract single-shaped.
+    """
+    v = payload.get("visual_theme_id")
+    if not isinstance(v, str):
+        return payload
+    v = v.strip()
+    if not v:
+        return {**payload, "visual_theme_id": None}
+    if _UUID_RE.match(v):
+        return payload
+    raise HTTPException(
+        status_code=422,
+        detail={"errors": [
+            "visual_theme_id: must be a visual theme's row id (UUID) — "
+            "pick it from the theme selector, not the slug"
+        ]},
+    )
+
+
 async def _fetch_row_or_404(cur, table: repo.ConfigTable, row_id: str) -> dict:
     rows = await repo.list_rows(cur, table, include_archived=True)
     row = next((r for r in rows if r["id"] == row_id), None)
@@ -254,14 +287,23 @@ async def create_config(
         async with db_pool.connection() as conn:
             async with conn.transaction():
                 async with conn.cursor() as cur:
+                    payload = await _resolve_theme_ref(cur, body.payload)
                     new_id = await repo.create_row(
-                        cur, resolved, body.payload, updated_by=updated_by
+                        cur, resolved, payload, updated_by=updated_by
                     )
     except pg_errors.UniqueViolation:
         # Validation-shaped so the CRM renders it inline on the slug field.
         raise HTTPException(
             status_code=422,
             detail={"errors": ["slug: already in use — pick a different slug"]},
+        )
+    except (pg_errors.DataError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": [
+                "payload: a field has the wrong format "
+                "(dates are YYYY-MM-DD; ids are UUIDs or known slugs)"
+            ]},
         )
     log.info("tribute_config.created", table=resolved, row_id=new_id,
              updated_by=updated_by)
@@ -284,7 +326,8 @@ async def edit_config(
                 # partial edit can't sneak an invalid combination past the
                 # per-field checks.
                 current = await _fetch_row_or_404(cur, resolved, row_id)
-                merged = {**_row_as_payload(resolved, current), **body.payload}
+                payload = await _resolve_theme_ref(cur, body.payload)
+                merged = {**_row_as_payload(resolved, current), **payload}
                 errors = _validate(resolved, merged)
                 if errors:
                     raise HTTPException(
@@ -292,7 +335,7 @@ async def edit_config(
                     )
                 try:
                     new_id = await repo.supersede_edit(
-                        cur, resolved, row_id, body.payload,
+                        cur, resolved, row_id, payload,
                         updated_by=updated_by,
                     )
                 except LookupError as exc:
@@ -302,6 +345,15 @@ async def edit_config(
                         status_code=422,
                         detail={"errors": [
                             "slug: already in use — pick a different slug"
+                        ]},
+                    )
+                except (pg_errors.DataError, ValueError):
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"errors": [
+                            "payload: a field has the wrong format "
+                            "(dates are YYYY-MM-DD; ids are UUIDs or "
+                            "known slugs)"
                         ]},
                     )
                 await cur.execute(
