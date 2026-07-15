@@ -20,19 +20,34 @@ from flashback.page_render.art import Artist
 TEMPLATE_ASPECT = "9:16"
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024  # spec §3.3 size cap
 
+# Lesson from the first live candidates (2026-07-15): describing the text/art
+# zones as "bands" made the model PAINT visible rectangular bands and seams
+# across the interior. The contract now describes ONE uninterrupted interior
+# surface and names those artifacts as hard negatives, and it anchors palette
+# discipline so a loud brief ("fun comic style") still composes like a book
+# page instead of a poster.
 _LAYOUT_CONTRACT = (
     "A decorative PAGE BACKGROUND TEMPLATE for a printed keepsake book, "
-    "portrait orientation. Ornamentation lives ONLY at the outer border and "
-    "corners. The horizontal band from 18% to 46% of the page height and the "
-    "band from 47% to 98% must stay calm, low-texture and near-uniform paper "
-    "so printed text and a pasted illustration stay legible. Absolutely no "
-    "text, no lettering, no figures, no faces, no objects in the middle of "
-    "the page. Painterly, print-quality, flat lighting."
+    "portrait orientation. Decoration lives ONLY in a border frame hugging "
+    "the outer edges and corners (at most the outer tenth of the page). "
+    "EVERYTHING inside the frame is one single continuous sheet of plain, "
+    "evenly-lit paper in one tone — one uninterrupted surface, as if the "
+    "border were drawn around a blank page. STRICTLY FORBIDDEN: visible "
+    "rectangles, panels, bands, stripes, seams, tonal steps, boxes, inner "
+    "frames, or any second page inside the page; text, lettering, logos, "
+    "watermarks; figures, faces, or objects in the interior; drop shadows; "
+    "gradients across the interior. The border may be characterful but must "
+    "use a harmonious palette of at most three accent colors that would sit "
+    "well in a printed storybook — decorative frame art, not a poster. "
+    "Hand-painted, print-quality, flat even lighting."
 )
 
 
 def build_template_prompt(brief: str) -> str:
-    return f"{_LAYOUT_CONTRACT} Style brief: {brief.strip()}"
+    return (
+        f"{_LAYOUT_CONTRACT} Style brief for the border decoration ONLY "
+        f"(the interior always stays plain paper): {brief.strip()}"
+    )
 
 
 def _encode_jpeg_capped(img: Image.Image) -> bytes:
