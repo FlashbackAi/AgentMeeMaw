@@ -71,6 +71,9 @@ DEFAULT_KIT = StyleKit()
 FONT_REGISTRY: dict[str, str] = {
     "playfair_italic": MAIN_FONT,
     "eb_garamond": EYEBROW_FONT,
+    # Playful register (OFL, Google Fonts) — for friend/cousin visual themes.
+    "caveat": os.path.join(FONTS_DIR, "Caveat.ttf"),
+    "nunito": os.path.join(FONTS_DIR, "Nunito.ttf"),
 }
 AUDIO_REGISTRY: dict[str, str] = {
     "sentimental_piano": AUDIO_PATH,

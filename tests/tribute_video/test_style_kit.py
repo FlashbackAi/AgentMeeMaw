@@ -89,6 +89,25 @@ def test_legacy_context_dict_defaults_new_fields() -> None:
     assert kit == DEFAULT_KIT
 
 
+def test_every_registry_font_loads_and_composes(tmp_path) -> None:
+    """Each curated font must be loadable by Pillow and render a line —
+    a corrupt/missing font file should fail here, not mid-render."""
+    from PIL import ImageFont
+
+    override = tmp_path / "t.jpg"
+    Image.new("RGB", (200, 320), (250, 245, 235)).save(override, "JPEG")
+    for slug, path in style.FONT_REGISTRY.items():
+        ImageFont.truetype(path, 24)  # loads without error
+        kit = kit_from_style_dict(
+            {"fonts": {"main_slug": slug, "eyebrow_slug": slug}},
+            template_override_path=str(override),
+        )
+        page = compose.compose_page(
+            eyebrow="", line=f"A line set in {slug}.", illo=None, kit=kit
+        )
+        assert page.size == (200, 320)
+
+
 def test_compose_page_with_custom_kit(tmp_path) -> None:
     override = tmp_path / "t.jpg"
     Image.new("RGB", (100, 160), (250, 245, 235)).save(override, "JPEG")
