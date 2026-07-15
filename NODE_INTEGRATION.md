@@ -621,6 +621,19 @@ retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
 - Retire the tribute storybook renderer (templates / compositor / image model)
   for tributes.
 
+### Reaching 100% — the message card (no chat needed, 2026-07-15)
+
+When the meter shows the **message as the only unfilled slot**, show the
+question (the `message` slot's `hint` — now fully resolved
+campaign → relationship-profile → neutral) directly on the tribute card
+with a text box, and submit it via the new
+`POST /tributes/{id}/message` `{person_id, text}` — the response is the
+fresh progress payload (same shape as `GET /tributes/{id}/progress`),
+typically `percent: 100, ready: true` → reveal the Generate button. The
+in-chat card now fires at most once per session (warm moment only); the
+every-2-turns re-ask is retired. Full contract:
+`docs/TRIBUTE_MESSAGE_CARD_NODE_PROMPT.md`.
+
 ### The new handshake — Node mints presigned URLs; the agent renders
 
 1. When the meter hits **100%** (`tribute_status.percent = 100`), call

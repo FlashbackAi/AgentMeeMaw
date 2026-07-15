@@ -1145,6 +1145,36 @@ This is the **meter**, not render state. Video/PDF render status (`status`,
 `video_url`, `pdf_url`, `rendered_at`) is a separate concern Node reads from the
 `tribute_status` view directly (see §7b).
 
+Since 2026-07-15 the `message` slot's `hint` carries the **fully resolved
+invitation question** (stamped campaign copy → relationship-profile copy →
+neutral) — render it verbatim as the question on the tribute card.
+
+### `POST /tributes/{tribute_id}/message`
+
+**Finish-without-chat lane** (design 2026-07-15): when the message is the
+only unfilled slot, the tribute card shows the `message` slot's `hint` as a
+question with a text box and submits the answer here — no chat session
+required. The text is polished by the same small LLM as the in-chat card,
+written to the tribute row, and the **fresh progress payload** (same shape
+as `GET /tributes/{id}/progress`) comes back so the card can flip straight
+to 100% + the Generate button. Re-answering before generate replaces the
+message (last write wins).
+
+Body: `{ person_id, text }` — `text` 1–2000 chars.
+
+Errors:
+
+- `404` — tribute not found / not owned by `person_id`.
+- `409` — tribute already `complete`/`superseded` (edit via a new tribute
+  or the regenerate flow).
+- `422` — empty/oversized `text`.
+
+The in-chat card still exists but fires only at its one warm-climax moment;
+the old "re-offer every 2 turns when the message is the only gap" fallback
+is retired — this endpoint owns that case. A message typed as a normal chat
+reply right after the in-chat card is also captured (one-shot classifier,
+`feature=tribute_message_capture`).
+
 ### `GET /tribute-campaigns`
 
 Public campaign list + which campaign is featured today (drives the Father's Day

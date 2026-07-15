@@ -135,6 +135,11 @@ class WorkingMemoryState(BaseModel):
     # persist_message_answer on the next /turn so the sidecar answer is
     # routed to the tribute row. Empty when no message tap is pending.
     signal_pending_message: str = ""
+    # One-shot: armed ("1") when the invitation card is emitted, consumed on
+    # the very next user turn by maybe_capture_typed_message so a message
+    # typed as a normal chat reply is captured instead of ignored. Only that
+    # one turn runs the classifier.
+    signal_message_typed_check: str = ""
     # The message invitation is a one-time ask per session.
     message_invitation_asked: bool = False
     # Active campaign skin slug for this tribute session (e.g.
@@ -230,6 +235,7 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "current_theme_display_name": state.current_theme_display_name,
         "current_tribute_id": state.current_tribute_id,
         "signal_pending_message": state.signal_pending_message,
+        "signal_message_typed_check": state.signal_message_typed_check,
         "message_invitation_asked": str(state.message_invitation_asked),
         "current_tribute_campaign": state.current_tribute_campaign,
         "tribute_leads": state.tribute_leads,

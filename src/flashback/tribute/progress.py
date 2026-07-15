@@ -86,13 +86,19 @@ def progress_to_payload(p: TributeProgress) -> dict:
 
 
 def _decorate(
-    row, *, tribute_id: UUID | str, campaign: Campaign | None
+    row,
+    *,
+    tribute_id: UUID | str,
+    campaign: Campaign | None,
+    message_hint_override: str | None = None,
 ) -> TributeProgress:
     """Turn a raw ``tribute_status`` row into the decorated progress shape.
 
     Shared by the sync/async fetchers so slot copy + count/next derivation
-    never drift between them. Campaign skin (if any) overrides the title
-    and the message slot's hint copy; all other hints stay skin-neutral.
+    never drift between them. ``message_hint_override`` carries the fully
+    resolved invitation question (campaign -> profile -> neutral, see
+    flashback.tribute.invitation); when absent, the campaign's copy (if
+    any) keeps the pre-CRM behavior. All other hints stay skin-neutral.
     """
     (
         memories_count,
@@ -110,7 +116,8 @@ def _decorate(
         "appearance": bool(appearance_present),
         "signature": bool(signature_present),
     }
-    message_hint_override = campaign.message_card_copy if campaign else None
+    if message_hint_override is None:
+        message_hint_override = campaign.message_card_copy if campaign else None
     slots: list[TributeSlot] = []
     for s in SLOTS:
         hint = (
@@ -157,6 +164,7 @@ async def fetch_tribute_progress_async(
     tribute_id: UUID | str,
     campaign: Campaign | None = None,
     person_id: UUID | str | None = None,
+    message_hint_override: str | None = None,
 ) -> TributeProgress | None:
     """Async twin of ``fetch_tribute_progress_sync``.
 
@@ -175,4 +183,9 @@ async def fetch_tribute_progress_async(
     row = await cur.fetchone()
     if row is None:
         return None
-    return _decorate(row, tribute_id=tribute_id, campaign=campaign)
+    return _decorate(
+        row,
+        tribute_id=tribute_id,
+        campaign=campaign,
+        message_hint_override=message_hint_override,
+    )

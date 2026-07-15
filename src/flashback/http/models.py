@@ -173,6 +173,22 @@ class TributeEditSuggestionsResponse(BaseModel):
     suggestions: list[TributeEditSuggestion]
 
 
+class TributeMessageRequest(BaseModel):
+    """Direct message capture from the tribute card (no chat session).
+
+    The card shows the resolved invitation question (the message slot's
+    hint on the progress payload) whenever the message is the only thing
+    between the user and 100%; the answer lands here, gets polished, and
+    the response returns the fresh progress so the card can flip straight
+    to the Generate button.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: UUID
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class TributeCampaignOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

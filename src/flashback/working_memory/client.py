@@ -437,6 +437,9 @@ class WorkingMemory:
         s_key = state_key(session_id)
         async with self._redis.pipeline(transaction=True) as p:
             p.hset(s_key, "signal_pending_message", payload_json)
+            # Arm the one-shot typed-reply check for the very next user turn
+            # (consumed by maybe_capture_typed_message).
+            p.hset(s_key, "signal_message_typed_check", "1")
             p.hset(s_key, "message_invitation_asked", "True")
             p.hset(s_key, "user_turns_since_last_tap", "0")
             p.expire(s_key, self._ttl)

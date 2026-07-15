@@ -28,7 +28,10 @@ from flashback.http.models import (
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.question_decisions import QuestionDecisionRepository
-from flashback.tribute.message_capture import persist_message_answer
+from flashback.tribute.message_capture import (
+    maybe_capture_typed_message,
+    persist_message_answer,
+)
 from flashback.working_memory import WorkingMemory
 
 try:  # AsyncConnectionPool is a runtime dependency; type-only here.
@@ -111,6 +114,18 @@ async def turn(
             session_id=body.session_id,
             person_id=body.person_id,
             answer=body.message_answer,
+            wm=wm,
+            db_pool=db_pool,
+            settings=cfg,
+        )
+    else:
+        # The card was offered but the user typed their answer as a normal
+        # chat reply — catch it (one-shot classifier, armed only on the turn
+        # right after the offer) instead of ignoring it and re-asking.
+        await maybe_capture_typed_message(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            user_message=body.message,
             wm=wm,
             db_pool=db_pool,
             settings=cfg,

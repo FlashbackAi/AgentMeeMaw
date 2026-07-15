@@ -1,0 +1,78 @@
+- generic [ref=f8e3]:
+  - complementary [ref=f8e4]:
+    - generic [ref=f8e5]: FLASHBACK · ADMIN
+    - navigation "Primary" [ref=f8e10]:
+      - generic [ref=f8e11]:
+        - generic [ref=f8e12]: DASHBOARDS
+        - link "Cost dashboard" [ref=f8e13] [cursor=pointer]:
+          - /url: /
+      - generic [ref=f8e14]:
+        - generic [ref=f8e15]: CONTENT CRM
+        - link "Campaigns" [ref=f8e16] [cursor=pointer]:
+          - /url: /crm/campaigns
+        - link "Profiles" [ref=f8e17] [cursor=pointer]:
+          - /url: /crm/profiles
+        - link "Themes" [ref=f8e18] [cursor=pointer]:
+          - /url: /crm/themes
+    - button "◐ Dark mode" [ref=f8e20] [cursor=pointer]
+  - main [ref=f8e21]:
+    - generic [ref=f8e22]:
+      - heading "Tribute Campaigns" [level=1] [ref=f8e23]
+      - generic [ref=f8e24]:
+        - generic [ref=f8e25]:
+          - generic [ref=f8e26]:
+            - generic [ref=f8e27]:
+              - checkbox "Show archived" [ref=f8e28]
+              - text: Show archived
+            - paragraph [ref=f8e29]: Loading…
+          - button "New campaign" [ref=f8e31] [cursor=pointer]
+          - generic [ref=f8e32]:
+            - generic [ref=f8e33]: GENERATE DRAFT
+            - generic [ref=f8e34]:
+              - generic [ref=f8e35]: Occasion
+              - textbox "Occasion" [ref=f8e36]
+            - generic [ref=f8e37]:
+              - generic [ref=f8e38]: Brief
+              - textbox "Brief" [ref=f8e39]
+            - button "Generate" [disabled] [ref=f8e41]
+        - generic [ref=f8e42]:
+          - generic [ref=f8e43]:
+            - generic [ref=f8e44]: EDITOR
+            - generic [ref=f8e45]:
+              - generic [ref=f8e46]: Slug
+              - textbox "Slug" [ref=f8e47]
+            - generic [ref=f8e48]:
+              - generic [ref=f8e49]: Display name
+              - textbox "Display name" [ref=f8e50]
+            - generic [ref=f8e51]:
+              - generic [ref=f8e52]: Message card copy
+              - textbox "Message card copy" [ref=f8e53]
+              - paragraph [ref=f8e54]: Shown on the tribute's message card in the storybook and video outro.
+            - generic [ref=f8e55]:
+              - generic [ref=f8e56]:
+                - generic [ref=f8e57]: Window start
+                - textbox "Window start" [ref=f8e58]
+              - generic [ref=f8e59]:
+                - generic [ref=f8e60]: Window end
+                - textbox "Window end" [ref=f8e61]
+            - generic [ref=f8e63]:
+              - checkbox "Featured during window" [ref=f8e64]
+              - text: Featured during window
+            - generic [ref=f8e65]:
+              - generic [ref=f8e66]: Occasion context (for the AI)
+              - textbox "Occasion context (for the AI)" [ref=f8e67]
+            - generic [ref=f8e69]:
+              - checkbox "Override question bank" [ref=f8e70]
+              - text: Override question bank
+            - generic [ref=f8e71]:
+              - button "Save draft" [ref=f8e72] [cursor=pointer]
+              - button "Publish" [disabled] [ref=f8e73]
+          - generic [ref=f8e74]:
+            - generic [ref=f8e75]: PREVIEW
+            - generic [ref=f8e76]:
+              - generic [ref=f8e77]: Person ID
+              - textbox "Person ID" [ref=f8e78]:
+                - /placeholder: raw person_id
+            - generic [ref=f8e79]:
+              - button "Preview" [disabled] [ref=f8e80]
+              - button "Render sample page" [disabled] [ref=f8e81]
