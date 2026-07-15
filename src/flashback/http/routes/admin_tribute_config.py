@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from psycopg import errors as pg_errors
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -132,8 +133,12 @@ def _row_as_payload(table: repo.ConfigTable, row: dict) -> dict:
     payload = {
         k: v
         for k, v in row.items()
+        # template_image/template_mime are row-derived, never CRM-supplied;
+        # keeping them here made publish's full-row re-validation reject
+        # every generated candidate ("image bytes enter only via generate").
         if k not in ("id", "state", "status", "version", "updated_by",
-                     "updated_at", "has_image")
+                     "updated_at", "has_image", "template_image",
+                     "template_mime")
     }
     if table == "tribute_campaigns":
         for key in ("active_start", "active_end"):
@@ -245,12 +250,19 @@ async def create_config(
     errors = _validate(resolved, body.payload)
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
-    async with db_pool.connection() as conn:
-        async with conn.transaction():
-            async with conn.cursor() as cur:
-                new_id = await repo.create_row(
-                    cur, resolved, body.payload, updated_by=updated_by
-                )
+    try:
+        async with db_pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    new_id = await repo.create_row(
+                        cur, resolved, body.payload, updated_by=updated_by
+                    )
+    except pg_errors.UniqueViolation:
+        # Validation-shaped so the CRM renders it inline on the slug field.
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": ["slug: already in use — pick a different slug"]},
+        )
     log.info("tribute_config.created", table=resolved, row_id=new_id,
              updated_by=updated_by)
     return {"id": new_id}
@@ -285,6 +297,13 @@ async def edit_config(
                     )
                 except LookupError as exc:
                     raise HTTPException(status_code=404, detail=str(exc))
+                except pg_errors.UniqueViolation:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"errors": [
+                            "slug: already in use — pick a different slug"
+                        ]},
+                    )
                 await cur.execute(
                     f"SELECT version FROM {resolved} WHERE id = %s", (new_id,)
                 )
@@ -527,9 +546,29 @@ async def generate_visual_themes(
         async with conn.transaction():
             async with conn.cursor() as cur:
                 for i, image_bytes in enumerate(images, start=1):
+                    # Redo-safe slugs: regenerating with the same slug
+                    # REPLACES prior draft candidates (supersede + reuse);
+                    # a published/archived row never gets clobbered — the
+                    # new candidate takes a _vN suffix instead.
+                    slug = f"{body.slug}_c{i}"
+                    state = await repo.active_slug_state(
+                        cur, "tribute_visual_themes", slug
+                    )
+                    if state == "draft":
+                        await repo.supersede_active_slug(
+                            cur, "tribute_visual_themes", slug,
+                            updated_by=updated_by,
+                        )
+                    elif state is not None:
+                        n = 2
+                        while await repo.active_slug_state(
+                            cur, "tribute_visual_themes", f"{slug}_v{n}"
+                        ) is not None:
+                            n += 1
+                        slug = f"{slug}_v{n}"
                     payload = {
                         **base_payload,
-                        "slug": f"{body.slug}_c{i}",
+                        "slug": slug,
                         "template_image": image_bytes,
                         "template_mime": "image/jpeg",
                     }
@@ -537,7 +576,7 @@ async def generate_visual_themes(
                         cur, "tribute_visual_themes", payload,
                         updated_by=updated_by,
                     )
-                    candidates.append({"id": new_id, "slug": payload["slug"]})
+                    candidates.append({"id": new_id, "slug": slug})
     log.info("visual_theme.candidates_generated", count=len(candidates),
              updated_by=updated_by)
     return {"candidates": candidates}

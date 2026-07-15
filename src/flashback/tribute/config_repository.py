@@ -294,6 +294,36 @@ async def active_featured_campaign_db(cur, today: date) -> CampaignConfig | None
 # ---------------------------------------------------------------------------
 
 
+async def active_slug_state(cur, table: ConfigTable, slug: str) -> str | None:
+    """The ``state`` of the active row holding ``slug``, or None if free."""
+    slug_col = _SLUG_COLUMN[table]
+    await cur.execute(
+        f"SELECT state FROM {table} WHERE {slug_col} = %s AND status = 'active'",
+        (slug,),
+    )
+    row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def supersede_active_slug(
+    cur, table: ConfigTable, slug: str, *, updated_by: str
+) -> bool:
+    """Free up ``slug`` by superseding its active row. True if one existed.
+
+    Used by candidate regeneration (replace-draft semantics): a redo with
+    the same slug supersedes the stale draft instead of crashing on the
+    active-slug unique index. History is preserved — superseded rows stay
+    browsable and any snapshot pinning the old row id still resolves.
+    """
+    slug_col = _SLUG_COLUMN[table]
+    await cur.execute(
+        f"UPDATE {table} SET status = 'superseded', updated_by = %s "
+        f"WHERE {slug_col} = %s AND status = 'active' RETURNING id",
+        (updated_by, slug),
+    )
+    return await cur.fetchone() is not None
+
+
 async def list_rows(
     cur,
     table: ConfigTable,

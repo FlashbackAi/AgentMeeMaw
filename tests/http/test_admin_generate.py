@@ -191,6 +191,111 @@ async def test_visual_generate_accepts_dashboard_shapes(
     assert resp2.status_code == 200, resp2.text
 
 
+async def test_visual_generate_redo_same_slug_replaces_drafts(
+    client_with_db, app_with_db, monkeypatch
+) -> None:
+    """Regenerating with the same slug must supersede the stale draft
+    candidates and succeed — the exact prod 500 from 2026-07-15
+    (UniqueViolation on tribute_visual_themes_active_slug / test_c1)."""
+    app_with_db.state.http_config = dataclasses.replace(
+        app_with_db.state.http_config, gemini_api_key="test-key"
+    )
+
+    class FakeArtist:
+        def raw(self, prompt, aspect):
+            return Image.new("RGB", (9, 16), (240, 230, 210))
+
+    monkeypatch.setattr(admin_route, "_make_artist", lambda s: FakeArtist())
+    admin_route._BUCKETS.clear()
+    h = admin_headers(user="redo@flashback")
+
+    body = {"brief": "comic border", "slug": "redo_test",
+            "display_name": "Redo Test", "n_candidates": 2}
+    first = await client_with_db.post(
+        "/admin/visual_themes/generate", json=body, headers=h
+    )
+    assert first.status_code == 200, first.text
+    second = await client_with_db.post(
+        "/admin/visual_themes/generate", json=body, headers=h
+    )
+    assert second.status_code == 200, second.text
+    # same slugs, fresh ids; old drafts superseded (exactly one active each)
+    assert [c["slug"] for c in second.json()["candidates"]] == [
+        "redo_test_c1", "redo_test_c2",
+    ]
+    listing = await client_with_db.get(
+        "/admin/tribute_config/visual_themes", headers=h
+    )
+    active = [r for r in listing.json()["rows"]
+              if str(r.get("slug", "")).startswith("redo_test_c")]
+    assert len(active) == 2
+
+
+async def test_visual_generate_never_clobbers_published(
+    client_with_db, app_with_db, monkeypatch
+) -> None:
+    app_with_db.state.http_config = dataclasses.replace(
+        app_with_db.state.http_config, gemini_api_key="test-key"
+    )
+
+    class FakeArtist:
+        def raw(self, prompt, aspect):
+            return Image.new("RGB", (9, 16), (240, 230, 210))
+
+    monkeypatch.setattr(admin_route, "_make_artist", lambda s: FakeArtist())
+    admin_route._BUCKETS.clear()
+    h = admin_headers(user="pub@flashback")
+
+    body = {"brief": "b", "slug": "pub_test", "display_name": "P",
+            "n_candidates": 1}
+    first = await client_with_db.post(
+        "/admin/visual_themes/generate", json=body, headers=h
+    )
+    cid = first.json()["candidates"][0]["id"]
+    pub = await client_with_db.post(
+        f"/admin/tribute_config/visual_themes/{cid}/publish", headers=h
+    )
+    assert pub.status_code == 200, pub.text
+
+    second = await client_with_db.post(
+        "/admin/visual_themes/generate", json=body, headers=h
+    )
+    assert second.status_code == 200, second.text
+    # published pub_test_c1 untouched; the new candidate got a suffix
+    assert second.json()["candidates"][0]["slug"] == "pub_test_c1_v2"
+
+
+async def test_create_duplicate_slug_is_422_not_500(client_with_db) -> None:
+    h = admin_headers(user="dup@flashback")
+    body = {"payload": {"slug": "dup_campaign", "display_name": "Dup"}}
+    first = await client_with_db.post(
+        "/admin/tribute_config/tribute_campaigns", json=body, headers=h
+    )
+    assert first.status_code == 200, first.text
+    second = await client_with_db.post(
+        "/admin/tribute_config/tribute_campaigns", json=body, headers=h
+    )
+    assert second.status_code == 422
+    assert any(
+        e.startswith("slug:") for e in second.json()["detail"]["errors"]
+    )
+
+
+async def test_pydantic_422_normalized_on_crm_paths(client_with_db) -> None:
+    """Shape mismatches (e.g. n_candidates as a string) must come back in
+    the CRM's field-error shape, not pydantic's list shape."""
+    resp = await client_with_db.post(
+        "/admin/visual_themes/generate",
+        json={"brief": "b", "slug": "s", "display_name": "d",
+              "n_candidates": "lots"},
+        headers=admin_headers(),
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert isinstance(detail, dict)
+    assert any("n_candidates" in e for e in detail["errors"])
+
+
 async def test_generate_rate_limit_429(client_with_db, monkeypatch) -> None:
     async def fake_draft(settings, **kw):
         return dict(FRIEND_DRAFT)

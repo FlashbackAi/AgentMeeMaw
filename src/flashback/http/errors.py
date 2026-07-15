@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import structlog
 from fastapi import FastAPI, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from flashback.llm.errors import LLMError
@@ -13,6 +15,17 @@ from flashback.working_memory.client import WorkingMemoryError
 from flashback.working_memory.keys import InvalidSessionIdError
 
 log = structlog.get_logger("flashback.http.errors")
+
+# The CRM admin surface promises ONE 422 shape — {"detail": {"errors":
+# ["field: message", ...]}} — so the dashboard can render each error next to
+# its field. Pydantic request-validation errors natively return a list shape
+# the dashboard can't place; normalize them on these paths only (consumer
+# routes keep FastAPI's default so Node's existing handling is untouched).
+_CRM_422_PREFIXES = (
+    "/admin/tribute_config",
+    "/admin/visual_themes",
+    "/admin/tribute_preview",
+)
 
 
 def _json_error(status_code: int, detail: str) -> JSONResponse:
@@ -68,6 +81,20 @@ def install_exception_handlers(app: FastAPI) -> None:
                 "detail": "phase gate selection failed",
             },
         )
+
+    @app.exception_handler(RequestValidationError)
+    async def _request_validation(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith(_CRM_422_PREFIXES):
+            errors = []
+            for e in exc.errors():
+                loc = [str(part) for part in e.get("loc", ()) if part != "body"]
+                field = ".".join(loc) or "request"
+                errors.append(f"{field}: {e.get('msg', 'invalid value')}")
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": {"errors": errors}},
+            )
+        return await request_validation_exception_handler(request, exc)
 
     @app.exception_handler(Exception)
     async def _unexpected_error(_: Request, exc: Exception):
