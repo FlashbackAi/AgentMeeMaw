@@ -208,6 +208,48 @@ async def ensure_open_tribute_async(
     return tribute_id
 
 
+async def merge_tribute_archetype_answers_async(
+    cur, *, tribute_id: UUID | str, answers: list[dict]
+) -> None:
+    """Union committed archetype answers onto the tribute row (0042).
+
+    Per-campaign truth: each campaign's tribute carries the answers given
+    under it, so a new occasion's meter and leads never bleed into another
+    campaign's. Merged by question_text — stable across bank edits and
+    campaigns, unlike the positional q{n} ids — with new answers winning.
+    """
+    fresh = [a for a in answers if isinstance(a, dict)]
+    if not fresh:
+        return
+    await cur.execute(
+        "SELECT archetype_answers FROM tributes WHERE id = %s",
+        (str(tribute_id),),
+    )
+    row = await cur.fetchone()
+    current = row[0] if row and isinstance(row[0], list) else []
+    merged: dict[str, dict] = {}
+    for a in list(current) + fresh:
+        if isinstance(a, dict):
+            key = str(a.get("question_text") or a.get("question_id") or "")
+            if key:
+                merged[key] = a
+    await cur.execute(
+        "UPDATE tributes SET archetype_answers = %s WHERE id = %s",
+        (Json(list(merged.values())), str(tribute_id)),
+    )
+
+
+async def fetch_tribute_archetype_answers_async(
+    cur, *, tribute_id: UUID | str
+) -> list[dict]:
+    await cur.execute(
+        "SELECT archetype_answers FROM tributes WHERE id = %s",
+        (str(tribute_id),),
+    )
+    row = await cur.fetchone()
+    return row[0] if row and isinstance(row[0], list) else []
+
+
 async def fetch_tribute_campaign_id_async(cur, *, tribute_id: UUID | str) -> str | None:
     """The campaign the tribute was created under (stamped at entry), or None."""
     await cur.execute(

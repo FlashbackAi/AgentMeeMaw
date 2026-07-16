@@ -33,6 +33,7 @@ from flashback.tribute.leads import build_leads, leads_to_json
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
     ensure_open_tribute_async,
+    merge_tribute_archetype_answers_async,
     stamp_tribute_campaign_async,
 )
 
@@ -139,6 +140,16 @@ async def apply_theme_unlock(
                                 cur,
                                 tribute_id=tribute_id,
                                 campaign_id=campaign_row.id,
+                            )
+                        # Per-campaign answers (0042): THIS campaign's
+                        # tribute accumulates the answers given under it —
+                        # the meter and leads for a new occasion no longer
+                        # ride another campaign's answer set.
+                        if archetype_answers:
+                            await merge_tribute_archetype_answers_async(
+                                cur,
+                                tribute_id=tribute_id,
+                                answers=archetype_answers,
                             )
 
         # Propagate theme context downstream via session_metadata so the

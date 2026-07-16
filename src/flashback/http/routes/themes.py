@@ -56,6 +56,10 @@ from flashback.tribute.config_schema import (
     campaign_applies,
 )
 from flashback.tribute.relationships import ensure_relationship_group
+from flashback.tribute.repository import (
+    fetch_open_tribute_id_async,
+    fetch_tribute_archetype_answers_async,
+)
 from flashback.tribute.theme import (
     TRIBUTE_ARCHETYPE_MAX,
     TRIBUTE_ARCHETYPE_MIN,
@@ -107,6 +111,15 @@ class UnlockPrepareResponse(BaseModel):
             "Mid-flow partial answers persisted via "
             "POST /themes/{id}/archetype_progress. Frontend uses this "
             "to restore chip selections / free-text on resume."
+        ),
+    )
+    tribute_answered: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Tribute themes only (0042): answers already committed on THIS "
+            "campaign's open tribute. The app prefills questions whose "
+            "question_text matches and may skip the modal when every "
+            "returned question is covered."
         ),
     )
     prompt_version: str = ARCHETYPE_PROMPT_VERSION
@@ -201,13 +214,16 @@ async def unlock_prepare(
                 )
 
     generated_this_call = False
+    tribute_answered: list[dict] | None = None
     questions: list[ArchetypeQuestion]
-    if theme.archetype_questions:
-        questions = _rehydrate_archetype_questions(theme.archetype_questions)
-    elif theme.kind == "tribute":
+    if theme.kind == "tribute":
         # Tribute CRM chain (spec 2026-07-14 §6.3): campaign bank override ->
-        # relationship-profile bank -> LLM generation seeded with relationship
-        # + occasion context. Ephemeral priors only (invariant #22).
+        # relationship-profile bank -> theme-row cache (pre-CRM legacies) ->
+        # LLM generation. The authored bank beats the cache: a legacy that
+        # ran an earlier campaign must still receive a NEW campaign's
+        # questions (prod 2026-07-16: the FD legacy's cached 4 questions
+        # were shadowing every future bank). Ephemeral priors only
+        # (invariant #22).
         async with db_pool.connection() as conn:
             async with conn.cursor() as cur:
                 campaign = await resolve_campaign_db(cur, body.campaign)
@@ -234,12 +250,31 @@ async def unlock_prepare(
                     (str(body.person_id),),
                 )
                 rel_row = await cur.fetchone()
+                # Per-campaign answers (0042): what THIS campaign's open
+                # tribute has already committed — the app prefills matching
+                # questions and can skip the modal when nothing is new.
+                open_id = await fetch_open_tribute_id_async(
+                    cur,
+                    person_id=str(body.person_id),
+                    theme_id=str(theme_id),
+                    campaign_id=campaign.id or None,
+                )
+                if open_id is not None:
+                    tribute_answered = (
+                        await fetch_tribute_archetype_answers_async(
+                            cur, tribute_id=open_id
+                        )
+                    )
         subject_relationship = rel_row[0] if rel_row else None
         bank = None
         if profile is not None:
             bank = compose_directives(profile, campaign).bank
         if bank:
             questions = bank_to_archetype_questions(bank)
+        elif theme.archetype_questions:
+            questions = _rehydrate_archetype_questions(
+                theme.archetype_questions
+            )
         else:
             questions = await generate_archetype_questions(
                 settings=cfg,
@@ -254,6 +289,8 @@ async def unlock_prepare(
                 max_questions=TRIBUTE_ARCHETYPE_MAX,
                 extra_context=campaign.archetype_extra_context,
             )
+    elif theme.archetype_questions:
+        questions = _rehydrate_archetype_questions(theme.archetype_questions)
     else:
         description = theme.description
         if not description and theme.kind == "universal":
@@ -324,6 +361,7 @@ async def unlock_prepare(
             for q in questions
         ],
         archetype_answers_draft=theme.archetype_answers_draft,
+        tribute_answered=tribute_answered,
         generated_this_call=generated_this_call,
     )
 
