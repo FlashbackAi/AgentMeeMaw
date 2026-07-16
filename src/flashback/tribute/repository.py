@@ -132,23 +132,44 @@ _OPEN_STATUSES = ("draft", "ready", "generating")
 
 
 async def fetch_open_tribute_id_async(
-    cur, *, person_id: UUID | str, theme_id: UUID | str
+    cur,
+    *,
+    person_id: UUID | str,
+    theme_id: UUID | str,
+    campaign_id: str | None = None,
 ) -> str | None:
-    """Return the most-recent non-complete tribute id for (person, theme)."""
+    """Return the most-recent non-complete tribute id for (person, theme).
+
+    Campaign-scoped: with a ``campaign_id``, an open tribute stamped with
+    THAT campaign wins, else an unstamped one (which the caller stamps —
+    pre-0039 rows and neutral drafts adopt the campaign on entry). An open
+    tribute stamped with a DIFFERENT campaign is never returned — each
+    campaign runs its own tribute lifecycle, so one campaign's draft can't
+    hijack another campaign's entry (and a completed FD video is never
+    reopened by a Friendship Day tap). Without a campaign: any open
+    tribute, the pre-CRM behavior.
+    """
+    campaign_filter = (
+        "AND (campaign_id = %(campaign_id)s OR campaign_id IS NULL)"
+        if campaign_id
+        else ""
+    )
     await cur.execute(
-        """
+        f"""
         SELECT id::text
           FROM tributes
          WHERE person_id = %(person_id)s
            AND theme_id = %(theme_id)s
            AND status = ANY(%(statuses)s)
-         ORDER BY created_at DESC
+           {campaign_filter}
+         ORDER BY (campaign_id IS NOT NULL) DESC, created_at DESC
          LIMIT 1
         """,
         {
             "person_id": str(person_id),
             "theme_id": str(theme_id),
             "statuses": list(_OPEN_STATUSES),
+            "campaign_id": str(campaign_id) if campaign_id else None,
         },
     )
     row = await cur.fetchone()
@@ -156,24 +177,32 @@ async def fetch_open_tribute_id_async(
 
 
 async def ensure_open_tribute_async(
-    cur, *, person_id: UUID | str, theme_id: UUID | str
+    cur,
+    *,
+    person_id: UUID | str,
+    theme_id: UUID | str,
+    campaign_id: str | None = None,
 ) -> str:
-    """Return an open tribute for (person, theme), creating a draft if none.
-
-    Idempotent within a session: a second call returns the same row.
+    """Return an open tribute for (person, theme[, campaign]), creating a
+    draft if none. Idempotent within a session: a second call returns the
+    same row. A fresh draft created under a campaign is stamped at insert.
     """
     existing = await fetch_open_tribute_id_async(
-        cur, person_id=person_id, theme_id=theme_id
+        cur, person_id=person_id, theme_id=theme_id, campaign_id=campaign_id
     )
     if existing is not None:
         return existing
     await cur.execute(
         """
-        INSERT INTO tributes (person_id, theme_id, status)
-        VALUES (%(person_id)s, %(theme_id)s, 'draft')
+        INSERT INTO tributes (person_id, theme_id, campaign_id, status)
+        VALUES (%(person_id)s, %(theme_id)s, %(campaign_id)s, 'draft')
         RETURNING id::text
         """,
-        {"person_id": str(person_id), "theme_id": str(theme_id)},
+        {
+            "person_id": str(person_id),
+            "theme_id": str(theme_id),
+            "campaign_id": str(campaign_id) if campaign_id else None,
+        },
     )
     (tribute_id,) = await cur.fetchone()
     return tribute_id

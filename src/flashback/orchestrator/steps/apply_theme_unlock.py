@@ -94,29 +94,38 @@ async def apply_theme_unlock(
                     # Tribute flow: ensure an open tribute output row exists
                     # for this (person, theme) so the message-capture lane
                     # has somewhere to write. Idempotent within a session.
+                    # The campaign resolves FIRST so the open-tribute lookup
+                    # is campaign-scoped: each campaign entry gets its own
+                    # tribute lifecycle (its own row, its own video), and a
+                    # completed prior campaign's tribute is never reopened.
                     if theme.kind == "tribute":
-                        tribute_id = await ensure_open_tribute_async(
-                            cur, person_id=person_id, theme_id=theme_id
-                        )
-                        # Tribute CRM: stamp the entry campaign on the row
-                        # (once) and cache the relationship group so every
-                        # later touchpoint resolves config identically.
+                        campaign_row = None
                         slug = state.session_metadata.get("campaign")
                         if slug:
                             campaign_row = await fetch_campaign_by_slug(
                                 cur, str(slug)
                             )
-                            if campaign_row is not None:
-                                await stamp_tribute_campaign_async(
-                                    cur,
-                                    tribute_id=tribute_id,
-                                    campaign_id=campaign_row.id,
-                                )
-                            else:
+                            if campaign_row is None:
                                 log.info(
                                     "theme_unlock.unknown_campaign_slug",
                                     campaign=str(slug)[:64],
                                 )
+                        tribute_id = await ensure_open_tribute_async(
+                            cur,
+                            person_id=person_id,
+                            theme_id=theme_id,
+                            campaign_id=(
+                                campaign_row.id if campaign_row else None
+                            ),
+                        )
+                        # Adopt an unstamped open row (pre-0039 drafts) into
+                        # the entry campaign; no-op when already stamped.
+                        if campaign_row is not None:
+                            await stamp_tribute_campaign_async(
+                                cur,
+                                tribute_id=tribute_id,
+                                campaign_id=campaign_row.id,
+                            )
                         await ensure_relationship_group(
                             cur, settings=deps.settings, person_id=person_id
                         )

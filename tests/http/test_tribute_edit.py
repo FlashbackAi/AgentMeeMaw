@@ -47,15 +47,29 @@ async def _seed_ready(pool) -> tuple[str, str]:
                     description=TRIBUTE_DESCRIPTION)
                 tribute_id = await ensure_open_tribute_async(
                     cur, person_id=person_id, theme_id=theme_id)
-                gt = json.dumps({"region": {"value": "South India"}})
+                # The meter needs all four components at full weight:
+                # appearance = region + birth_era/era_span + attire-or-features,
+                # signature = any active trait, moments >= 3 qualifying,
+                # message present (2026-06 meter, view 0030/0033).
+                gt = json.dumps({
+                    "region": {"value": "South India"},
+                    "birth_era": {"value": "1950s"},
+                    "attire": {"value": "crisp white shirt"},
+                })
                 await cur.execute(
                     "UPDATE persons SET ground_truth = %s WHERE id = %s",
                     (gt, person_id))
                 for i in range(3):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
-                        "sensory_details) VALUES (%s, %s, %s, %s)",
-                        (person_id, f"m{i}", "n", "the smell of rain"))
+                        "sensory_details, time_anchor) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (person_id, f"m{i}", "n", "the smell of rain",
+                         json.dumps({"year": 2009})))
+                await cur.execute(
+                    "INSERT INTO traits (person_id, name, description) "
+                    "VALUES (%s, 'steady', 'Showed up every day.')",
+                    (person_id,))
                 await set_message_async(
                     cur, tribute_id=tribute_id, message_text="Thank you, Dad.")
     return person_id, tribute_id

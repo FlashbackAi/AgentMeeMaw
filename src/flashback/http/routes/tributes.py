@@ -66,6 +66,7 @@ from flashback.tribute.repository import (
     fetch_tribute_for_assembly_async,
     fetch_tribute_generation_context_async,
     set_status_async,
+    stamp_tribute_campaign_async,
     write_tribute_generation_context_async,
 )
 from flashback.tribute_video.context import CONTEXT_KEY, build_context_dict
@@ -374,6 +375,15 @@ async def _generate_video(
                     cur, person_id=str(body.person_id),
                     tribute_id=tribute_id, campaign_slug=body.campaign,
                     settings=settings))
+            # Backstop stamp (prod 2026-07-16: rows arrived unstamped because
+            # the entry path didn't carry the campaign slug). The snapshot
+            # already pins the campaign; stamping the ROW is what lets the
+            # tribute_status gallery label each video by campaign. No-op when
+            # already stamped.
+            if campaign.id:
+                await stamp_tribute_campaign_async(
+                    cur, tribute_id=tribute_id, campaign_id=campaign.id)
+                await conn.commit()
 
     gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or ""
 
