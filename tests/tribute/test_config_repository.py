@@ -240,6 +240,70 @@ async def test_editing_a_campaign_repoints_open_tributes(async_pool) -> None:
             pass
 
 
+async def test_publishing_same_slug_theme_repoints_attachments(
+    async_pool,
+) -> None:
+    """Candidate redo replaces a same-slug row (no repoint — replacement is
+    a draft); PUBLISHING the replacement must pull live attachments over,
+    or campaigns keep rendering the stale template forever."""
+    async with async_pool.connection() as conn:
+        try:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    old_id = await repo.create_row(
+                        cur, "tribute_visual_themes",
+                        {"slug": "redo_target", "display_name": "V1",
+                         "fonts": {"main_slug": "playfair_italic",
+                                   "eyebrow_slug": "eb_garamond"},
+                         "ink": {"main_fill": "#204060",
+                                 "eyebrow_fill": "#967648"},
+                         "audio_slug": "sentimental_piano"},
+                        updated_by="t",
+                    )
+                    await repo.set_state(
+                        cur, "tribute_visual_themes", old_id, "published",
+                        updated_by="t",
+                    )
+                    camp_id = await repo.create_row(
+                        cur, "tribute_campaigns",
+                        {"slug": "redo_attach_test", "display_name": "R",
+                         "visual_theme_id": old_id},
+                        updated_by="t",
+                    )
+                    # candidate redo: same slug superseded, new DRAFT row
+                    await repo.supersede_active_slug(
+                        cur, "tribute_visual_themes", "redo_target",
+                        updated_by="t",
+                    )
+                    new_id = await repo.create_row(
+                        cur, "tribute_visual_themes",
+                        {"slug": "redo_target", "display_name": "V2",
+                         "fonts": {"main_slug": "caveat",
+                                   "eyebrow_slug": "nunito"},
+                         "ink": {"main_fill": "#1f6f8b",
+                                 "eyebrow_fill": "#e07a5f"},
+                         "audio_slug": "sentimental_piano"},
+                        updated_by="t",
+                    )
+                    # while draft: attachment must NOT move (live skin safe)
+                    camp = await repo.fetch_campaign_by_slug(
+                        cur, "redo_attach_test", published_only=False
+                    )
+                    assert camp.visual_theme_id == old_id
+                    # publish -> attachment follows
+                    await repo.set_state(
+                        cur, "tribute_visual_themes", new_id, "published",
+                        updated_by="t",
+                    )
+                    camp = await repo.fetch_campaign_by_slug(
+                        cur, "redo_attach_test", published_only=False
+                    )
+                    assert camp.visual_theme_id == new_id
+                raise _Rollback()
+        except _Rollback:
+            pass
+
+
 async def test_visual_theme_image_none_for_classic(async_pool) -> None:
     async with async_pool.connection() as conn:
         async with conn.cursor() as cur:

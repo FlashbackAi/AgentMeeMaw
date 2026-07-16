@@ -98,12 +98,16 @@ async def _resolve_render_config(
     """Resolve (campaign, profile, directives, visual_theme) for a render.
 
     Campaign: the tribute row's stamped campaign_id wins, else the campaign
-    the prior render snapshot pinned (``campaign_id_hint`` — freshened to
-    the slug's current published version so a CRM edit applies), else the
-    slug the caller passed, else neutral. Profile: the person's cached
-    relationship group (resolved lazily when settings are provided),
-    safety-floored on 'other'. Never raises — a render never blocks on
-    config (spec §6.5).
+    the prior render snapshot pinned (``campaign_id_hint``), else the slug
+    the caller passed, else neutral. A stamped/pinned campaign is ALWAYS
+    freshened to its slug's current published version: completed tributes
+    keep their frozen row id on purpose (snapshots), but re-resolution must
+    see live config — "regenerate picks up CRM edits" is the recovery path
+    (prod 2026-07-16: a theme swap on the campaign didn't reach regenerated
+    videos because the stamped OLD campaign row still carried the old
+    theme id). Profile: the person's cached relationship group (resolved
+    lazily when settings are provided), safety-floored on 'other'. Never
+    raises — a render never blocks on config (spec §6.5).
     """
     campaign = NEUTRAL_CAMPAIGN
     profile = None
@@ -119,15 +123,19 @@ async def _resolve_render_config(
                     NEUTRAL_CAMPAIGN
                 )
         if not campaign.id and campaign_id_hint:
-            # Prod 2026-07-16: regenerating an unstamped tribute reverted to
-            # the neutral (Father's Day-looking) config even though the
-            # original render ran under a campaign — the campaign only ever
-            # existed in the /generate body and the snapshot. Follow the
-            # snapshot's pin so regenerate/edit keep the campaign's skin.
+            # Prod 2026-07-16 (morning): regenerating an unstamped tribute
+            # reverted to neutral — the campaign only ever existed in the
+            # /generate body and the snapshot. Follow the snapshot's pin.
             pinned = await fetch_campaign_by_id(cur, campaign_id_hint)
             if pinned is not None:
-                fresh = await fetch_campaign_by_slug(cur, pinned.slug)
-                campaign = fresh or pinned
+                campaign = pinned
+        if campaign.id:
+            # Follow supersession to the live published version (see
+            # docstring). Keep the pinned row when nothing published holds
+            # the slug anymore (campaign archived) — never block a render.
+            fresh = await fetch_campaign_by_slug(cur, campaign.slug)
+            if fresh is not None:
+                campaign = fresh
         if not campaign.id:
             campaign = await resolve_campaign_db(cur, campaign_slug)
 

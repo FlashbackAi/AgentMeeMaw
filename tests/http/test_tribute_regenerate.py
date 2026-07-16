@@ -184,6 +184,73 @@ async def test_regenerate_keeps_the_snapshot_campaign(
     assert stamped == campaign_id
 
 
+async def test_regenerate_follows_campaign_supersession(
+    client_with_db, async_db_pool
+) -> None:
+    """Prod 2026-07-16 (evening): a theme swap on the campaign never
+    reached regenerated videos — the completed tribute's stamped campaign
+    row id resolved to the OLD superseded version. Re-resolution must
+    freshen the stamp to the slug's current published row."""
+    person_id, tribute_id = await _seed_ready(async_db_pool)
+    await _generate(client_with_db, person_id, tribute_id)
+
+    from flashback.tribute import config_repository as repo
+
+    async with async_db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id::text FROM tribute_campaigns "
+                    "WHERE slug = 'fathers_day_2026' AND status = 'active'"
+                )
+                (old_id,) = await cur.fetchone()
+                # the completed-tribute shape: stamped with the then-active row
+                await cur.execute(
+                    "UPDATE tributes SET campaign_id = %s WHERE id = %s",
+                    (old_id, tribute_id),
+                )
+                # CRM edit supersedes -> new active version
+                new_id = await repo.supersede_edit(
+                    cur, "tribute_campaigns", old_id,
+                    {"display_name": "A Letter to Dad (fresh)"},
+                    updated_by="t",
+                )
+                # completed tributes are deliberately NOT repointed; force
+                # the stale-stamp state regenerate must recover from
+                await cur.execute(
+                    "UPDATE tributes SET campaign_id = %s, "
+                    "status = 'complete' WHERE id = %s",
+                    (old_id, tribute_id),
+                )
+
+    resp = await client_with_db.post(
+        f"/tributes/{tribute_id}/regenerate",
+        json={
+            "person_id": person_id,
+            "video_put_url": "https://s3.example/put/video?sig=3",
+            "pdf_put_url": "https://s3.example/put/pdf?sig=3",
+        },
+        headers=_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT latest_generation_context -> 'tribute_video' ->> "
+                "'campaign_id' FROM tributes WHERE id = %s", (tribute_id,))
+            (snapshot_campaign,) = await cur.fetchone()
+            # restore the seeded campaign for other tests
+            await cur.execute(
+                "UPDATE tribute_campaigns SET status = 'superseded' "
+                "WHERE id = %s", (new_id,))
+            await cur.execute(
+                "UPDATE tribute_campaigns SET status = 'active' "
+                "WHERE id = %s", (old_id,))
+            await conn.commit()
+    assert snapshot_campaign == new_id  # fresh version, not the stale stamp
+
+
 async def test_regenerate_404_without_prior_context(
     client_with_db, async_db_pool
 ) -> None:

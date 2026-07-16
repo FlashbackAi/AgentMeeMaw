@@ -421,6 +421,36 @@ async def set_state(
     )
     if await cur.fetchone() is None:
         raise LookupError(f"{table}: no active row {row_id}")
+    if table == "tribute_visual_themes" and state == "published":
+        await _repoint_theme_slug_siblings(cur, row_id)
+
+
+async def _repoint_theme_slug_siblings(cur, new_id) -> None:
+    """On theme publish, pull attachments from this slug's OLDER rows onto
+    the newly published one.
+
+    Candidate regeneration replaces a same-slug row via
+    supersede_active_slug — deliberately without repointing, because the
+    replacement is a DRAFT at that moment and repointing would strip a
+    live campaign's skin mid-window. The moment the replacement publishes,
+    live references must follow or profiles/campaigns keep rendering the
+    stale template forever (superseded rows stay readable by id).
+    """
+    await cur.execute(
+        "SELECT slug FROM tribute_visual_themes WHERE id = %s",
+        (str(new_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return
+    for ref_table in ("relationship_profiles", "tribute_campaigns"):
+        await cur.execute(
+            f"UPDATE {ref_table} SET visual_theme_id = %s "
+            "WHERE status = 'active' AND visual_theme_id IN ("
+            "  SELECT id FROM tribute_visual_themes "
+            "  WHERE slug = %s AND id != %s)",
+            (str(new_id), row[0], str(new_id)),
+        )
 
 
 async def delete_draft_chain(cur, table: ConfigTable, row_id) -> int:
