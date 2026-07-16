@@ -243,6 +243,79 @@ async def test_bad_date_format_is_422_not_500(client_with_db) -> None:
     assert "detail" in resp.json()
 
 
+async def test_delete_draft_frees_slug_and_purges_chain(client_with_db) -> None:
+    """A never-published draft (junk candidate) hard-deletes: the whole
+    edit chain goes away and the slug is immediately reusable."""
+    h = admin_headers(user="cleanup@flashback")
+    made = await client_with_db.post(
+        "/admin/tribute_config/visual_themes",
+        json={"payload": {**VALID_VISUAL_THEME, "slug": "junk_draft"}},
+        headers=h,
+    )
+    assert made.status_code == 200, made.text
+    # edit it once so the chain has a superseded row too
+    edited = await client_with_db.put(
+        f"/admin/tribute_config/visual_themes/{made.json()['id']}",
+        json={"payload": {"display_name": "Junk v2"}},
+        headers=h,
+    )
+    assert edited.status_code == 200, edited.text
+
+    resp = await client_with_db.delete(
+        f"/admin/tribute_config/visual_themes/{edited.json()['id']}",
+        headers=h,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted_rows"] == 2  # v1 + v2, whole chain
+
+    listing = await client_with_db.get(
+        "/admin/tribute_config/visual_themes",
+        params={"include_superseded": "true", "include_archived": "true"},
+        headers=h,
+    )
+    assert not any(r["slug"] == "junk_draft" for r in listing.json()["rows"])
+
+    # slug is free again — no "already in use" 422
+    again = await client_with_db.post(
+        "/admin/tribute_config/visual_themes",
+        json={"payload": {**VALID_VISUAL_THEME, "slug": "junk_draft"}},
+        headers=h,
+    )
+    assert again.status_code == 200, again.text
+    await client_with_db.delete(
+        f"/admin/tribute_config/visual_themes/{again.json()['id']}", headers=h
+    )
+
+
+async def test_delete_published_is_409(client_with_db) -> None:
+    h = admin_headers(user="cleanup@flashback")
+    listing = await client_with_db.get(
+        "/admin/tribute_config/visual_themes", headers=h
+    )
+    classic = next(
+        r for r in listing.json()["rows"] if r["slug"] == "classic_keepsake"
+    )
+    resp = await client_with_db.delete(
+        f"/admin/tribute_config/visual_themes/{classic['id']}", headers=h
+    )
+    assert resp.status_code == 409
+    assert "archive" in resp.json()["detail"]
+
+
+async def test_delete_unknown_or_malformed_id_is_404(client_with_db) -> None:
+    h = admin_headers()
+    resp = await client_with_db.delete(
+        "/admin/tribute_config/visual_themes/not-a-uuid", headers=h
+    )
+    assert resp.status_code == 404
+    resp = await client_with_db.delete(
+        "/admin/tribute_config/visual_themes/"
+        "00000000-0000-0000-0000-000000000000",
+        headers=h,
+    )
+    assert resp.status_code == 404
+
+
 async def test_asset_library(client_with_db) -> None:
     resp = await client_with_db.get(
         "/admin/asset-library", headers=admin_headers()

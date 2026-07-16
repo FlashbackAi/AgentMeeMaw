@@ -441,6 +441,39 @@ async def archive_config(
     return {"id": row_id, "state": "archived"}
 
 
+@router.delete("/tribute_config/{table}/{row_id}")
+async def delete_config(
+    table: str,
+    row_id: str,
+    db_pool: AsyncConnectionPool = Depends(get_db_pool),
+    updated_by: str = Depends(admin_user),
+) -> dict:
+    """Hard-delete a never-published draft — the whole slug chain.
+
+    The CRM's junk-draft cleanup (abandoned candidates, test rows): frees
+    the slug and drops the stored template bytes. Anything that has been
+    published (or archived) 409s — that history stays append-only and is
+    hidden via archive instead.
+    """
+    resolved = _table_or_404(table)
+    if not _UUID_RE.match(row_id):
+        raise HTTPException(status_code=404, detail="no active row")
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                try:
+                    deleted = await repo.delete_draft_chain(
+                        cur, resolved, row_id
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc))
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc))
+    log.info("tribute_config.deleted", table=resolved, row_id=row_id,
+             rows=deleted, updated_by=updated_by)
+    return {"id": row_id, "deleted_rows": deleted}
+
+
 @router.post("/tribute_config/{table}/{row_id}/rollback")
 async def rollback_config(
     table: str,

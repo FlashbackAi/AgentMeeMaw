@@ -421,6 +421,37 @@ async def set_state(
         raise LookupError(f"{table}: no active row {row_id}")
 
 
+async def delete_draft_chain(cur, table: ConfigTable, row_id) -> int:
+    """Hard-delete a never-published slug chain (CRM junk-draft cleanup).
+
+    Allowed ONLY when ``row_id`` is the slug's ACTIVE row and its state is
+    'draft'. Publish/archive flip ``state`` in place and edits carry it
+    forward, so an active draft row proves the slug was never published —
+    no render snapshot can pin any row in the chain, and the whole chain
+    (superseded draft edits included) can be purged, freeing the slug.
+    Config references clear via ON DELETE SET NULL. Returns rows deleted.
+
+    Published/archived rows must go through archive (supersession stays
+    append-only for anything that could have gone live).
+    """
+    slug_col = _SLUG_COLUMN[table]
+    await cur.execute(
+        f"SELECT {slug_col}, state FROM {table} "
+        "WHERE id = %s AND status = 'active'",
+        (str(row_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise LookupError(f"{table}: no active row {row_id}")
+    slug, state = row
+    if state != "draft":
+        raise ValueError(
+            f"{table}: '{slug}' is {state} — archive it instead of deleting"
+        )
+    await cur.execute(f"DELETE FROM {table} WHERE {slug_col} = %s", (slug,))
+    return cur.rowcount
+
+
 async def rollback_to(
     cur, table: ConfigTable, old_row_id, *, updated_by: str
 ) -> str:

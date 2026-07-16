@@ -1105,6 +1105,8 @@ We expose an HTTP service. Node calls us; we never call Node.
 - **Tribute CRM admin surface** (service token + admin token;
   `X-Admin-User` → audit): `GET|POST /admin/tribute_config/{table}`,
   `PUT .../{id}`, `POST .../{id}/publish|archive|rollback`,
+  `DELETE .../{id}` (never-published draft chains only — frees the slug;
+  published/archived rows 409 and go through archive),
   `GET /admin/asset-library`, `GET /admin/visual_themes/{id}/image`,
   `POST /admin/tribute_config/generate` (brief → structured draft),
   `POST /admin/visual_themes/generate` (≤4 template candidates),
