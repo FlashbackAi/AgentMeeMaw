@@ -42,6 +42,7 @@ from flashback.tribute.composer import ComposedDirectives, compose_directives
 from flashback.tribute.config_repository import (
     active_featured_campaign_db,
     fetch_campaign_by_id,
+    fetch_campaign_by_slug,
     fetch_profile_by_group,
     fetch_visual_theme_by_id,
     list_rows,
@@ -90,14 +91,18 @@ async def _resolve_render_config(
     person_id: str,
     tribute_id: UUID | str | None = None,
     campaign_slug: str | None = None,
+    campaign_id_hint: str | None = None,
     settings=None,
 ):
     """Resolve (campaign, profile, directives, visual_theme) for a render.
 
-    Campaign: the tribute row's stamped campaign_id wins, else the slug the
-    caller passed, else neutral. Profile: the person's cached relationship
-    group (resolved lazily when settings are provided), safety-floored on
-    'other'. Never raises — a render never blocks on config (spec §6.5).
+    Campaign: the tribute row's stamped campaign_id wins, else the campaign
+    the prior render snapshot pinned (``campaign_id_hint`` — freshened to
+    the slug's current published version so a CRM edit applies), else the
+    slug the caller passed, else neutral. Profile: the person's cached
+    relationship group (resolved lazily when settings are provided),
+    safety-floored on 'other'. Never raises — a render never blocks on
+    config (spec §6.5).
     """
     campaign = NEUTRAL_CAMPAIGN
     profile = None
@@ -112,6 +117,16 @@ async def _resolve_render_config(
                 campaign = await fetch_campaign_by_id(cur, campaign_id) or (
                     NEUTRAL_CAMPAIGN
                 )
+        if not campaign.id and campaign_id_hint:
+            # Prod 2026-07-16: regenerating an unstamped tribute reverted to
+            # the neutral (Father's Day-looking) config even though the
+            # original render ran under a campaign — the campaign only ever
+            # existed in the /generate body and the snapshot. Follow the
+            # snapshot's pin so regenerate/edit keep the campaign's skin.
+            pinned = await fetch_campaign_by_id(cur, campaign_id_hint)
+            if pinned is not None:
+                fresh = await fetch_campaign_by_slug(cur, pinned.slug)
+                campaign = fresh or pinned
         if not campaign.id:
             campaign = await resolve_campaign_db(cur, campaign_slug)
 
@@ -469,7 +484,15 @@ async def _reenqueue_tribute_render(
         async with conn.cursor() as cur:
             campaign, profile, directives, visual_theme = (
                 await _resolve_render_config(
-                    cur, person_id=str(person_id), tribute_id=tribute_id))
+                    cur, person_id=str(person_id), tribute_id=tribute_id,
+                    campaign_id_hint=stored.get("campaign_id") or None))
+            # Backstop stamp (mirrors /generate): once the campaign is known,
+            # pin it on the row so progress reads and later regenerates stop
+            # depending on the snapshot hint. No-op when already stamped.
+            if campaign.id:
+                await stamp_tribute_campaign_async(
+                    cur, tribute_id=tribute_id, campaign_id=campaign.id)
+                await conn.commit()
     if directives is not None:
         style = _style_dict(visual_theme)
         profile_id = profile.id if profile is not None else ""
