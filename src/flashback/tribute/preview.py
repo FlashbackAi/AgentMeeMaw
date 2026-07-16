@@ -62,6 +62,7 @@ def campaign_from_payload(payload: dict, *, row_id: str = "draft") -> CampaignCo
         closing_card_copy=payload.get("closing_card_copy"),
         state="draft",
         version=0,
+        relationship_groups=tuple(payload.get("relationship_groups") or ()),
     )
 
 

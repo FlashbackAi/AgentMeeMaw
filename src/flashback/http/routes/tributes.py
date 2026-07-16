@@ -52,6 +52,7 @@ from flashback.tribute.config_schema import (
     NEUTRAL_CAMPAIGN,
     CampaignConfig,
     VisualThemeConfig,
+    campaign_applies,
 )
 from flashback.tribute.progress import (
     fetch_tribute_progress_async,
@@ -141,6 +142,12 @@ async def _resolve_render_config(
             )
             row = await cur.fetchone()
             group = (row[0] if row else None) or "other"
+
+        # Relationship targeting (0041): a campaign scoped to other groups
+        # never styles this person's render — degrade to neutral, the
+        # profile still owns tone/theme.
+        if not campaign_applies(campaign, group):
+            campaign = NEUTRAL_CAMPAIGN
 
         profile = await fetch_profile_by_group(cur, group)
         if profile is None and group != "other":
@@ -723,18 +730,45 @@ async def tribute_edit_suggestions(
 
 @router.get("/tribute-campaigns", response_model=TributeCampaignsResponse)
 async def get_tribute_campaigns(
+    person_id: UUID | None = Query(
+        None,
+        description=(
+            "Scope is_active / active_featured_slug to this legacy's "
+            "relationship group (0041 targeting). Without it, targeted "
+            "campaigns list with is_active=false surfaces intact."
+        ),
+    ),
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
 ) -> TributeCampaignsResponse:
     """Public campaign list + which campaign is featured today (for Node).
 
     DB-backed (tribute CRM): published campaign rows, neutral first — the
-    same shape the code registry served before migration 0039.
+    same shape the code registry served before migration 0039. With
+    ``person_id``, relationship-targeted campaigns count as active only
+    for matching legacies (cached group; no LLM call here).
     """
     today = datetime.now(timezone.utc).date()
+    group: str | None = None
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
+            if person_id is not None:
+                await cur.execute(
+                    "SELECT relationship_group FROM persons WHERE id = %s",
+                    (str(person_id),),
+                )
+                row = await cur.fetchone()
+                group = row[0] if row else None
             active = await active_featured_campaign_db(cur, today)
             rows = await list_rows(cur, "tribute_campaigns")
+
+    def _applies(groups: tuple[str, ...]) -> bool:
+        if not groups:
+            return True
+        # Person-scoped: require a matching known group. Unscoped calls
+        # keep the pre-0041 global view.
+        if person_id is None:
+            return True
+        return group is not None and group in groups
 
     out = [
         TributeCampaignOut(
@@ -748,8 +782,10 @@ async def get_tribute_campaigns(
         if r.get("state") != "published":
             continue
         start, end = r.get("active_start"), r.get("active_end")
+        targeting = tuple(r.get("relationship_groups") or ())
         is_active = bool(
             r.get("featured") and start and end and start <= today <= end
+            and _applies(targeting)
         )
         out.append(
             TributeCampaignOut(
@@ -759,9 +795,13 @@ async def get_tribute_campaigns(
                 is_active=is_active,
                 active_start=start.isoformat() if start else None,
                 active_end=end.isoformat() if end else None,
+                relationship_groups=list(targeting),
             )
         )
+    active_slug = None
+    if active is not None and _applies(active.relationship_groups):
+        active_slug = active.slug
     return TributeCampaignsResponse(
         campaigns=out,
-        active_featured_slug=active.slug if active else None,
+        active_featured_slug=active_slug,
     )

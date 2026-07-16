@@ -28,6 +28,7 @@ from flashback.themes.repository import (
     unlock_theme_async,
 )
 from flashback.tribute.config_repository import fetch_campaign_by_slug
+from flashback.tribute.config_schema import campaign_applies
 from flashback.tribute.leads import build_leads, leads_to_json
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
@@ -99,6 +100,9 @@ async def apply_theme_unlock(
                     # tribute lifecycle (its own row, its own video), and a
                     # completed prior campaign's tribute is never reopened.
                     if theme.kind == "tribute":
+                        group = await ensure_relationship_group(
+                            cur, settings=deps.settings, person_id=person_id
+                        )
                         campaign_row = None
                         slug = state.session_metadata.get("campaign")
                         if slug:
@@ -110,6 +114,16 @@ async def apply_theme_unlock(
                                     "theme_unlock.unknown_campaign_slug",
                                     campaign=str(slug)[:64],
                                 )
+                            elif not campaign_applies(campaign_row, group):
+                                # Relationship targeting (0041): the campaign
+                                # doesn't cover this legacy's relationship —
+                                # run the neutral tribute flow instead.
+                                log.info(
+                                    "theme_unlock.campaign_not_for_group",
+                                    campaign=str(slug)[:64],
+                                    group=group,
+                                )
+                                campaign_row = None
                         tribute_id = await ensure_open_tribute_async(
                             cur,
                             person_id=person_id,
@@ -126,9 +140,6 @@ async def apply_theme_unlock(
                                 tribute_id=tribute_id,
                                 campaign_id=campaign_row.id,
                             )
-                        await ensure_relationship_group(
-                            cur, settings=deps.settings, person_id=person_id
-                        )
 
         # Propagate theme context downstream via session_metadata so the
         # opener / WM init / response generator can read it without
@@ -141,9 +152,13 @@ async def apply_theme_unlock(
             state.session_metadata["theme_archetype_answers"] = archetype_answers
         if theme.kind == "tribute" and tribute_id is not None:
             state.session_metadata["current_tribute_id"] = tribute_id
-            campaign = state.session_metadata.get("campaign")
-            if campaign:
-                state.session_metadata["current_tribute_campaign"] = str(campaign)
+            # Only the ACCEPTED campaign rides Working Memory — a campaign
+            # rejected by relationship targeting must not skin the session's
+            # copy (invitation text, progress title) either.
+            if campaign_row is not None:
+                state.session_metadata["current_tribute_campaign"] = (
+                    campaign_row.slug
+                )
             # Derive in-session steering leads from the archetype answers
             # (design 2026-06-19). They steer the interview; they are never
             # written to the graph (invariant #22).

@@ -58,6 +58,11 @@ class CampaignConfig:
     closing_card_copy: str | None
     state: str
     version: int
+    # Relationship targeting (migration 0041): the profile groups this
+    # campaign applies to. Empty = every relationship (the pre-0041 and
+    # default behavior). A Friendship Day campaign targeted to
+    # ('friend', 'cousin') never surfaces on a father legacy.
+    relationship_groups: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,19 @@ NEUTRAL_CAMPAIGN = CampaignConfig(
 
 def _is_str_list(v) -> bool:
     return isinstance(v, list) and all(isinstance(s, str) for s in v)
+
+
+def campaign_applies(campaign: CampaignConfig, group: str | None) -> bool:
+    """Does this campaign target the person's relationship group?
+
+    Empty targeting = applies to everyone. A targeted campaign requires a
+    KNOWN matching group — an unclassified person (group None) never gets
+    a targeted campaign, so 'Friendship Day for friends only' can't leak
+    onto a legacy the classifier hasn't seen yet.
+    """
+    if not campaign.relationship_groups:
+        return True
+    return group is not None and group in campaign.relationship_groups
 
 
 def _validate_bank(bank, field: str, errors: list[str]) -> None:
@@ -200,6 +218,15 @@ def validate_campaign_payload(d: dict) -> list[str]:
         d["video_target_seconds"], int
     ):
         errors.append("video_target_seconds: must be an integer or null")
+    rg = d.get("relationship_groups")
+    if rg is not None:
+        if not _is_str_list(rg):
+            errors.append(
+                "relationship_groups: must be a list of profile group "
+                "slugs (empty = all relationships)"
+            )
+        elif any(not s.strip() for s in rg):
+            errors.append("relationship_groups: blank entry")
     return errors
 
 

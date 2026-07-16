@@ -50,7 +50,11 @@ from flashback.tribute.config_repository import (
     fetch_profile_by_group,
     resolve_campaign_db,
 )
-from flashback.tribute.config_schema import bank_to_archetype_questions
+from flashback.tribute.config_schema import (
+    NEUTRAL_CAMPAIGN,
+    bank_to_archetype_questions,
+    campaign_applies,
+)
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.theme import (
     TRIBUTE_ARCHETYPE_MAX,
@@ -216,6 +220,12 @@ async def unlock_prepare(
                 group = await ensure_relationship_group(
                     cur, settings=cfg, person_id=str(body.person_id)
                 )
+                # Relationship targeting (migration 0041): a campaign scoped
+                # to specific groups never skins another relationship's card
+                # — and its bank override never replaces that profile's
+                # questions.
+                if not campaign_applies(campaign, group):
+                    campaign = NEUTRAL_CAMPAIGN
                 profile = await fetch_profile_by_group(cur, group)
                 if profile is None and group != "other":
                     profile = await fetch_profile_by_group(cur, "other")

@@ -198,6 +198,9 @@ class TributeCampaignOut(BaseModel):
     is_active: bool
     active_start: str | None = None
     active_end: str | None = None
+    # Relationship targeting (0041): profile groups this campaign applies
+    # to; empty = all relationships.
+    relationship_groups: list[str] = []
 
 
 class TributeCampaignsResponse(BaseModel):
