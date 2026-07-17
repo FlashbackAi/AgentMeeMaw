@@ -129,6 +129,57 @@ async def test_new_campaign_tribute_does_not_inherit_committed_answers(
                         (camp_a, camp_b))
 
 
+async def test_latest_same_campaign_answers_backfill_after_completion(
+    async_pool,
+) -> None:
+    """Re-entering a campaign after completing its video prefills from the
+    completed tribute's answers (same campaign only)."""
+    from flashback.tribute.repository import (
+        fetch_latest_tribute_answers_async,
+    )
+
+    person_id, theme_id = await _seed(async_pool)
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO tribute_campaigns (slug, display_name, "
+                    "state) VALUES ('prefill_test', 'P', 'published') "
+                    "RETURNING id::text"
+                )
+                (camp,) = await cur.fetchone()
+                try:
+                    tid = await ensure_open_tribute_async(
+                        cur, person_id=person_id, theme_id=theme_id,
+                        campaign_id=camp,
+                    )
+                    await merge_tribute_archetype_answers_async(
+                        cur, tribute_id=tid,
+                        answers=[_ans("How did you meet?", "College")],
+                    )
+                    await cur.execute(
+                        "UPDATE tributes SET status = 'complete' "
+                        "WHERE id = %s", (tid,))
+                    got = await fetch_latest_tribute_answers_async(
+                        cur, person_id=person_id, theme_id=theme_id,
+                        campaign_id=camp,
+                    )
+                    assert got and got[0]["question_text"] == "How did you meet?"
+                    # a different campaign never sees them
+                    other = await fetch_latest_tribute_answers_async(
+                        cur, person_id=person_id, theme_id=theme_id,
+                        campaign_id=None,
+                    )
+                    assert other == []
+                finally:
+                    await cur.execute(
+                        "DELETE FROM tributes WHERE person_id = %s",
+                        (person_id,))
+                    await cur.execute(
+                        "DELETE FROM tribute_campaigns WHERE id = %s",
+                        (camp,))
+
+
 async def test_meter_prefers_tribute_row_answers(async_pool) -> None:
     """answered_layers counts the tribute row's answers when present,
     falling back to the theme row for pre-0042 tributes — and counts

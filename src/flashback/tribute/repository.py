@@ -250,6 +250,46 @@ async def fetch_tribute_archetype_answers_async(
     return row[0] if row and isinstance(row[0], list) else []
 
 
+async def fetch_latest_tribute_answers_async(
+    cur,
+    *,
+    person_id: UUID | str,
+    theme_id: UUID | str,
+    campaign_id: str | None,
+) -> list[dict]:
+    """The most recent SAME-CAMPAIGN tribute's committed answers.
+
+    Used by unlock_prepare when no tribute is open: re-entering a campaign
+    after completing its video should prefill the modal from the answers
+    given last time, not start blank. Same-campaign only — another
+    campaign's answers belong to different questions.
+    """
+    campaign_filter = (
+        "AND campaign_id = %(campaign_id)s"
+        if campaign_id
+        else "AND campaign_id IS NULL"
+    )
+    await cur.execute(
+        f"""
+        SELECT archetype_answers
+          FROM tributes
+         WHERE person_id = %(person_id)s
+           AND theme_id = %(theme_id)s
+           AND status != 'superseded'
+           {campaign_filter}
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        {
+            "person_id": str(person_id),
+            "theme_id": str(theme_id),
+            "campaign_id": str(campaign_id) if campaign_id else None,
+        },
+    )
+    row = await cur.fetchone()
+    return row[0] if row and isinstance(row[0], list) else []
+
+
 async def fetch_tribute_campaign_id_async(cur, *, tribute_id: UUID | str) -> str | None:
     """The campaign the tribute was created under (stamped at entry), or None."""
     await cur.execute(

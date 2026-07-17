@@ -57,6 +57,7 @@ from flashback.tribute.config_schema import (
 )
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
+    fetch_latest_tribute_answers_async,
     fetch_open_tribute_id_async,
     fetch_tribute_archetype_answers_async,
 )
@@ -253,6 +254,9 @@ async def unlock_prepare(
                 # Per-campaign answers (0042): what THIS campaign's open
                 # tribute has already committed — the app prefills matching
                 # questions and can skip the modal when nothing is new.
+                # No open tribute (last one completed)? Fall back to the
+                # latest same-campaign tribute so re-entry prefills instead
+                # of starting blank.
                 open_id = await fetch_open_tribute_id_async(
                     cur,
                     person_id=str(body.person_id),
@@ -263,6 +267,15 @@ async def unlock_prepare(
                     tribute_answered = (
                         await fetch_tribute_archetype_answers_async(
                             cur, tribute_id=open_id
+                        )
+                    )
+                else:
+                    tribute_answered = (
+                        await fetch_latest_tribute_answers_async(
+                            cur,
+                            person_id=str(body.person_id),
+                            theme_id=str(theme_id),
+                            campaign_id=campaign.id or None,
                         )
                     )
         subject_relationship = rel_row[0] if rel_row else None
