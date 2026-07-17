@@ -24,6 +24,29 @@ application must do, and what the agent now guarantees.
 4. **Targeting** (0041): none of this happens at all for a legacy whose
    relationship the campaign doesn't cover.
 
+## The card state machine (START HERE — this is the fix for
+## "it says start your tribute and asks questions again")
+
+Decide the card's state from `tribute_status` rows (Node already returns
+all of them per person) **for the active campaign** (`campaign_slug`
+column, live after migration 0040):
+
+| state | condition | card shows |
+|---|---|---|
+| **DONE** | a tribute for THIS campaign is `complete` with `video_url` | **the video** (play, share, download PDF) + campaign title + a small "Make another" action. **Never the questions flow.** |
+| IN PROGRESS | an open tribute (`draft`/`ready`/`generating`) for this campaign | resume wherever it is: questions → chat → message card → Generate (details below) |
+| FRESH | no tribute for this campaign | campaign-skinned start: title = campaign `display_name` ("To My Partner in Crime"), tap → questions modal |
+
+Hard rule: **a generated video always wins the card.** The questions flow
+is only for FRESH and for IN PROGRESS tributes whose questions aren't
+answered yet.
+
+"Make another" (optional, explicit): call `unlock_prepare` with the
+campaign — `tribute_answered` comes back prefilled from the completed
+tribute — **do not show the modal**; pass those answers straight through
+as `archetype_answers` on `/session/start`. The user lands directly on
+the message card (rich legacy) or a short chat, never re-answers.
+
 ## The application flow, step by step
 
 User opens a legacy while campaign X is active (check
