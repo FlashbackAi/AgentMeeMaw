@@ -35,6 +35,11 @@ DEFAULT_ACCENT = "#e8552e"
 DEFAULT_HOLD = 2.4
 DEFAULT_TRANSITION = 0.7
 
+# Remotion always paints full-bleed edge-to-edge art (no paper margin) at a
+# portrait aspect that fills the 9:16 frame with minimal cropping.
+SCENE_BLEND = "scene"
+SCENE_ASPECT = "3:4"
+
 
 def recipe_kwargs_from_style(style: dict | None) -> dict:
     """Extract the Remotion render's Recipe levers from the snapshot ``style``.
@@ -73,11 +78,15 @@ def render_book_remotion(
     palette = palette if palette is not None else DEFAULT_PALETTE
     pins = pins if pins is not None else DEFAULT_PINS
 
+    # Remotion composites art into its OWN layout backgrounds, so the art is
+    # always full-bleed "scene" mode (no cream paper margin to crop) and painted
+    # at a portrait aspect that fills the vertical frame. The incoming ``blend``
+    # (a legacy Pillow concept) is intentionally ignored here.
     opener_illo, beat_illos, closing_illo = _generate_illustrations(
         artist=artist, book=book, subject_name=subject_name,
         relationship=relationship, gt_context=gt_context,
-        prime_photo=prime_photo, deage=deage, blend=blend,
-        concurrency=concurrency, art_mood=art_mood)
+        prime_photo=prime_photo, deage=deage, blend=SCENE_BLEND,
+        concurrency=concurrency, art_mood=art_mood, aspect=SCENE_ASPECT)
 
     with tempfile.TemporaryDirectory() as td:
         public_dir = os.path.join(td, "public")

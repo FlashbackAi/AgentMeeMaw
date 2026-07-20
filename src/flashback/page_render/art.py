@@ -55,6 +55,16 @@ def _background_instruction(blend: str) -> str:
             "behind them -- no scenery, no sky, no walls; a soft contact shadow "
             "is fine."
         )
+    if blend == "scene":
+        # Full-bleed for the Remotion compositor: our layouts supply their own
+        # backgrounds (scrapbook paper, split colour-block, full-bleed frame),
+        # so the art must fill the frame with no paper margin to crop.
+        return (
+            "Paint an immersive, cinematic scene that fills the ENTIRE frame "
+            "edge to edge -- the environment, light, and atmosphere reach every "
+            "edge with NO paper, NO vignette, NO border, and NO empty margins. "
+            "Compose for a tall vertical frame."
+        )
     return (
         "Paint it as a loose vignette on plain warm off-white cream paper, the "
         "scene grouped low and centred, the edges softly fading to nothing; no "

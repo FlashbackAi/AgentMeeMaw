@@ -44,6 +44,7 @@ def _generate_illustrations(
     blend: str,
     concurrency: int = DEFAULT_CONCURRENCY,
     art_mood: str | None = None,
+    aspect: str | None = None,
 ) -> tuple[Image.Image, list[Image.Image], Image.Image]:
     """Generate (opener, [beat...], closing) illustrations concurrently.
 
@@ -58,7 +59,8 @@ def _generate_illustrations(
 
     def _illustrated_opener() -> Image.Image:
         return artist.illustrate(book.opener.art_direction, gt_context, blend,
-                                 reference=reference, art_mood=art_mood)
+                                 reference=reference, art_mood=art_mood,
+                                 aspect=aspect)
 
     def gen_opener() -> Image.Image:
         if prime_photo is not None:
@@ -79,11 +81,13 @@ def _generate_illustrations(
 
     def gen_beat(b: Beat) -> Image.Image:
         return artist.illustrate(b.art_direction, gt_context, blend,
-                                 reference=reference, art_mood=art_mood)
+                                 reference=reference, art_mood=art_mood,
+                                 aspect=aspect)
 
     def gen_closing() -> Image.Image:
         return artist.illustrate(book.closing.art_direction, gt_context, blend,
-                                 reference=reference, art_mood=art_mood)
+                                 reference=reference, art_mood=art_mood,
+                                 aspect=aspect)
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
         fut_opener = ex.submit(gen_opener)
