@@ -56,6 +56,60 @@ def _fit_main(text: str, max_w: int, max_h: int,
     return best
 
 
+def _fits(text: str, max_w: int, max_h: int, hi: int, lo: int,
+          kit: style.StyleKit, line_gap: float = 1.18) -> bool:
+    """Whether ``text`` fits the box at ANY size in [lo, hi]."""
+    words = text.split()
+    for size in range(hi, lo - 1, -2):
+        font = _font(kit.main_font, size, style.MAIN_FONT_FALLBACK,
+                     kit.main_font_weight)
+        lines = _wrap(words, font, max_w)
+        asc, desc = font.getmetrics()
+        if (int((asc + desc) * line_gap * len(lines)) <= max_h
+                and max((_text_w(font, ln) for ln in lines), default=0)
+                <= max_w):
+            return True
+    return False
+
+
+def plan_message_page(template: Image.Image, text: str,
+                      layout: "style.Layout",
+                      kit: style.StyleKit | None = None
+                      ) -> tuple["style.Layout", bool, str]:
+    """(layout, include_art, text_to_draw) for the contributor-message page.
+
+    The message is user-authored free text — unlike the 8-10 word beat
+    lines it can be a whole paragraph, and the plain fitter used to
+    center-overflow it off the page (prod 2026-07-19: the text ran over
+    the top border and through the portrait). Escalation:
+
+      1. fits the normal text box (down to 22px)  -> keep the layout + art
+      2. fits the box extended over the art zone   -> text-only page
+      3. still too long                            -> truncate on a word
+                                                      boundary with an
+                                                      ellipsis; never spill
+    """
+    kit = kit or style.DEFAULT_KIT
+    w, h = template.size
+    tb = layout.text_box
+    x0, y0, x1, y1 = tb.px(w, h)
+    if _fits(text, x1 - x0, y1 - y0, hi=86, lo=22, kit=kit):
+        return layout, True, text
+    big = style.Box(tb.x0, tb.y0, tb.x1, 0.88)
+    big_layout = style.Layout(big, layout.art_box, layout.art_valign)
+    bx0, by0, bx1, by1 = big.px(w, h)
+    bw, bh = bx1 - bx0, by1 - by0
+    if _fits(text, bw, bh, hi=48, lo=18, kit=kit):
+        return big_layout, False, text
+    words = text.split()
+    while len(words) > 1:
+        words = words[:-1]
+        cand = " ".join(words).rstrip(",;:.— ") + " …"
+        if _fits(cand, bw, bh, hi=18, lo=18, kit=kit):
+            return big_layout, False, cand
+    return big_layout, False, text
+
+
 def draw_main_line(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px,
                    kit: style.StyleKit | None = None):
     kit = kit or style.DEFAULT_KIT
@@ -65,7 +119,9 @@ def draw_main_line(draw: ImageDraw.ImageDraw, text: str, box: Box, size_px,
     font, lines, asc, desc, line_gap = _fit_main(text, bw, bh, kit=kit)
     line_h = int((asc + desc) * line_gap)
     block_h = line_h * len(lines)
-    cy = y0 + (bh - block_h) // 2
+    # Never start above the box: an over-tall block (planner miss / direct
+    # caller) top-aligns and runs down instead of spilling over the border.
+    cy = max(y0, y0 + (bh - block_h) // 2)
     cx = (x0 + x1) // 2
     for i, ln in enumerate(lines):
         lw = _text_w(font, ln)

@@ -26,12 +26,29 @@ Rules:
   thing they wanted to say. Never invent new facts, memories, or names.
 - Tighten and warm the phrasing. Fix stumbles and filler. Keep it in
   the contributor's own first-person voice ("I", "you").
-- 1-4 sentences. No greeting/sign-off scaffolding ("Dear ...",
-  "Love, ..."). Just the message.
+- 1-4 sentences and AT MOST 55 words -- the message is typeset large on
+  a single keepsake page; long paragraphs do not fit. Distill a long
+  input to its emotional core rather than keeping everything.
+- No greeting/sign-off scaffolding ("Dear ...", "Love, ...").
 - Never address the reader or narrate -- output only the message itself.
 
 Call the `polish_message` tool exactly once.
 """
+
+# The message page typesets ~45-55 words comfortably; the compositor can
+# absorb more by dropping the art, but past this the page stops being a
+# keepsake. Applied to BOTH the polished output and the raw-text fallback
+# (the fallback used to pass a whole paragraph straight through).
+MESSAGE_MAX_CHARS = 420
+
+
+def clamp_message(text: str, limit: int = MESSAGE_MAX_CHARS) -> str:
+    """Word-boundary clamp with an ellipsis; no-op for short messages."""
+    t = (text or "").strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit].rsplit(" ", 1)[0].rstrip(",;:.— ")
+    return cut + " …"
 
 _MESSAGE_TOOL = ToolSpec(
     name="polish_message",
@@ -54,10 +71,15 @@ async def polish_message(
     person_name: str,
     person_relationship: str | None = None,
 ) -> str:
-    """Return a polished message; falls back to the cleaned raw text."""
+    """Return a polished message; falls back to the CLAMPED cleaned raw text.
+
+    The LLM sees the FULL raw text (so a long outpouring is distilled, not
+    cut); only what leaves this function is length-bounded.
+    """
     cleaned = (raw_text or "").strip()
+    fallback = clamp_message(cleaned)
     if settings is None or not cleaned:
-        return cleaned
+        return fallback
 
     rel_attr = (
         f' relationship="{xml_text(person_relationship)}"'
@@ -83,16 +105,16 @@ async def polish_message(
         )
     except LLMError as exc:
         log.warning("message_polish.llm_failed", error=str(exc))
-        return cleaned
+        return fallback
     except Exception as exc:  # defensive -- never lose the user's words
         log.warning(
             "message_polish.unexpected_failure",
             error_type=type(exc).__name__,
             detail=str(exc),
         )
-        return cleaned
+        return fallback
 
     polished = args.get("message") if isinstance(args, dict) else None
     if isinstance(polished, str) and polished.strip():
-        return polished.strip()
-    return cleaned
+        return clamp_message(polished)
+    return fallback

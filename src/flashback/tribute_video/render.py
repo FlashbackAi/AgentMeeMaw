@@ -156,10 +156,18 @@ def render_book(
         layout = style.layout_for(role, i - 1)  # beat index 0-based
         if kit.generated_template:
             layout = style.safe_layout(layout)
+        line = beat.line
+        if role == "message":
+            # User-authored free text: escalate the layout instead of
+            # letting a long message spill over the border/art.
+            layout, include_art, line = compose.plan_message_page(
+                template, line, layout, kit=kit)
+            if not include_art:
+                illo = None
         illo_layer = compose.illustration_layer(
             template, illo, blend, layout.art_box, layout.art_valign,
             tight_crop=kit.generated_template)
-        txt_layer = compose.text_layer(template, beat.eyebrow, beat.line,
+        txt_layer = compose.text_layer(template, beat.eyebrow, line,
                                        layout.text_box, kit=kit)
         page = Image.alpha_composite(
             Image.alpha_composite(template_rgba, illo_layer), txt_layer
