@@ -23,7 +23,10 @@ from flashback.tribute_video.art import Artist
 from flashback.tribute_video.assembler import assemble_storybook_video
 from flashback.tribute_video.book import Book
 from flashback.tribute_video.context import RenderContext
-from flashback.tribute_video.remotion_render import render_book_remotion
+from flashback.tribute_video.remotion_render import (
+    recipe_kwargs_from_style,
+    render_book_remotion,
+)
 from flashback.tribute_video.render import render_book
 from flashback.tribute_video.style import StyleKit, kit_from_style_dict
 
@@ -118,7 +121,8 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
     )
     if engine == "remotion":
         try:
-            render_book_remotion(**render_kwargs)
+            recipe_kwargs = recipe_kwargs_from_style(ctx.style)
+            render_book_remotion(**render_kwargs, **recipe_kwargs)
         except Exception as exc:  # noqa: BLE001 - fall back, never fail the render
             log.warning("tribute_render.remotion_failed_fallback_legacy",
                         tribute_id=ctx.tribute_id, error=str(exc)[:300])

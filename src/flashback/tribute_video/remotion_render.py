@@ -26,10 +26,36 @@ from .stills_pdf import assemble_pdf_from_stills
 log = structlog.get_logger("flashback.tribute_video.remotion_render")
 
 # Proven default creative recipe (the Friendship-Day spike). The memorial /
-# other recipes arrive via CRM config in a later plan.
+# other recipes arrive via CRM config; missing config degrades here so a render
+# never blocks (invariant).
 DEFAULT_PALETTE = ["split_duotone", "scrapbook", "type_over_crop", "fullbleed_caption"]
 DEFAULT_PINS = {"opener": "split_duotone", "payoff": "type_over_crop",
                 "closing": "fullbleed_caption"}
+DEFAULT_ACCENT = "#e8552e"
+DEFAULT_HOLD = 2.4
+DEFAULT_TRANSITION = 0.7
+
+
+def recipe_kwargs_from_style(style: dict | None) -> dict:
+    """Extract the Remotion render's Recipe levers from the snapshot ``style``.
+
+    The CRM visual-theme snapshot carries ``recipe`` (layout palette/pins +
+    pacing) and ``ink.accent``. Every field defaults to the proven creative
+    values, so a pre-Recipe snapshot (or malformed config) still renders
+    (spec §5, config-never-blocks invariant). Returns kwargs for
+    ``render_book_remotion``.
+    """
+    style = style or {}
+    recipe = style.get("recipe") or {}
+    pacing = recipe.get("pacing") or {}
+    accent = (style.get("ink") or {}).get("accent") or recipe.get("accent") or DEFAULT_ACCENT
+    return {
+        "palette": list(recipe.get("layout_palette") or DEFAULT_PALETTE),
+        "pins": dict(recipe.get("layout_pins") or DEFAULT_PINS),
+        "hold": float(pacing.get("hold", DEFAULT_HOLD)),
+        "transition": float(pacing.get("transition", DEFAULT_TRANSITION)),
+        "accent": accent,
+    }
 
 
 def render_book_remotion(

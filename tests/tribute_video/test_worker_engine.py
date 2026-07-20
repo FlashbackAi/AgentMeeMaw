@@ -7,7 +7,8 @@ def _ctx():
     return SimpleNamespace(
         tribute_id="t1", subject_name="Dad", relationship="father", gt_context="",
         prime_photo_get_url="", deage=False, blend="cream", transition="bleed",
-        fps=30, art_mood=None, video_put_url="v", pdf_put_url="p", poster_put_url="")
+        fps=30, art_mood=None, style=None,
+        video_put_url="v", pdf_put_url="p", poster_put_url="")
 
 
 def _settings(engine):

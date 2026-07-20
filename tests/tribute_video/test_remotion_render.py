@@ -47,3 +47,28 @@ def test_render_produces_pdf_mp4_poster(monkeypatch, tmp_path):
     assert os.path.exists(res.pdf_path) and os.path.getsize(res.pdf_path) > 0
     assert os.path.exists(res.mp4_path)
     assert res.poster_path and os.path.exists(res.poster_path)
+
+
+def test_recipe_kwargs_defaults_when_style_absent():
+    kw = remotion_render.recipe_kwargs_from_style(None)
+    assert kw["palette"] == remotion_render.DEFAULT_PALETTE
+    assert kw["pins"] == remotion_render.DEFAULT_PINS
+    assert kw["hold"] == remotion_render.DEFAULT_HOLD
+    assert kw["transition"] == remotion_render.DEFAULT_TRANSITION
+    assert kw["accent"] == remotion_render.DEFAULT_ACCENT
+
+
+def test_recipe_kwargs_reads_snapshot_style():
+    style = {
+        "recipe": {
+            "layout_palette": ["framed_hero", "fullbleed_caption"],
+            "layout_pins": {"opener": "framed_hero"},
+            "pacing": {"hold": 3.4, "transition": 1.1},
+        },
+        "ink": {"accent": "#123456"},
+    }
+    kw = remotion_render.recipe_kwargs_from_style(style)
+    assert kw["palette"] == ["framed_hero", "fullbleed_caption"]
+    assert kw["pins"] == {"opener": "framed_hero"}
+    assert kw["hold"] == 3.4 and kw["transition"] == 1.1
+    assert kw["accent"] == "#123456"
