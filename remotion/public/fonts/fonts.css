@@ -1,0 +1,20 @@
+@font-face {
+  font-family: "Playfair Display";
+  font-style: italic;
+  font-weight: 400 700;
+  src: url("./PlayfairDisplay-Italic.ttf") format("truetype");
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("./EBGaramond.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Caveat";
+  font-weight: 400 700;
+  src: url("./Caveat.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Nunito";
+  font-weight: 200 900;
+  src: url("./Nunito.ttf") format("truetype");
+}

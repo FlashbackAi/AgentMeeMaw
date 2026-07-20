@@ -147,3 +147,11 @@ local/
 # Validation spikes (kept local; production code lives in src/flashback)
 scripts/storybook_comic_prototype/
 .playwright-mcp/
+
+# Node / Remotion composition engine (deps + fetched Chromium + render output)
+node_modules/
+remotion/.remotion/
+remotion/out/
+
+# Brainstorming visual companion (local scratch mockups)
+.superpowers/

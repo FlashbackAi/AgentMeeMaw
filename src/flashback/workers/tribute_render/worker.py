@@ -23,6 +23,7 @@ from flashback.tribute_video.art import Artist
 from flashback.tribute_video.assembler import assemble_storybook_video
 from flashback.tribute_video.book import Book
 from flashback.tribute_video.context import RenderContext
+from flashback.tribute_video.remotion_render import render_book_remotion
 from flashback.tribute_video.render import render_book
 from flashback.tribute_video.style import StyleKit, kit_from_style_dict
 
@@ -101,16 +102,29 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
     mp4_path = os.path.join(tmpdir, f"{ctx.tribute_id}.mp4")
     poster_path = (os.path.join(tmpdir, f"{ctx.tribute_id}.poster.jpg")
                    if ctx.poster_put_url else None)
-    render_book(
+    # Engine selection: "remotion" (Node subprocess) with an automatic fallback
+    # to the legacy Pillow+ffmpeg render, so a Remotion failure never strands a
+    # tribute in 'failed'. ``transition`` is ffmpeg-only, added to the legacy
+    # call alone (spec 2026-07-20 §11).
+    engine = getattr(settings, "render_engine", "legacy")
+    render_kwargs = dict(
         book=book, subject_name=ctx.subject_name,
         relationship=ctx.relationship, gt_context=ctx.gt_context,
         artist=artist, pdf_path=pdf_path, mp4_path=mp4_path,
         poster_path=poster_path,
-        prime_photo=photo, deage=ctx.deage, blend=ctx.blend,
-        transition=ctx.transition, fps=ctx.fps,
+        prime_photo=photo, deage=ctx.deage, blend=ctx.blend, fps=ctx.fps,
         concurrency=getattr(settings, "render_concurrency", 4),
         kit=kit, art_mood=ctx.art_mood or None,
     )
+    if engine == "remotion":
+        try:
+            render_book_remotion(**render_kwargs)
+        except Exception as exc:  # noqa: BLE001 - fall back, never fail the render
+            log.warning("tribute_render.remotion_failed_fallback_legacy",
+                        tribute_id=ctx.tribute_id, error=str(exc)[:300])
+            render_book(transition=ctx.transition, **render_kwargs)
+    else:
+        render_book(transition=ctx.transition, **render_kwargs)
     video_ok = 200 <= transfer.upload_file(
         ctx.video_put_url, mp4_path, content_type="video/mp4") < 300
     pdf_ok = 200 <= transfer.upload_file(
