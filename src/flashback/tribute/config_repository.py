@@ -71,6 +71,10 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "fonts",
         "ink",
         "audio_slug",
+        "layout_palette",
+        "layout_pins",
+        "pacing",
+        "motion_preset",
     ),
 }
 _JSONB_COLUMNS = {
@@ -81,6 +85,8 @@ _JSONB_COLUMNS = {
     "archetype_bank_override",
     "fonts",
     "ink",
+    "layout_pins",
+    "pacing",
 }
 _DATE_COLUMNS = {"active_start", "active_end"}
 _SLUG_COLUMN = {
@@ -173,12 +179,17 @@ def _row_to_visual_theme(row) -> VisualThemeConfig:
         audio_slug=row[7],
         state=row[8],
         version=row[9],
+        layout_palette=list(row[10] or []),
+        layout_pins=row[11] or {},
+        pacing=row[12] or {},
+        motion_preset=row[13] or "",
     )
 
 
 _VISUAL_COLS = (
     "id::text, slug, display_name, (template_image IS NOT NULL) AS has_image, "
-    "template_mime, fonts, ink, audio_slug, state, version"
+    "template_mime, fonts, ink, audio_slug, state, version, "
+    "layout_palette, layout_pins, pacing, motion_preset"
 )
 
 

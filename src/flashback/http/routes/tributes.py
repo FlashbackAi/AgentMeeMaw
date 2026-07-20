@@ -72,6 +72,11 @@ from flashback.tribute.repository import (
     write_tribute_generation_context_async,
 )
 from flashback.tribute_video.context import CONTEXT_KEY, build_context_dict
+from flashback.tribute_video.sequencer import (
+    LAYOUT_CATALOG,
+    MOTION_PRESETS,
+    PINNABLE_ROLES,
+)
 from flashback.tribute_video.edit_suggestions import generate_edit_suggestions
 from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
@@ -182,6 +187,29 @@ def _style_dict(visual_theme: VisualThemeConfig | None) -> dict | None:
         "fonts": visual_theme.fonts,
         "ink": visual_theme.ink,
         "audio_slug": visual_theme.audio_slug,
+        # Remotion composition recipe (migration 0044). The render worker reads
+        # these via recipe_kwargs_from_style; empty values fall back to the
+        # code-side Friendship default (a render never blocks on config).
+        "recipe": {
+            "layout_palette": list(visual_theme.layout_palette or []),
+            "layout_pins": visual_theme.layout_pins or {},
+            "pacing": visual_theme.pacing or {},
+            "motion_preset": visual_theme.motion_preset or "",
+        },
+    }
+
+
+@router.get("/flashback/layouts")
+async def flashback_layouts() -> dict:
+    """The layout library + motion presets for the CRM recipe picker.
+
+    The agent<->Node contract behind the visual-theme palette/pins/motion
+    controls (see docs/FLASHBACK_NODE_PROMPT.md §3b). Read-only; static.
+    """
+    return {
+        "layouts": LAYOUT_CATALOG,
+        "motion_presets": MOTION_PRESETS,
+        "pinnable_roles": PINNABLE_ROLES,
     }
 
 

@@ -10,6 +10,30 @@ from __future__ import annotations
 
 DEFAULT_LAYOUT = "framed_hero"
 
+# The canonical layout library — the agent<->Node contract for the CRM palette
+# picker (exposed via GET /flashback/layouts). Slugs must match the Remotion
+# registry (remotion/src/layouts/registry.ts). Admins choose from these; they
+# never author layouts.
+LAYOUT_CATALOG: list[dict] = [
+    {"slug": "split_duotone", "label": "Split / Duotone",
+     "description": "Art one side, a bold colour block with the beat title the other."},
+    {"slug": "scrapbook", "label": "Scrapbook",
+     "description": "Overlapping polaroids with a handwritten caption."},
+    {"slug": "type_over_crop", "label": "Big Type",
+     "description": "Giant kinetic headline over a full-bleed detail crop."},
+    {"slug": "fullbleed_caption", "label": "Full-bleed + Caption",
+     "description": "Cinematic full frame with a tucked-in corner caption."},
+    {"slug": "framed_hero", "label": "Framed (classic)",
+     "description": "Calm framed hero with the line above -- the memorial default."},
+]
+
+# Motion presets a Recipe can select (spec §9). Forward-looking: the render
+# applies one motion style today; the lever becomes live in a later pass.
+MOTION_PRESETS: list[str] = ["calm", "playful", "punchy", "cinematic"]
+
+# Structural roles a layout can be pinned to (Recipe role pins).
+PINNABLE_ROLES: list[str] = ["opener", "payoff", "closing"]
+
 
 def assign_layouts(roles: list[str], *, palette: list[str],
                    pins: dict[str, str] | None = None) -> list[str]:

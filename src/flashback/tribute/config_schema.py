@@ -12,7 +12,7 @@ Spec: docs/superpowers/specs/2026-07-14-tribute-campaign-crm-design.md §3.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from flashback.themes.archetype_llm import ArchetypeQuestion
@@ -77,6 +77,12 @@ class VisualThemeConfig:
     audio_slug: str
     state: str
     version: int
+    # Remotion composition recipe (migration 0044). Empty values fall back to
+    # the code-side Friendship default at render time (recipe_kwargs_from_style).
+    layout_palette: list = field(default_factory=list)
+    layout_pins: dict = field(default_factory=dict)
+    pacing: dict = field(default_factory=dict)
+    motion_preset: str = ""
 
 
 # The year-round no-campaign default: pure wrapper-neutrality. Kept in code
