@@ -277,6 +277,40 @@ sudo systemctl enable --now flashback-agent-worker@tribute_render
 > sudo journalctl -u flashback-agent-worker@tribute_render -f
 > ```
 
+### Remotion render engine (the DEFAULT since migration 0045-era deploys)
+
+The tribute render worker renders via the **Remotion (Flashback) engine by
+default** (`RENDER_ENGINE` defaults to `remotion`; set `RENDER_ENGINE=legacy`
+in the env file to opt the whole box out). Without the Remotion install the
+worker still works — every render falls back to the legacy Pillow/ffmpeg
+look and logs `tribute_render.remotion_failed_fallback_legacy`. To actually
+render Flashbacks, provision the worker host once:
+
+```bash
+# Node 20+ (nodesource) on the worker host
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Install the bundled Remotion project + fetch its pinned headless Chromium
+cd /opt/AgentMeeMaw/remotion
+sudo -u $(stat -c %U /opt/AgentMeeMaw) npm ci
+sudo -u $(stat -c %U /opt/AgentMeeMaw) npx remotion browser ensure
+```
+
+`FLASHBACK_REMOTION_DIR` overrides the project location if the checkout
+lives elsewhere. After provisioning, restart the worker and watch one real
+render through:
+
+```bash
+sudo systemctl restart flashback-agent-worker@tribute_render
+sudo journalctl -u flashback-agent-worker@tribute_render -f
+# a healthy Flashback render shows no ...remotion_failed_fallback_legacy line
+```
+
+Per-theme engine pins (migration 0045, `tribute_visual_themes.render_engine`)
+override the box default — e.g. the Father's Day theme pinned to `legacy`
+keeps the classic look regardless of this section.
+
 The storybook render worker is the tribute's sibling (Gemini image gen ×22+
 per book, plus a gpt-5.1 lettering verifier) — same template, same
 one-at-a-time drop-in. It needs `STORYBOOK_RENDER_QUEUE_URL` and
