@@ -50,7 +50,7 @@ def test_remotion_failure_falls_back_to_legacy(monkeypatch, tmp_path):
     assert calls["legacy"] == 1
 
 
-def test_legacy_engine_default(monkeypatch, tmp_path):
+def test_legacy_engine_opt_out(monkeypatch, tmp_path):
     _stub_common(monkeypatch)
     calls = {"remotion": 0, "legacy": 0}
     monkeypatch.setattr(W, "render_book_remotion",
@@ -60,3 +60,13 @@ def test_legacy_engine_default(monkeypatch, tmp_path):
     W.render_and_upload(_ctx(), artist=None, tmpdir=str(tmp_path),
                         settings=_settings("legacy"))
     assert calls == {"remotion": 0, "legacy": 1}
+
+
+def test_config_engine_defaults_to_remotion(monkeypatch):
+    from flashback.config import TributeRenderConfig
+
+    for key in ("DATABASE_URL", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.setenv(key, "x")
+    monkeypatch.delenv("RENDER_ENGINE", raising=False)
+    cfg = TributeRenderConfig.from_env(queue_required=False)
+    assert cfg.render_engine == "remotion"

@@ -105,11 +105,11 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
     mp4_path = os.path.join(tmpdir, f"{ctx.tribute_id}.mp4")
     poster_path = (os.path.join(tmpdir, f"{ctx.tribute_id}.poster.jpg")
                    if ctx.poster_put_url else None)
-    # Engine selection: "remotion" (Node subprocess) with an automatic fallback
-    # to the legacy Pillow+ffmpeg render, so a Remotion failure never strands a
-    # tribute in 'failed'. ``transition`` is ffmpeg-only, added to the legacy
-    # call alone (spec 2026-07-20 §11).
-    engine = getattr(settings, "render_engine", "legacy")
+    # Engine selection: "remotion" (Node subprocess, the default) with an
+    # automatic fallback to the legacy Pillow+ffmpeg render, so a Remotion
+    # failure never strands a tribute in 'failed'. ``transition`` is
+    # ffmpeg-only, added to the legacy call alone (spec 2026-07-20 §11).
+    engine = getattr(settings, "render_engine", "remotion")
     render_kwargs = dict(
         book=book, subject_name=ctx.subject_name,
         relationship=ctx.relationship, gt_context=ctx.gt_context,

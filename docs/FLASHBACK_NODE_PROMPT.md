@@ -47,8 +47,10 @@ byte-for-byte the same as `TRIBUTE_VIDEO_NODE_PROMPT.md`:
 - **Output shape** — still an MP4 (in-app) + PDF (print) + poster JPEG (cover).
   Same 9:16 vertical video, same A4-portrait PDF.
 
-**Net: the day the agent flips `RENDER_ENGINE=remotion`, tributes silently start
-rendering as Flashbacks. No deploy coupling with Node.**
+**Net: `remotion` is now the agent worker's DEFAULT engine (set
+`RENDER_ENGINE=legacy` to opt out) — tributes render as Flashbacks wherever the
+worker's Remotion install is present, falling back to the legacy render where
+it isn't. No deploy coupling with Node.**
 
 ---
 
@@ -117,6 +119,14 @@ layouts. The slugs are part of the contract:
 | `type_over_crop` | Big Type | giant kinetic headline over a full-bleed crop |
 | `fullbleed_caption` | Full-bleed + Caption | cinematic full frame, corner caption |
 | `framed_hero` | Framed (classic) | calm framed hero — the memorial default |
+| `letter_note` | Handwritten letter | caption inks onto letter paper, photo under tape |
+| `filmstrip` | Film strip | vertical strip slides through painted frames |
+| `postcard` | Postcard | tilted vintage postcard, stamp + postmark |
+| `word_mask` | Word mask | art shows through one giant word |
+| `torn_reveal` | Torn paper | paper tears apart to reveal the scene |
+| `gallery_wall` | Gallery wall | framed paintings + brass caption plaque |
+| `magazine` | Editorial | tall art, vertical eyebrow, serif headline |
+| `map_journey` | Journey map | dotted route to a pinned photo, script caption |
 
 > The agent will expose these via a read endpoint (proposed
 > `GET /flashback/layouts` → `[{slug, label, description, preview_url}]`) so your

@@ -777,10 +777,12 @@ class TributeRenderConfig:
     # this turns ~18 serial calls into a few parallel batches (no quality
     # change). Keep modest to stay under image-model rate limits.
     render_concurrency: int = 4
-    # Render engine: "legacy" (Pillow+ffmpeg) or "remotion" (Node subprocess,
-    # spec 2026-07-20). A Remotion failure auto-falls-back to legacy at render
-    # time, so flipping this on is safe.
-    render_engine: str = "legacy"
+    # Render engine: "remotion" (Node subprocess, spec 2026-07-20 — the
+    # Flashback composition engine, default) or "legacy" (Pillow+ffmpeg).
+    # A Remotion failure auto-falls-back to legacy at render time, so the
+    # remotion default never strands a render; set RENDER_ENGINE=legacy to
+    # opt out entirely.
+    render_engine: str = "remotion"
     # Mirror the queue's redrive maxReceiveCount. On the final attempt the
     # worker writes status='failed' + render_error instead of silently
     # dropping to the DLQ (which would strand the row in 'generating').
@@ -812,7 +814,7 @@ class TributeRenderConfig:
             render_transition=os.environ.get("RENDER_TRANSITION", "bleed"),
             render_blend=os.environ.get("RENDER_BLEND", "cream"),
             render_concurrency=int(os.environ.get("RENDER_CONCURRENCY", "4")),
-            render_engine=os.environ.get("RENDER_ENGINE", "legacy"),
+            render_engine=os.environ.get("RENDER_ENGINE", "remotion"),
             max_render_attempts=int(os.environ.get("MAX_RENDER_ATTEMPTS", "3")),
         )
 
