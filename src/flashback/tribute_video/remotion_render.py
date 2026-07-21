@@ -34,6 +34,8 @@ DEFAULT_PINS = {"opener": "split_duotone", "payoff": "type_over_crop",
 DEFAULT_ACCENT = "#e8552e"
 DEFAULT_HOLD = 2.4
 DEFAULT_TRANSITION = 0.7
+# The proven Friendship spike is punchy; memorial/other themes override via CRM.
+DEFAULT_MOTION_PRESET = "punchy"
 
 # Remotion always paints full-bleed edge-to-edge art (no paper margin) at a
 # portrait aspect that fills the 9:16 frame with minimal cropping.
@@ -60,6 +62,7 @@ def recipe_kwargs_from_style(style: dict | None) -> dict:
         "hold": float(pacing.get("hold", DEFAULT_HOLD)),
         "transition": float(pacing.get("transition", DEFAULT_TRANSITION)),
         "accent": accent,
+        "motion_preset": recipe.get("motion_preset") or DEFAULT_MOTION_PRESET,
     }
 
 
@@ -71,6 +74,7 @@ def render_book_remotion(
     kit: style.StyleKit | None = None, art_mood: str | None = None,
     palette: list[str] | None = None, pins: dict[str, str] | None = None,
     hold: float = 2.4, transition: float = 0.7, accent: str = "#e8552e",
+    motion_preset: str = DEFAULT_MOTION_PRESET,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
     if not kit.generated_template:
@@ -103,7 +107,8 @@ def render_book_remotion(
 
         props = build_props(book, kit=kit, image_names=image_names,
                             palette=palette, pins=pins, fps=fps, hold=hold,
-                            transition=transition, accent=accent)
+                            transition=transition, accent=accent,
+                            motion_preset=motion_preset)
         props_path = os.path.join(td, "props.json")
         with open(props_path, "w", encoding="utf-8") as fh:
             json.dump(props, fh)

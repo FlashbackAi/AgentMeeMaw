@@ -16,6 +16,7 @@ export type Recipe = {
   fonts: Fonts;
   ink: Ink;
   pacing: { hold: number; transition: number };
+  motion_preset?: string; // calm | playful | punchy | cinematic
 };
 
 export type Scene = {

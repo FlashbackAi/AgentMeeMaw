@@ -36,6 +36,11 @@ from flashback.tribute.config_schema import (
     validate_ink,
     validate_profile_payload,
 )
+from flashback.tribute_video.sequencer import (
+    LAYOUT_CATALOG,
+    MOTION_PRESETS,
+    PINNABLE_ROLES,
+)
 from flashback.tribute.preview import (
     build_preview,
     campaign_from_payload,
@@ -96,6 +101,53 @@ def allow(key: str, per_minute: int, *, now: float | None = None) -> bool:
 # --- payload validation ------------------------------------------------------
 
 
+_LAYOUT_SLUGS = {layout["slug"] for layout in LAYOUT_CATALOG}
+
+
+def validate_recipe(payload: dict) -> list[str]:
+    """Errors for a visual theme's Remotion recipe (all fields optional).
+
+    Empty/absent is valid (the render falls back to the code-side default).
+    Slugs/roles/presets are checked against the catalog so a typo surfaces in
+    the CRM instead of silently degrading a render.
+    """
+    errors: list[str] = []
+    palette = payload.get("layout_palette")
+    if palette is not None:
+        if not isinstance(palette, list) or not all(isinstance(s, str) for s in palette):
+            errors.append("layout_palette: must be a list of layout slugs")
+        else:
+            unknown = [s for s in palette if s not in _LAYOUT_SLUGS]
+            if unknown:
+                errors.append(
+                    f"layout_palette: unknown slug(s) {unknown} (see /flashback/layouts)")
+    pins = payload.get("layout_pins")
+    if pins is not None:
+        if not isinstance(pins, dict):
+            errors.append("layout_pins: must be an object {role: slug}")
+        else:
+            for role, slug in pins.items():
+                if role not in PINNABLE_ROLES:
+                    errors.append(
+                        f"layout_pins: unknown role '{role}' (allowed: {PINNABLE_ROLES})")
+                elif slug not in _LAYOUT_SLUGS:
+                    errors.append(f"layout_pins.{role}: unknown slug '{slug}'")
+    pacing = payload.get("pacing")
+    if pacing is not None:
+        if not isinstance(pacing, dict):
+            errors.append("pacing: must be an object {hold, transition}")
+        else:
+            for key in ("hold", "transition"):
+                val = pacing.get(key)
+                if val is not None and (not isinstance(val, (int, float)) or isinstance(val, bool)):
+                    errors.append(f"pacing.{key}: must be a number (seconds)")
+    motion = payload.get("motion_preset")
+    if motion not in (None, "") and motion not in MOTION_PRESETS:
+        errors.append(
+            f"motion_preset: unknown preset '{motion}' (allowed: {MOTION_PRESETS})")
+    return errors
+
+
 def _validate(table: repo.ConfigTable, payload: dict) -> list[str]:
     if table == "relationship_profiles":
         return validate_profile_payload(payload)
@@ -127,6 +179,7 @@ def _validate(table: repo.ConfigTable, payload: dict) -> list[str]:
     errors.extend(validate_ink(payload.get("ink")))
     if payload.get("audio_slug") not in AUDIO_REGISTRY:
         errors.append("audio_slug: unknown track slug (see /admin/asset-library)")
+    errors.extend(validate_recipe(payload))
     return errors
 
 
