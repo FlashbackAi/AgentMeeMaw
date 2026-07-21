@@ -75,10 +75,42 @@ async def test_none_slots_reproduce_shipped_register(monkeypatch):
     )
     system = captured["system_prompt"]
     assert "a loved one speaking, warm and proud" in system
-    assert "a child, a grandchild" in system
+    # With no authored narrative, the memorial default FRAMING reproduces the
+    # original hard-coded life-story framing.
+    assert "a reader who never met them" in system
+    assert "one connected life arc" in system
     assert "Meet my grandfather" in system  # {relationship} substituted
     assert "8 to 10 words" in system
     assert "NEVER a face" in system
+
+
+async def test_custom_narrative_replaces_memorial_framing(monkeypatch):
+    captured: dict = {}
+
+    async def fake(**kw):
+        captured.update(kw)
+        return _OK_TOOL_OUTPUT
+
+    monkeypatch.setattr(assembler, "call_with_tool", fake)
+    await assembler.assemble_storybook_video(
+        settings=_Settings(), subject_name="Arjun", relationship="friend",
+        gt_context="", candidates=_CANDS, n_pages=8,
+        narrative_block=(
+            "FRAMING -- who this is for and how it's shaped:\n"
+            "- AUDIENCE: the friend themselves and the circle who knows you both\n"
+            "- ARC: how you met, the everyday, drifting, the reunion\n"
+            "- THROUGHLINE: the shared jokes and small loyalties"),
+    )
+    system = captured["system_prompt"]
+    # the authored friendship framing is present...
+    assert "the friend themselves and the circle" in system
+    assert "the everyday, drifting, the reunion" in system
+    # ...and the memorial default is fully gone
+    assert "a reader who never met them" not in system
+    assert "one connected life arc" not in system
+    # the arc/closing instructions defer to FRAMING, not a hard-coded life arc
+    assert "along the ARC described in FRAMING" in system
+    assert "lands the THROUGHLINE" in system
 
 
 async def test_name_placeholder_substituted_in_custom_opener(monkeypatch):

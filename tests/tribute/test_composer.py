@@ -36,6 +36,11 @@ def _friend_profile() -> ProfileConfig:
         visual_theme_id="vt-profile",
         state="published",
         version=1,
+        narrative={
+            "audience": "the friend and the circle who knows you both",
+            "arc": "how you met, the everyday, drifting, the reunion",
+            "throughline": "the shared jokes and small loyalties",
+        },
     )
 
 
@@ -131,3 +136,30 @@ def test_empty_never_and_avoid_omit_clauses() -> None:
     d = compose_directives(profile, NEUTRAL_CAMPAIGN)
     assert "Never:" not in d.voice_block
     assert "Avoid:" not in d.art_mood
+
+
+def test_narrative_block_composed() -> None:
+    d = compose_directives(_friend_profile(), NEUTRAL_CAMPAIGN)
+    assert d.narrative_block == (
+        "FRAMING -- who this is for and how it's shaped:\n"
+        "- AUDIENCE: the friend and the circle who knows you both\n"
+        "- ARC: how you met, the everyday, drifting, the reunion\n"
+        "- THROUGHLINE: the shared jokes and small loyalties"
+    )
+
+
+def test_narrative_block_empty_when_unauthored() -> None:
+    profile = _friend_profile()
+    profile = ProfileConfig(**{**profile.__dict__, "narrative": {}})
+    d = compose_directives(profile, NEUTRAL_CAMPAIGN)
+    # empty -> assembler falls back to its memorial default framing
+    assert d.narrative_block == ""
+
+
+def test_narrative_block_partial_keys() -> None:
+    profile = _friend_profile()
+    profile = ProfileConfig(
+        **{**profile.__dict__, "narrative": {"arc": "just the arc"}})
+    d = compose_directives(profile, NEUTRAL_CAMPAIGN)
+    assert "AUDIENCE" not in d.narrative_block
+    assert "- ARC: just the arc" in d.narrative_block

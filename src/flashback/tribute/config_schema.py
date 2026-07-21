@@ -39,6 +39,9 @@ class ProfileConfig:
     visual_theme_id: str | None
     state: str
     version: int
+    # Narrative framing (migration 0046): audience / arc / throughline. Empty
+    # dict = the code-side memorial default (see assembler._DEFAULT_FRAMING).
+    narrative: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -201,6 +204,17 @@ def validate_profile_payload(d: dict) -> list[str]:
         d["video_target_seconds"], int
     ):
         errors.append("video_target_seconds: must be an integer or null")
+
+    # Narrative framing (migration 0046) — all keys optional; empty = default.
+    narrative = d.get("narrative")
+    if narrative is not None:
+        if not isinstance(narrative, dict):
+            errors.append("narrative: must be an object {audience, arc, throughline}")
+        else:
+            for key in ("audience", "arc", "throughline"):
+                v = narrative.get(key)
+                if v is not None and not isinstance(v, str):
+                    errors.append(f"narrative.{key}: must be a string")
     return errors
 
 

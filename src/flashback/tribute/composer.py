@@ -18,6 +18,7 @@ class ComposedDirectives:
     voice_block: str
     opener_style: str
     art_mood: str
+    narrative_block: str
     fallback_opener: str
     fallback_closing: str
     deage_cover: bool
@@ -57,6 +58,28 @@ def _art_mood(art: dict) -> str:
     return mood
 
 
+def _narrative_block(narrative: dict) -> str:
+    """Compose the FRAMING block the assembler injects. Empty when nothing is
+    authored, so the assembler falls back to its memorial default.
+
+    Free-text by design: the author describes the audience / arc / throughline
+    in prose, and the code just injects it -- so a new occasion (Mother's Day,
+    a retirement, an anniversary) is pure CRM config, no code change."""
+    audience = (narrative.get("audience") or "").strip()
+    arc = (narrative.get("arc") or "").strip()
+    throughline = (narrative.get("throughline") or "").strip()
+    lines = []
+    if audience:
+        lines.append(f"- AUDIENCE: {audience}")
+    if arc:
+        lines.append(f"- ARC: {arc}")
+    if throughline:
+        lines.append(f"- THROUGHLINE: {throughline}")
+    if not lines:
+        return ""
+    return "FRAMING -- who this is for and how it's shaped:\n" + "\n".join(lines)
+
+
 def compose_directives(
     profile: ProfileConfig, campaign: CampaignConfig
 ) -> ComposedDirectives:
@@ -70,6 +93,7 @@ def compose_directives(
         voice_block=_voice_block(profile.voice),
         opener_style=_opener_style(profile.opener),
         art_mood=_art_mood(profile.art),
+        narrative_block=_narrative_block(profile.narrative),
         fallback_opener=profile.fallback_opener,
         fallback_closing=profile.fallback_closing,
         deage_cover=bool(deage),

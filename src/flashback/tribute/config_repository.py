@@ -47,6 +47,7 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "deage_cover",
         "video_target_seconds",
         "visual_theme_id",
+        "narrative",
     ),
     "tribute_campaigns": (
         "slug",
@@ -82,6 +83,7 @@ _JSONB_COLUMNS = {
     "voice",
     "opener",
     "art",
+    "narrative",
     "archetype_bank",
     "archetype_bank_override",
     "fonts",
@@ -128,6 +130,7 @@ def _row_to_profile(row) -> ProfileConfig:
         visual_theme_id=str(row[13]) if row[13] else None,
         state=row[14],
         version=row[15],
+        narrative=row[16] or {},
     )
 
 
@@ -135,7 +138,7 @@ _PROFILE_COLS = (
     "id::text, group_slug, display_name, synonyms, voice, opener, art, "
     "fallback_opener, fallback_closing, archetype_bank, "
     "message_invitation_copy, deage_cover, video_target_seconds, "
-    "visual_theme_id, state, version"
+    "visual_theme_id, state, version, narrative"
 )
 
 

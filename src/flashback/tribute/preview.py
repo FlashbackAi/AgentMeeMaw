@@ -42,6 +42,7 @@ def profile_from_payload(payload: dict, *, row_id: str = "draft") -> ProfileConf
         visual_theme_id=payload.get("visual_theme_id"),
         state="draft",
         version=0,
+        narrative=payload.get("narrative") or {},
     )
 
 
@@ -124,6 +125,7 @@ async def build_preview(
         voice_block=directives.voice_block,
         opener_style=directives.opener_style,
         art_mood=directives.art_mood,
+        narrative_block=directives.narrative_block,
         fallback_opener=directives.fallback_opener,
         fallback_closing=directives.fallback_closing,
         feature="tribute_preview",

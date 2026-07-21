@@ -473,6 +473,7 @@ async def _generate_video(
         voice_block=directives.voice_block if directives else "",
         opener_style=directives.opener_style if directives else "",
         art_mood=directives.art_mood if directives else "",
+        narrative_block=directives.narrative_block if directives else "",
         fallback_opener=directives.fallback_opener if directives else "",
         fallback_closing=directives.fallback_closing if directives else "",
     )
@@ -546,6 +547,7 @@ async def _reenqueue_tribute_render(
         voice_block = directives.voice_block
         opener_style = directives.opener_style
         art_mood = directives.art_mood
+        narrative_block = directives.narrative_block
         fallback_opener = directives.fallback_opener
         fallback_closing = directives.fallback_closing
     else:
@@ -556,6 +558,7 @@ async def _reenqueue_tribute_render(
         voice_block = stored.get("voice_block") or ""
         opener_style = stored.get("opener_style") or ""
         art_mood = stored.get("art_mood") or ""
+        narrative_block = stored.get("narrative_block") or ""
         fallback_opener = stored.get("fallback_opener") or ""
         fallback_closing = stored.get("fallback_closing") or ""
 
@@ -583,6 +586,7 @@ async def _reenqueue_tribute_render(
         voice_block=voice_block,
         opener_style=opener_style,
         art_mood=art_mood,
+        narrative_block=narrative_block,
         fallback_opener=fallback_opener,
         fallback_closing=fallback_closing,
     )

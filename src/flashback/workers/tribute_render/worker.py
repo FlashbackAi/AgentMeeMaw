@@ -56,6 +56,7 @@ def assemble_book(ctx: RenderContext, *, settings) -> Book:
         voice_block=ctx.voice_block or None,
         opener_style=ctx.opener_style or None,
         art_mood=ctx.art_mood or None,
+        narrative_block=ctx.narrative_block or None,
         fallback_opener=ctx.fallback_opener,
         fallback_closing=ctx.fallback_closing,
     ))

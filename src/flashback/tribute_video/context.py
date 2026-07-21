@@ -49,6 +49,7 @@ class RenderContext:
     voice_block: str = ""
     opener_style: str = ""
     art_mood: str = ""
+    narrative_block: str = ""
     fallback_opener: str = ""
     fallback_closing: str = ""
 
@@ -81,6 +82,7 @@ class RenderContext:
             voice_block=(d.get("voice_block") or ""),
             opener_style=(d.get("opener_style") or ""),
             art_mood=(d.get("art_mood") or ""),
+            narrative_block=(d.get("narrative_block") or ""),
             fallback_opener=(d.get("fallback_opener") or ""),
             fallback_closing=(d.get("fallback_closing") or ""),
         )
@@ -111,6 +113,7 @@ def build_context_dict(
     voice_block: str = "",
     opener_style: str = "",
     art_mood: str = "",
+    narrative_block: str = "",
     fallback_opener: str = "",
     fallback_closing: str = "",
 ) -> dict[str, Any]:
@@ -139,6 +142,7 @@ def build_context_dict(
         "voice_block": voice_block,
         "opener_style": opener_style,
         "art_mood": art_mood,
+        "narrative_block": narrative_block,
         "fallback_opener": fallback_opener,
         "fallback_closing": fallback_closing,
     }

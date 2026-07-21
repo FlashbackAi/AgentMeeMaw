@@ -100,12 +100,22 @@ _PROFILE_TOOL = ToolSpec(
                 "required": ["mood_words", "avoid"],
                 "additionalProperties": False,
             },
+            "narrative": {
+                "type": "object",
+                "properties": {
+                    "audience": {"type": "string", "maxLength": 200},
+                    "arc": {"type": "string", "maxLength": 240},
+                    "throughline": {"type": "string", "maxLength": 200},
+                },
+                "required": ["audience", "arc", "throughline"],
+                "additionalProperties": False,
+            },
             "fallback_opener": {"type": "string", "maxLength": 120},
             "fallback_closing": {"type": "string", "maxLength": 120},
             "archetype_bank": _BANK_SCHEMA,
             "message_invitation_copy": {"type": "string", "maxLength": 200},
         },
-        "required": ["display_name", "voice", "opener", "art",
+        "required": ["display_name", "voice", "opener", "art", "narrative",
                      "fallback_opener", "fallback_closing", "archetype_bank",
                      "message_invitation_copy"],
         "additionalProperties": False,
@@ -150,6 +160,16 @@ HARD RULES:
   where natural; never stereotyped.
 - The emotion rule should say WHERE the feeling lives and when sincerity is
   allowed to break through.
+- NARRATIVE framing must fit the relationship, NOT default to a eulogy:
+  * audience -- who watches and is spoken to (for a peer/friend the audience
+    often includes the subject themselves and the shared circle; for an elder
+    memorial it may be someone who never met them).
+  * arc -- the SHAPE the pages follow. A friendship is "how you met -> the
+    everyday rituals -> drifting apart -> the reunion -> what they still mean",
+    NOT a birth-to-late-years life arc. Only elders/memorials get a life arc.
+  * throughline -- what the piece is ultimately about (a friendship's shared
+    jokes and loyalties; a parent's quiet greatness; etc). Never force
+    "their life and greatness" onto a peer relationship.
 
 Call the tool once with the complete draft."""
 

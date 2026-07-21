@@ -1,11 +1,17 @@
-"""Assemble a storybook-video Book from the Father's Day tribute flow.
+"""Assemble a storybook-video Book from a tribute flow.
 
-A loved one tells the subject's life + greatness: an opener ("Meet my
-{relationship}"), {n} memory beats (8-10 word lines + art direction), and a
-closing conclusion. Inputs come from the FD flow -- theme-tagged moments, the
-contributor's message (the emotional climax), and the archetype answers (leads).
-Big-LLM via the shared call_with_tool; falls back to title-derived beats so a
-render can always proceed.
+Someone who knew the subject tells their story: an opener, {n} memory beats
+(8-10 word lines + art direction), and a closing. Inputs come from the flow --
+theme-tagged moments, the contributor's message (the emotional climax), and the
+archetype answers (leads). Big-LLM via the shared call_with_tool; falls back to
+title-derived beats so a render can always proceed.
+
+The NARRATIVE FRAMING -- who the piece speaks to, how the pages are ordered,
+and what it's ultimately about -- is authored per relationship in the CRM
+(``ProfileConfig.narrative`` -> composed ``narrative_block``), NOT coded per
+occasion. When no framing is authored, ``_DEFAULT_FRAMING`` reproduces the
+original memorial "tell a stranger the arc of a life" behavior, so a new
+occasion is pure config and existing renders are unchanged.
 
 Separate from ``flashback.tribute.assembly`` (which emits the longer
 ``TributeScript`` for the Node renderer): this theme wants short, self-contained
@@ -28,14 +34,18 @@ from .book import Beat, Book
 log = structlog.get_logger("flashback.tribute_video.assembler")
 
 _DEFAULT_VOICE_SLOT = """\
-You are someone in the family who loved this person -- a child, a grandchild --
-telling the story of their life and quiet greatness to a reader who never met
-them.
-
 VOICE -- a loved one speaking, warm and proud:
 Speak about the subject as "he"/"she" or by name. You MAY use "we/our/us/my"
-sparingly to make it personal, but keep the spotlight on THEM and their
-greatness. Tender, admiring, plain-spoken, true. Never an encyclopedia."""
+sparingly to make it personal. Tender, admiring, plain-spoken, true. Never an
+encyclopedia. Follow the FRAMING below for who you are speaking to."""
+
+# Memorial default: reproduces the original hard-coded Father's Day framing so
+# an un-authored profile / pre-0046 snapshot renders exactly as before.
+_DEFAULT_FRAMING = """\
+FRAMING -- who this is for and how it's shaped:
+- AUDIENCE: a reader who never met them; keep the spotlight on the subject.
+- ARC: one connected life arc -- early life + work, then family + character, then the late years.
+- THROUGHLINE: their life and quiet greatness."""
 
 _DEFAULT_OPENER_SLOT = """\
 THE OPENING -- "Meet my {relationship}, ...": one warm sentence naming them and,
@@ -44,16 +54,25 @@ not a memory."""
 
 
 def _voice_slot(voice_block: str | None) -> str:
-    """CRM-composed register wrapped in the non-negotiable voice guardrails."""
+    """CRM-composed register wrapped in the non-negotiable voice guardrails.
+
+    Audience/spotlight framing lives in the FRAMING slot now (relationship-
+    authored), so the voice slot is purely HOW to speak, not WHO to."""
     if not voice_block or not voice_block.strip():
         return _DEFAULT_VOICE_SLOT
     return (
-        "You are telling the story of this person's life to a reader who "
-        "never met them.\n\nVOICE:\n"
+        "VOICE:\n"
         + voice_block.strip()
-        + '\nSpeak about the subject as "he"/"she" or by name; keep the '
-        "spotlight on THEM. Plain-spoken, true. Never an encyclopedia."
+        + "\nPlain-spoken, true; never an encyclopedia. Follow the FRAMING "
+        "below for who you are speaking to and about."
     )
+
+
+def _framing_slot(narrative_block: str | None) -> str:
+    """Relationship-authored FRAMING, or the memorial default when unset."""
+    if not narrative_block or not narrative_block.strip():
+        return _DEFAULT_FRAMING
+    return narrative_block.strip()
 
 
 def _opener_slot(opener_style: str | None) -> str:
@@ -75,10 +94,14 @@ def _art_mood_slot(art_mood: str | None) -> str:
 _SYSTEM = """\
 {voice_slot}
 
-You receive the subject (with their family relationship), their world, the
-candidate memories (each an id + a short memory), the archetype LEADS the family
+{framing_slot}
+
+You receive the subject (with their relationship to the teller), their world,
+the candidate memories (each an id + a short memory), the archetype LEADS
 already shared, and -- when present -- the contributor's own message. Build a
-book: an OPENING page, exactly {n} memory pages, and a CLOSING page.
+book: an OPENING page, exactly {n} memory pages, and a CLOSING page. Everything
+below serves the FRAMING above -- who this speaks to, how it's ordered, and
+what it's about.
 
 {opener_slot}
 
@@ -98,10 +121,10 @@ Quick Smile"). Concrete and specific -- never generic filler like "A Memory"
 or "Good Times". The first display word should be strong (it may render
 alone at giant size) -- never "The"/"A"/"She"/"He".
 
-THE CLOSING -- one sentence landing the whole life in a breath (~8-16 words).
-If a contributor message is present, it is the emotional climax shown on its own
-page just before this closing -- let the closing follow naturally from it; do
-NOT quote the message in a beat.
+THE CLOSING -- one sentence that lands the THROUGHLINE (see FRAMING) in a breath
+(~8-16 words). If a contributor message is present, it is the emotional climax
+shown on its own page just before this closing -- let the closing follow
+naturally from it; do NOT quote the message in a beat.
 
 LEADS: the archetype answers are context for what to look for and how to open --
 weave them in only where a real memory supports them. They are NOT facts to
@@ -116,8 +139,8 @@ something the memories don't support, lean the existing material toward its
 spirit rather than fabricating.
 
 LOGICAL FLOW: choose the {n} most vivid, distinct memories; drop weak/redundant
-ones. Order them as one connected life arc (early life + work -> family +
-character -> the late years) so each page follows from the one before.
+ones. Order them along the ARC described in FRAMING so each page follows from
+the one before.
 
 ART DIRECTION (every page incl. opener + closing): a vivid VISUAL brief -- what
 we SEE: the action, the ONE concrete object, the place, the time of day, the
@@ -282,6 +305,7 @@ async def assemble_storybook_video(
     voice_block: str | None = None,
     opener_style: str | None = None,
     art_mood: str | None = None,
+    narrative_block: str | None = None,
     fallback_opener: str = "",
     fallback_closing: str = "",
     feature: str = "tribute_video",
@@ -306,12 +330,13 @@ async def assemble_storybook_video(
     system = (
         _SYSTEM
         .replace("{voice_slot}", _voice_slot(voice_block))
+        .replace("{framing_slot}", _framing_slot(narrative_block))
         .replace("{opener_slot}", _opener_slot(opener_style))
         .replace("{art_mood_slot}", _art_mood_slot(art_mood))
         .replace("{n}", str(n_pages))
         .replace("{relationship}", relationship or "grandfather")
     )
-    if voice_block or opener_style or art_mood:
+    if voice_block or opener_style or art_mood or narrative_block:
         # CRM opener examples carry {name}; ground them on THIS subject.
         system = system.replace("{name}", subject_name)
     try:
