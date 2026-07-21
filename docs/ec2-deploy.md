@@ -287,14 +287,15 @@ look and logs `tribute_render.remotion_failed_fallback_legacy`. To actually
 render Flashbacks, provision the worker host once:
 
 ```bash
-# Node 20+ (nodesource) on the worker host
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# Node 20+ if the box doesn't already have it (prod is Amazon Linux → dnf;
+# the nodesource apt script does NOT work there)
+node --version || sudo dnf install -y nodejs20
 
 # Install the bundled Remotion project + fetch its pinned headless Chromium
+# (Remotion serves an amazon-linux-x64 headless shell build)
 cd /opt/AgentMeeMaw/remotion
-sudo -u $(stat -c %U /opt/AgentMeeMaw) npm ci
-sudo -u $(stat -c %U /opt/AgentMeeMaw) npx remotion browser ensure
+npm ci
+npx remotion browser ensure
 ```
 
 `FLASHBACK_REMOTION_DIR` overrides the project location if the checkout
