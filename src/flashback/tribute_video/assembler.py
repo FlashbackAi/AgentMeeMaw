@@ -89,6 +89,15 @@ EACH MEMORY PAGE -- one line, 8-10 words:
   thing carries the page. Show it; never name the emotion. No clichés. Specific
   to THIS person and THIS memory; never invent facts.
 
+EACH PAGE ALSO GETS A `display` -- 2-4 words:
+The video renders some pages as BOLD TYPOGRAPHY (a giant headline, a
+handwritten scrapbook caption, art showing through one huge word), and those
+pages show the `display`, not the line. Distill the line's core into 2-4
+punchy words that stand alone ("Always In Motion", "Chai At Dawn", "Her
+Quick Smile"). Concrete and specific -- never generic filler like "A Memory"
+or "Good Times". The first display word should be strong (it may render
+alone at giant size) -- never "The"/"A"/"She"/"He".
+
 THE CLOSING -- one sentence landing the whole life in a breath (~8-16 words).
 If a contributor message is present, it is the emotional climax shown on its own
 page just before this closing -- let the closing follow naturally from it; do
@@ -123,9 +132,10 @@ _PAGE_SCHEMA = {
     "type": "object",
     "properties": {
         "line": {"type": "string", "minLength": 1, "maxLength": 120},
+        "display": {"type": "string", "minLength": 1, "maxLength": 32},
         "art_direction": {"type": "string", "maxLength": 340},
     },
-    "required": ["line", "art_direction"],
+    "required": ["line", "display", "art_direction"],
     "additionalProperties": False,
 }
 
@@ -145,9 +155,10 @@ _TOOL = ToolSpec(
                     "properties": {
                         "moment_id": {"type": "string"},
                         "line": {"type": "string", "minLength": 1, "maxLength": 95},
+                        "display": {"type": "string", "minLength": 1, "maxLength": 32},
                         "art_direction": {"type": "string", "maxLength": 340},
                     },
-                    "required": ["moment_id", "line", "art_direction"],
+                    "required": ["moment_id", "line", "display", "art_direction"],
                     "additionalProperties": False,
                 },
             },
@@ -205,6 +216,7 @@ def _beat(raw: dict[str, Any]) -> Beat:
         line=(raw.get("line") or "").strip(),
         art_direction=(raw.get("art_direction") or "").strip(),
         moment_id=(raw.get("moment_id") or "").strip(),
+        display=(raw.get("display") or "").strip(),
     )
 
 

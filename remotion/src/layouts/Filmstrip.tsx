@@ -16,10 +16,11 @@ const Sprockets: React.FC<{ side: "left" | "right" }> = ({ side }) => (
   />
 );
 
-export const Filmstrip: React.FC<LayoutProps> = ({ text, image, image2, recipe }) => {
+export const Filmstrip: React.FC<LayoutProps> = ({ text, display, image, image2, recipe }) => {
+  const label = display || text;
   const frame = useCurrentFrame();
   const slideY = interpolate(frame, [0, 150], [40, -110]);
-  const label = ramp(frame, 18, 40);
+  const labelIn = ramp(frame, 18, 40);
   return (
     <AbsoluteFill style={{ backgroundColor: "#171310" }}>
       <LightLeak hue="#ff9a4d" strength={0.1} />
@@ -41,9 +42,9 @@ export const Filmstrip: React.FC<LayoutProps> = ({ text, image, image2, recipe }
           </div>
         ))}
       </div>
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: "5.5%", textAlign: "center", opacity: label }}>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: "5.5%", textAlign: "center", opacity: labelIn }}>
         <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", color: "rgba(245,240,228,0.9)", letterSpacing: 8, fontSize: 34, textTransform: "uppercase" }}>
-          {text}
+          {label}
         </span>
       </div>
       <Vignette strength={0.5} />

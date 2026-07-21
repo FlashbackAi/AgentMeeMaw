@@ -37,27 +37,51 @@ def _family_for(font_path: str, default: str) -> str:
     return default
 
 
+_DISPLAY_SKIP_WORDS = {
+    "the", "a", "an", "she", "he", "they", "we", "i", "it", "her", "his",
+    "their", "our", "my", "and", "of", "in", "on", "at", "was", "is",
+}
+
+
+def derive_display(line: str) -> str:
+    """2-4 word typographic title from a page line (LLM `display` fallback).
+
+    Skips weak leading words so the first word survives rendering alone at
+    giant size (word_mask), then takes up to 3 strong words, Title Case.
+    """
+    words = [w.strip(".,;:!?\"'()") for w in (line or "").split()]
+    words = [w for w in words if w]
+    strong = [w for w in words if w.lower() not in _DISPLAY_SKIP_WORDS]
+    picked = (strong or words)[:3]
+    return " ".join(w.capitalize() for w in picked)
+
+
 def build_props(book: Book, *, kit: StyleKit, image_names: dict[str, str],
                 palette: list[str], pins: dict[str, str] | None = None,
                 fps: int = 30, hold: float = 2.4, transition: float = 0.7,
                 accent: str = "#e8552e", motion_preset: str = "") -> dict:
-    # (role, image_key, text) in book order; the final beat is the payoff.
-    items: list[tuple[str, str, str]] = [("opener", "opener", book.opener.line)]
+    # (role, image_key, text, display) in book order; the final beat is the
+    # payoff. `display` is the 2-4 word form typographic layouts render.
+    def entry(role: str, key: str, beat_line: str, beat_display: str = ""):
+        return (role, key, beat_line, beat_display or derive_display(beat_line))
+
+    items = [entry("opener", "opener", book.opener.line, book.opener.display)]
     n = len(book.beats)
     for i, b in enumerate(book.beats):
         role = "payoff" if (n > 0 and i == n - 1) else "beat"
-        items.append((role, f"beat_{i}", b.line))
+        items.append(entry(role, f"beat_{i}", b.line, b.display))
     if book.message.strip():
-        items.append(("message", "opener", book.message))
-    items.append(("closing", "closing", book.closing.line))
+        items.append(entry("message", "opener", book.message))
+    items.append(entry("closing", "closing", book.closing.line, book.closing.display))
 
-    layouts = assign_layouts([r for r, _, _ in items], palette=palette, pins=pins)
+    layouts = assign_layouts([r for r, _, _, _ in items], palette=palette, pins=pins)
     all_images = list(image_names.values())
 
     scenes: list[dict] = []
-    for (role, image_key, text), layout in zip(items, layouts):
+    for (role, image_key, text, display), layout in zip(items, layouts):
         image = image_names[image_key]
-        scene: dict = {"role": role, "layout_slug": layout, "text": text, "image": image}
+        scene: dict = {"role": role, "layout_slug": layout, "text": text,
+                       "display": display, "image": image}
         if layout in MULTI_IMAGE_LAYOUTS:
             scene["image2"] = next((x for x in all_images if x != image), image)
         scenes.append(scene)

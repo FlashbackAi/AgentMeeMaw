@@ -64,7 +64,7 @@ export const Flashback: React.FC<FlashbackProps> = ({ recipe, scenes }) => {
           const Comp = LAYOUTS[s.layout_slug] ?? LAYOUTS[DEFAULT_LAYOUT];
           const seq = (
             <TransitionSeries.Sequence key={`s${i}`} durationInFrames={hold}>
-              <Comp text={s.text} image={s.image} image2={s.image2} recipe={recipe} />
+              <Comp text={s.text} display={s.display} image={s.image} image2={s.image2} recipe={recipe} />
             </TransitionSeries.Sequence>
           );
           if (i === 0) return [seq];

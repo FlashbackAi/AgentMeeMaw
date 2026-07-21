@@ -7,11 +7,12 @@ import { Grain, Vignette } from "../FX";
 
 // The art shows through one giant word (the first word of the line), then the
 // full caption settles beneath. Punchy, modern — the campaign register.
-export const WordMask: React.FC<LayoutProps> = ({ text, image, recipe }) => {
+export const WordMask: React.FC<LayoutProps> = ({ text, display, image, recipe }) => {
   const frame = useCurrentFrame();
-  const words = text.trim().split(/\s+/);
-  const hero = (words[0] ?? "US").toUpperCase();
-  const rest = words.slice(1).join(" ");
+  // Hero the display title's strongest (first) word; the full line settles
+  // beneath. Without a display, fall back to the line's own first word.
+  const hero = ((display || text).trim().split(/\s+/)[0] ?? "US").toUpperCase();
+  const rest = display ? text : text.trim().split(/\s+/).slice(1).join(" ");
   const settle = ramp(frame, 0, 26);
   const dim = ramp(frame, 34, 56);
   const heroSize = Math.min(300, 1350 / Math.max(3, hero.length));

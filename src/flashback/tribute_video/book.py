@@ -14,6 +14,9 @@ class Beat:
     art_direction: str        # visual brief for the illustration
     eyebrow: str = ""         # small-caps header (off in v1)
     moment_id: str = ""       # source moment ("" for opener/closing)
+    # 2-4 word distilled title for typographic layouts (Big Type, Scrapbook,
+    # Word Mask...). LLM-authored; props derives one from `line` when empty.
+    display: str = ""
 
 
 @dataclass(frozen=True)
@@ -27,7 +30,8 @@ class Book:
 
 def _beat_to_dict(b: Beat) -> dict:
     return {"line": b.line, "art_direction": b.art_direction,
-            "eyebrow": b.eyebrow, "moment_id": b.moment_id}
+            "eyebrow": b.eyebrow, "moment_id": b.moment_id,
+            "display": b.display}
 
 
 def _beat_from_dict(d: dict) -> Beat:
@@ -36,6 +40,7 @@ def _beat_from_dict(d: dict) -> Beat:
         art_direction=(d.get("art_direction") or ""),
         eyebrow=(d.get("eyebrow") or ""),
         moment_id=(d.get("moment_id") or ""),
+        display=(d.get("display") or ""),
     )
 
 

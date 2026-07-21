@@ -23,6 +23,7 @@ export type Scene = {
   role: string;
   layout_slug: string;
   text: string;
+  display?: string;         // 2-4 word title for typographic layouts
   image: string;
   image2?: string;          // second image for multi-image layouts (scrapbook)
 };
@@ -35,6 +36,7 @@ export type FlashbackProps = {
 
 export type LayoutProps = {
   text: string;
+  display?: string;         // 2-4 word title; typographic layouts prefer it
   image: string;
   image2?: string;
   recipe: Recipe;

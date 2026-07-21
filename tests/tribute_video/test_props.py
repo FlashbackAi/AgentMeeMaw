@@ -50,6 +50,20 @@ def test_motion_preset_emitted_in_recipe():
     assert props["recipe"]["motion_preset"] == "calm"
 
 
+def test_scenes_carry_display_derived_when_absent():
+    from flashback.tribute_video.props import derive_display
+
+    # LLM-less book (no display on beats) -> code-side derivation kicks in
+    props = build_props(_book(), kit=DEFAULT_KIT, image_names=NAMES,
+                        palette=PALETTE, pins=PINS)
+    for s in props["scenes"]:
+        assert s["display"], s["role"]
+        assert len(s["display"].split()) <= 3
+    # derivation skips weak leading words and title-cases
+    assert derive_display("She always kept the kitchen warm.") == "Always Kept Kitchen"
+    assert derive_display("The chai at dawn") == "Chai Dawn"
+
+
 def test_multi_image_scenes_get_distinct_second_image():
     # force each multi-image layout via a single-slug palette for the auto beats
     for slug in ("scrapbook", "filmstrip", "gallery_wall"):

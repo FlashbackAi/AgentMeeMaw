@@ -7,8 +7,9 @@ import { Grain, LightLeak } from "../FX";
 
 // Art one side; a bold colour block wipes in over the other, an accent rule
 // draws down the seam, then the title rises word-by-word. "HOW WE MET".
-export const SplitDuotone: React.FC<LayoutProps> = ({ text, image, recipe }) => {
+export const SplitDuotone: React.FC<LayoutProps> = ({ text, display, image, recipe }) => {
   const frame = useCurrentFrame();
+  const title = display || text;
   const blockIn = ramp(frame, 0, 20);
   const rule = ramp(frame, 16, 34);
   const parallax = interpolate(frame, [0, 90], [0, -26]);
@@ -35,7 +36,7 @@ export const SplitDuotone: React.FC<LayoutProps> = ({ text, image, recipe }) => 
             Chapter One
           </span>
           <KineticWords
-            text={text.toUpperCase()}
+            text={title.toUpperCase()}
             delay={12}
             stagger={5}
             style={{ color: "#fff", fontFamily: recipe.fonts.display_family ?? "Nunito", fontWeight: 800, fontSize: 96, lineHeight: 0.98, letterSpacing: -1 }}

@@ -20,7 +20,8 @@ const Polaroid: React.FC<{
   );
 };
 
-export const Scrapbook: React.FC<LayoutProps> = ({ text, image, image2, recipe }) => {
+export const Scrapbook: React.FC<LayoutProps> = ({ text, display, image, image2, recipe }) => {
+  const caption = display || text;
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t1 = pop(frame, fps, 0, 11);
@@ -39,7 +40,7 @@ export const Scrapbook: React.FC<LayoutProps> = ({ text, image, image2, recipe }
           clipPath: `inset(0 ${(1 - write) * 100}% -10% 0)`,
         }}
       >
-        {text}
+        {caption}
       </span>
       <span
         style={{

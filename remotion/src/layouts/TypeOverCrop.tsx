@@ -7,9 +7,10 @@ import { Grain, LightLeak, Vignette } from "../FX";
 
 // Giant kinetic headline over a hard-pushing crop. Words punch up behind a
 // mask; a highlight underline wipes in beneath the payoff line.
-export const TypeOverCrop: React.FC<LayoutProps> = ({ text, image, recipe }) => {
+export const TypeOverCrop: React.FC<LayoutProps> = ({ text, display, image, recipe }) => {
   const frame = useCurrentFrame();
-  const words = text.toUpperCase().split(" ");
+  const title = display || text;
+  const words = title.toUpperCase().split(" ");
   const land = 5 * (words.length - 1) + 22;
   const float = interpolate(frame, [0, 120], [0, -22]);
   const underline = ramp(frame, land, land + 16);
@@ -23,7 +24,7 @@ export const TypeOverCrop: React.FC<LayoutProps> = ({ text, image, recipe }) => 
       <LightLeak hue="#ff7a2d" strength={0.14} />
       <AbsoluteFill style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 7%", transform: `translateY(${float}px)` }}>
         <KineticWords
-          text={text.toUpperCase()}
+          text={title.toUpperCase()}
           stagger={5}
           up={130}
           scaleFrom={1.25}
