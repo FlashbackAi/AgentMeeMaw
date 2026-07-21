@@ -195,6 +195,9 @@ def _style_dict(visual_theme: VisualThemeConfig | None) -> dict | None:
             "layout_pins": visual_theme.layout_pins or {},
             "pacing": visual_theme.pacing or {},
             "motion_preset": visual_theme.motion_preset or "",
+            # Engine pin (0045): '' = worker default. Lets an occasion keep
+            # the legacy look (Father's Day) while others render as Flashbacks.
+            "render_engine": visual_theme.render_engine or "",
         },
     }
 

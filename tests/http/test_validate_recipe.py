@@ -1,5 +1,10 @@
-"""Unit tests for the admin recipe validator (no DB / no app)."""
-from flashback.http.routes.admin_tribute_config import validate_recipe
+"""Unit tests for the admin recipe validator + boundary translation
+(no DB / no app)."""
+from flashback.http.routes.admin_tribute_config import (
+    _flatten_recipe,
+    _nest_recipe_row,
+    validate_recipe,
+)
 
 
 def test_empty_recipe_is_valid():
@@ -37,3 +42,49 @@ def test_unknown_motion_preset_rejected():
 def test_non_numeric_pacing_rejected():
     errs = validate_recipe({"pacing": {"hold": "fast"}})
     assert any("pacing.hold" in e for e in errs)
+
+
+def test_render_engine_values():
+    assert validate_recipe({"render_engine": ""}) == []
+    assert validate_recipe({"render_engine": "legacy"}) == []
+    assert validate_recipe({"render_engine": "remotion"}) == []
+    errs = validate_recipe({"render_engine": "pillow"})
+    assert any("render_engine" in e for e in errs)
+
+
+def test_flatten_recipe_unpacks_nested_block():
+    flat = _flatten_recipe("tribute_visual_themes", {
+        "slug": "fd",
+        "recipe": {"layout_palette": ["framed_hero"], "render_engine": "legacy"},
+    })
+    assert flat["layout_palette"] == ["framed_hero"]
+    assert flat["render_engine"] == "legacy"
+    assert "recipe" not in flat
+    # keys the recipe omits are written as EMPTY (clear beats stale carry)
+    assert flat["layout_pins"] == {} and flat["pacing"] == {}
+    assert flat["motion_preset"] == ""
+
+
+def test_flatten_recipe_leaves_flat_and_other_tables_alone():
+    flat_payload = {"slug": "fd", "layout_palette": ["scrapbook"]}
+    assert _flatten_recipe("tribute_visual_themes", flat_payload) == flat_payload
+    campaign = {"slug": "fd", "recipe": {"render_engine": "legacy"}}
+    assert _flatten_recipe("tribute_campaigns", campaign) == campaign
+    # non-dict recipe stays in place for _validate to flag
+    bad = {"slug": "fd", "recipe": "legacy"}
+    assert _flatten_recipe("tribute_visual_themes", bad) == bad
+
+
+def test_nest_recipe_row_round_trip():
+    row = {"id": "x", "slug": "fd", "layout_palette": ["framed_hero"],
+           "layout_pins": {}, "pacing": {"hold": 3.0}, "motion_preset": "calm",
+           "render_engine": "legacy"}
+    nested = _nest_recipe_row("tribute_visual_themes", row)
+    assert nested["recipe"] == {"layout_palette": ["framed_hero"],
+                                "layout_pins": {}, "pacing": {"hold": 3.0},
+                                "motion_preset": "calm",
+                                "render_engine": "legacy"}
+    assert "layout_palette" not in nested
+    # and flattening the nested shape restores the columns
+    flat = _flatten_recipe("tribute_visual_themes", nested)
+    assert flat["render_engine"] == "legacy" and flat["pacing"] == {"hold": 3.0}

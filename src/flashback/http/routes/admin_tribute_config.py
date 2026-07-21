@@ -103,6 +103,51 @@ def allow(key: str, per_minute: int, *, now: float | None = None) -> bool:
 
 _LAYOUT_SLUGS = {layout["slug"] for layout in LAYOUT_CATALOG}
 
+# The documented CRM contract nests the composition levers under a `recipe`
+# block (FLASHBACK_NODE_PROMPT §3a); persistence stores them as flat columns
+# (migration 0044/0045). Translation happens at this API boundary — writes
+# flatten, reads nest — so neither side changes shape.
+_RECIPE_EMPTY: dict = {
+    "layout_palette": [],
+    "layout_pins": {},
+    "pacing": {},
+    "motion_preset": "",
+    "render_engine": "",
+}
+
+
+def _flatten_recipe(table: repo.ConfigTable, payload: dict) -> dict:
+    """Unpack a nested ``recipe`` block into the flat column keys.
+
+    A supplied recipe dict is the WHOLE authored recipe: keys it omits are
+    written as empty (engine default), so clearing a control in the CRM
+    actually clears the column instead of the old value riding through
+    supersede_edit's carry. A non-dict ``recipe`` is left in place for
+    _validate to flag. Flat payloads pass through untouched.
+    """
+    if table != "tribute_visual_themes":
+        return payload
+    recipe = payload.get("recipe")
+    if not isinstance(recipe, dict):
+        return payload
+    out = {k: v for k, v in payload.items() if k != "recipe"}
+    for key, empty in _RECIPE_EMPTY.items():
+        out[key] = recipe.get(key, empty)
+    return out
+
+
+def _nest_recipe_row(table: repo.ConfigTable, row: dict) -> dict:
+    """Fold a row's flat recipe columns into the nested ``recipe`` block."""
+    if table != "tribute_visual_themes":
+        return row
+    out = {k: v for k, v in row.items() if k not in _RECIPE_EMPTY}
+    out["recipe"] = {
+        key: (row.get(key) if row.get(key) is not None else empty)
+        for key, empty in _RECIPE_EMPTY.items()
+        if key in row
+    }
+    return out
+
 
 def validate_recipe(payload: dict) -> list[str]:
     """Errors for a visual theme's Remotion recipe (all fields optional).
@@ -145,6 +190,10 @@ def validate_recipe(payload: dict) -> list[str]:
     if motion not in (None, "") and motion not in MOTION_PRESETS:
         errors.append(
             f"motion_preset: unknown preset '{motion}' (allowed: {MOTION_PRESETS})")
+    engine = payload.get("render_engine")
+    if engine not in (None, "", "legacy", "remotion"):
+        errors.append(
+            f"render_engine: unknown engine '{engine}' (allowed: legacy, remotion, or empty for the worker default)")
     return errors
 
 
@@ -179,6 +228,12 @@ def _validate(table: repo.ConfigTable, payload: dict) -> list[str]:
     errors.extend(validate_ink(payload.get("ink")))
     if payload.get("audio_slug") not in AUDIO_REGISTRY:
         errors.append("audio_slug: unknown track slug (see /admin/asset-library)")
+    # A dict recipe was already unpacked by _flatten_recipe; anything left is
+    # malformed (e.g. a string) rather than silently droppable.
+    if "recipe" in payload:
+        errors.append(
+            "recipe: must be an object {layout_palette, layout_pins, pacing, "
+            "motion_preset, render_engine}")
     errors.extend(validate_recipe(payload))
     return errors
 
@@ -322,7 +377,7 @@ async def list_config(
                 include_archived=include_archived,
                 include_superseded=include_superseded,
             )
-    return {"rows": rows}
+    return {"rows": [_nest_recipe_row(resolved, r) for r in rows]}
 
 
 @router.post("/tribute_config/{table}")
@@ -333,14 +388,15 @@ async def create_config(
     updated_by: str = Depends(admin_user),
 ) -> dict:
     resolved = _table_or_404(table)
-    errors = _validate(resolved, body.payload)
+    flat = _flatten_recipe(resolved, body.payload)
+    errors = _validate(resolved, flat)
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
     try:
         async with db_pool.connection() as conn:
             async with conn.transaction():
                 async with conn.cursor() as cur:
-                    payload = await _resolve_theme_ref(cur, body.payload)
+                    payload = await _resolve_theme_ref(cur, flat)
                     new_id = await repo.create_row(
                         cur, resolved, payload, updated_by=updated_by
                     )
@@ -379,7 +435,8 @@ async def edit_config(
                 # partial edit can't sneak an invalid combination past the
                 # per-field checks.
                 current = await _fetch_row_or_404(cur, resolved, row_id)
-                payload = await _resolve_theme_ref(cur, body.payload)
+                payload = await _resolve_theme_ref(
+                    cur, _flatten_recipe(resolved, body.payload))
                 merged = {**_row_as_payload(resolved, current), **payload}
                 errors = _validate(resolved, merged)
                 if errors:

@@ -75,6 +75,7 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "layout_pins",
         "pacing",
         "motion_preset",
+        "render_engine",
     ),
 }
 _JSONB_COLUMNS = {
@@ -183,13 +184,14 @@ def _row_to_visual_theme(row) -> VisualThemeConfig:
         layout_pins=row[11] or {},
         pacing=row[12] or {},
         motion_preset=row[13] or "",
+        render_engine=row[14] or "",
     )
 
 
 _VISUAL_COLS = (
     "id::text, slug, display_name, (template_image IS NOT NULL) AS has_image, "
     "template_mime, fonts, ink, audio_slug, state, version, "
-    "layout_palette, layout_pins, pacing, motion_preset"
+    "layout_palette, layout_pins, pacing, motion_preset, render_engine"
 )
 
 

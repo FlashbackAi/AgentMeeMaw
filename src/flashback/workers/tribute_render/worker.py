@@ -109,7 +109,11 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
     # automatic fallback to the legacy Pillow+ffmpeg render, so a Remotion
     # failure never strands a tribute in 'failed'. ``transition`` is
     # ffmpeg-only, added to the legacy call alone (spec 2026-07-20 §11).
-    engine = getattr(settings, "render_engine", "remotion")
+    # A visual theme may pin its engine via the snapshot (0045) — occasions
+    # that must keep the legacy look (Father's Day) override the default.
+    style_recipe = ((ctx.style or {}).get("recipe") or {}) if isinstance(ctx.style, dict) else {}
+    pinned = str(style_recipe.get("render_engine") or "").strip()
+    engine = pinned or getattr(settings, "render_engine", "remotion")
     render_kwargs = dict(
         book=book, subject_name=ctx.subject_name,
         relationship=ctx.relationship, gt_context=ctx.gt_context,

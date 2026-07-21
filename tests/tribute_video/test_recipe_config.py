@@ -21,6 +21,14 @@ def test_visual_theme_recipe_fields_default_empty():
     t = _theme()  # constructed without recipe fields
     assert t.layout_palette == [] and t.layout_pins == {}
     assert t.pacing == {} and t.motion_preset == ""
+    assert t.render_engine == ""
+
+
+def test_style_dict_carries_engine_pin():
+    style = _style_dict(_theme(render_engine="legacy"))
+    assert style["recipe"]["render_engine"] == "legacy"
+    # unpinned themes leave the worker default in charge
+    assert _style_dict(_theme())["recipe"]["render_engine"] == ""
 
 
 def test_style_dict_carries_recipe_and_accent():

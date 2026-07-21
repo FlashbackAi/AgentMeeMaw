@@ -62,6 +62,22 @@ def test_legacy_engine_opt_out(monkeypatch, tmp_path):
     assert calls == {"remotion": 0, "legacy": 1}
 
 
+def test_theme_engine_pin_overrides_worker_default(monkeypatch, tmp_path):
+    # A visual theme pinned to legacy (0045) keeps its look even though the
+    # worker default is remotion — the Father's Day case.
+    _stub_common(monkeypatch)
+    calls = {"remotion": 0, "legacy": 0}
+    monkeypatch.setattr(W, "render_book_remotion",
+                        lambda **k: calls.__setitem__("remotion", calls["remotion"] + 1))
+    monkeypatch.setattr(W, "render_book",
+                        lambda **k: calls.__setitem__("legacy", calls["legacy"] + 1))
+    ctx = _ctx()
+    ctx.style = {"recipe": {"render_engine": "legacy"}}
+    W.render_and_upload(ctx, artist=None, tmpdir=str(tmp_path),
+                        settings=_settings("remotion"))
+    assert calls == {"remotion": 0, "legacy": 1}
+
+
 def test_config_engine_defaults_to_remotion(monkeypatch):
     from flashback.config import TributeRenderConfig
 

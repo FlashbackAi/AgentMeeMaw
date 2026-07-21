@@ -83,6 +83,9 @@ class VisualThemeConfig:
     layout_pins: dict = field(default_factory=dict)
     pacing: dict = field(default_factory=dict)
     motion_preset: str = ""
+    # Optional engine pin (migration 0045): '' = worker default,
+    # 'legacy' | 'remotion' force that engine for this theme's renders.
+    render_engine: str = ""
 
 
 # The year-round no-campaign default: pure wrapper-neutrality. Kept in code

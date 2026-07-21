@@ -99,10 +99,16 @@ this adds fields to that same proxy.
       "closing": "fullbleed_caption"
     },
     "pacing": { "hold": 2.4, "transition": 0.7 },   // seconds
-    "motion_preset": "punchy"                        // calm|playful|punchy|cinematic
+    "motion_preset": "punchy",                       // calm|playful|punchy|cinematic
+    "render_engine": ""                              // ''=worker default | remotion | legacy
   }
 }
 ```
+
+`render_engine` (migration 0045) pins this theme's videos to one engine —
+set `legacy` to keep an occasion on the classic slideshow look (Father's
+Day) while everything else renders as Flashbacks. Snapshot rules apply:
+future renders only.
 
 All fields are **optional**; omitting any degrades to the proven default (a
 render never blocks on config).
