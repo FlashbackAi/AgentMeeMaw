@@ -44,11 +44,18 @@ def test_message_scene_reuses_opener_image():
     assert msg["image"] == "opener.png"
 
 
-def test_scrapbook_scene_gets_distinct_second_image():
-    # force a scrapbook somewhere: palette with only scrapbook for the auto beat
+def test_motion_preset_emitted_in_recipe():
     props = build_props(_book(), kit=DEFAULT_KIT, image_names=NAMES,
-                        palette=["scrapbook"], pins={})
-    scrap = [s for s in props["scenes"] if s["layout_slug"] == "scrapbook"]
-    assert scrap  # at least one
-    for s in scrap:
-        assert s.get("image2") and s["image2"] != s["image"]
+                        palette=PALETTE, pins=PINS, motion_preset="calm")
+    assert props["recipe"]["motion_preset"] == "calm"
+
+
+def test_multi_image_scenes_get_distinct_second_image():
+    # force each multi-image layout via a single-slug palette for the auto beats
+    for slug in ("scrapbook", "filmstrip", "gallery_wall"):
+        props = build_props(_book(), kit=DEFAULT_KIT, image_names=NAMES,
+                            palette=[slug], pins={})
+        multi = [s for s in props["scenes"] if s["layout_slug"] == slug]
+        assert multi, slug  # at least one
+        for s in multi:
+            assert s.get("image2") and s["image2"] != s["image"]

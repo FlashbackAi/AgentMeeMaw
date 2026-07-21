@@ -46,7 +46,9 @@ def test_flashback_layouts_endpoint_shape():
     out = asyncio.run(flashback_layouts())
     slugs = {l["slug"] for l in out["layouts"]}
     assert slugs == {"split_duotone", "scrapbook", "type_over_crop",
-                     "fullbleed_caption", "framed_hero"}
+                     "fullbleed_caption", "framed_hero", "letter_note",
+                     "filmstrip", "postcard", "word_mask", "torn_reveal",
+                     "gallery_wall", "magazine", "map_journey"}
     assert all("label" in l and "description" in l for l in out["layouts"])
     assert "punchy" in out["motion_presets"]
     assert out["pinnable_roles"] == ["opener", "payoff", "closing"]

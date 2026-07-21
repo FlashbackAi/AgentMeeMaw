@@ -4,13 +4,13 @@ Pure data assembly — no I/O. Mirrors the page order the legacy renderer builds
 (opener, beats..., message?, closing). The last beat is tagged ``payoff`` so a
 Recipe's payoff role-pin lands on the emotional peak. ``image_names`` maps each
 scene to a PNG the caller wrote into the Remotion public dir; the message scene
-reuses the opener image as a bookend, and scrapbook scenes get a distinct
-second image so the two polaroids differ.
+reuses the opener image as a bookend, and multi-image scenes (scrapbook,
+filmstrip, gallery_wall) get a distinct second image so the panels differ.
 """
 from __future__ import annotations
 
 from .book import Book
-from .sequencer import assign_layouts
+from .sequencer import MULTI_IMAGE_LAYOUTS, assign_layouts
 from .style import StyleKit
 
 WIDTH, HEIGHT = 896, 1600
@@ -40,7 +40,7 @@ def _family_for(font_path: str, default: str) -> str:
 def build_props(book: Book, *, kit: StyleKit, image_names: dict[str, str],
                 palette: list[str], pins: dict[str, str] | None = None,
                 fps: int = 30, hold: float = 2.4, transition: float = 0.7,
-                accent: str = "#e8552e") -> dict:
+                accent: str = "#e8552e", motion_preset: str = "") -> dict:
     # (role, image_key, text) in book order; the final beat is the payoff.
     items: list[tuple[str, str, str]] = [("opener", "opener", book.opener.line)]
     n = len(book.beats)
@@ -58,7 +58,7 @@ def build_props(book: Book, *, kit: StyleKit, image_names: dict[str, str],
     for (role, image_key, text), layout in zip(items, layouts):
         image = image_names[image_key]
         scene: dict = {"role": role, "layout_slug": layout, "text": text, "image": image}
-        if layout == "scrapbook":
+        if layout in MULTI_IMAGE_LAYOUTS:
             scene["image2"] = next((x for x in all_images if x != image), image)
         scenes.append(scene)
 
@@ -76,6 +76,7 @@ def build_props(book: Book, *, kit: StyleKit, image_names: dict[str, str],
                     "eyebrow_fill": _rgb_to_hex(kit.eyebrow_fill),
                     "accent": accent},
             "pacing": {"hold": hold, "transition": transition},
+            "motion_preset": motion_preset,
         },
         "scenes": scenes,
     }
