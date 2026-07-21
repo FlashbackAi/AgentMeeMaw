@@ -74,9 +74,20 @@ Everything else needs no action: unconfigured themes render Flashbacks
 with the proven Friendship default recipe, and the new layouts appear in
 videos only once an admin adds them to a theme's palette.
 
+## 3b. Relationship-profile `narrative` field (recipe's sibling for tone)
+
+Migration 0046 adds a `narrative` object to relationship profiles
+(`{audience, arc, throughline}`) — it controls how the video's story is
+FRAMED (who it speaks to, how pages are ordered, what it's about), so a
+friendship reads like a friendship instead of a eulogy. Same proxy as the
+rest of the profile payload; if you whitelist profile keys, allow
+`narrative` through. All keys optional; empty = the memorial default. No
+new endpoint — it rides the existing `/admin/tribute_config/relationship_profiles`
+CRUD the CRM already proxies.
+
 ## 4. Ops awareness (no Node work — just know it)
 
-- Agent deploy runs migrations 0044 + 0045 automatically.
+- Agent deploy runs migrations 0044 + 0045 + 0046 automatically.
 - The tribute-render worker host needs the Remotion install (Node
   runtime + the agent repo's `remotion/` project; `FLASHBACK_REMOTION_DIR`
   overrides the path). Missing/broken install ⇒ the render silently
