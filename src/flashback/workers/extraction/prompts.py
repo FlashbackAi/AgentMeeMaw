@@ -403,6 +403,12 @@ ONLY when the conversation makes it unambiguous — an explicit pronoun, a \
 gendered relationship word ("my sister", "his uncle"), or a direct \
 statement. NEVER infer gender from a first name alone; if it is not clear \
 from what was said, omit the field.
+- For a person entity's own `generation_prompt` (its portrait art, not a \
+moment scene it merely appears in): when `attributes.gender` is known, \
+state that figure's gender presentation with a matching noun ("a man", "a \
+woman") rather than a neutral "figure" — faces still turned away or at a \
+distance, consistent with the no-faces scene style below. Omit the clause \
+entirely when gender is unknown; never guess.
 - If the contributor corrects an identity, extract ONE canonical entity with \
 the corrected name and put the mistaken/prior label in `aliases`. Do not emit \
 both as separate entities.

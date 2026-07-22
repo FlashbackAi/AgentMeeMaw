@@ -8,6 +8,7 @@ rest of the HTTP suite.
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -16,6 +17,76 @@ from tests.http.conftest import auth_headers
 
 
 pytestmark = pytest.mark.asyncio
+
+
+# --- helpers (DB-touching gender-grounding tests) ---------------------------
+
+
+async def _insert_person(pool, *, name="Test Subject", relationship="mother"):
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO persons (name, relationship) VALUES (%s, %s) "
+                "RETURNING id",
+                (name, relationship),
+            )
+            (pid,) = await cur.fetchone()
+        await conn.commit()
+    return str(pid)
+
+
+async def _insert_entity(
+    pool,
+    *,
+    person_id: str,
+    name: str,
+    gender: str | None = None,
+    generation_prompt: str = "A young man standing in a doorway.",
+):
+    attrs: dict[str, str] = {}
+    if gender is not None:
+        attrs["gender"] = gender
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO entities "
+                "(person_id, kind, name, attributes, generation_prompt) "
+                "VALUES (%s, 'person', %s, %s, %s) RETURNING id",
+                (person_id, name, json.dumps(attrs), generation_prompt),
+            )
+            (eid,) = await cur.fetchone()
+        await conn.commit()
+    return str(eid)
+
+
+async def _insert_thread(
+    pool,
+    *,
+    person_id: str,
+    name: str = "Sunday cricket",
+    generation_prompt: str = "A dusty field at golden hour.",
+):
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO threads (person_id, name, description, generation_prompt) "
+                "VALUES (%s, %s, 'd', %s) RETURNING id",
+                (person_id, name, generation_prompt),
+            )
+            (tid,) = await cur.fetchone()
+        await conn.commit()
+    return str(tid)
+
+
+async def _read_latest_context(pool, *, table: str, record_id: str) -> dict:
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT latest_generation_context FROM {table} WHERE id = %s",
+                (record_id,),
+            )
+            row = await cur.fetchone()
+    return dict(row[0]) if row and row[0] else {}
 
 
 class TestPresetsEndpoint:
@@ -154,3 +225,119 @@ class TestEditValidation:
             },
         )
         assert resp.status_code == 400
+
+
+# --- DB-touching: entity's own gender grounds its portrait ------------------
+#
+# Task 8: an entity portrait (regenerate/edit) must ground the ENTITY's own
+# stored attributes.gender, not just the subject/contributor. Threads and
+# other record types are unaffected.
+
+
+class TestEntityGenderGrounding:
+    async def test_entity_regenerate_appends_entity_gender_clause(
+        self, client_with_db, async_db_pool
+    ):
+        pid = await _insert_person(async_db_pool, name="Test Subject")
+        eid = await _insert_entity(
+            async_db_pool, person_id=pid, name="Aarav", gender="male"
+        )
+
+        resp = await client_with_db.post(
+            f"/artifacts/entity/{eid}/regenerate",
+            headers=auth_headers(),
+            json={"person_id": pid},
+        )
+        assert resp.status_code == 200, resp.text
+
+        context = await _read_latest_context(
+            async_db_pool, table="entities", record_id=eid
+        )
+        assert "a man" in context["prompt"]
+        assert "Aarav" in context["prompt"]
+
+    async def test_entity_regenerate_female_gender_clause(
+        self, client_with_db, async_db_pool
+    ):
+        pid = await _insert_person(async_db_pool, name="Test Subject")
+        eid = await _insert_entity(
+            async_db_pool, person_id=pid, name="Priya", gender="female"
+        )
+
+        resp = await client_with_db.post(
+            f"/artifacts/entity/{eid}/regenerate",
+            headers=auth_headers(),
+            json={"person_id": pid},
+        )
+        assert resp.status_code == 200, resp.text
+
+        context = await _read_latest_context(
+            async_db_pool, table="entities", record_id=eid
+        )
+        assert "a woman" in context["prompt"]
+
+    async def test_entity_with_no_stored_gender_adds_no_clause(
+        self, client_with_db, async_db_pool
+    ):
+        pid = await _insert_person(async_db_pool, name="Test Subject")
+        eid = await _insert_entity(
+            async_db_pool,
+            person_id=pid,
+            name="Comet",
+            gender=None,
+            generation_prompt="An old dog resting by the porch steps.",
+        )
+
+        resp = await client_with_db.post(
+            f"/artifacts/entity/{eid}/regenerate",
+            headers=auth_headers(),
+            json={"person_id": pid},
+        )
+        assert resp.status_code == 200, resp.text
+
+        context = await _read_latest_context(
+            async_db_pool, table="entities", record_id=eid
+        )
+        # No stored gender -> no invented clause, no crash.
+        assert "a man" not in context["prompt"]
+        assert "a woman" not in context["prompt"]
+
+    async def test_entity_edit_also_appends_entity_gender_clause(
+        self, client_with_db, async_db_pool
+    ):
+        pid = await _insert_person(async_db_pool, name="Test Subject")
+        eid = await _insert_entity(
+            async_db_pool, person_id=pid, name="Ishita", gender="female"
+        )
+
+        resp = await client_with_db.post(
+            f"/artifacts/entity/{eid}/edit",
+            headers=auth_headers(),
+            json={"person_id": pid, "instructions": "warmer light"},
+        )
+        assert resp.status_code == 200, resp.text
+
+        context = await _read_latest_context(
+            async_db_pool, table="entities", record_id=eid
+        )
+        assert "a woman" in context["prompt"]
+
+    async def test_thread_regenerate_gets_no_entity_gender_clause(
+        self, client_with_db, async_db_pool
+    ):
+        """Threads are abstract arcs; unchanged behavior — no entity clause."""
+        pid = await _insert_person(async_db_pool, name="Test Subject")
+        tid = await _insert_thread(async_db_pool, person_id=pid)
+
+        resp = await client_with_db.post(
+            f"/artifacts/thread/{tid}/regenerate",
+            headers=auth_headers(),
+            json={"person_id": pid},
+        )
+        assert resp.status_code == 200, resp.text
+
+        context = await _read_latest_context(
+            async_db_pool, table="threads", record_id=tid
+        )
+        assert "a man" not in context["prompt"]
+        assert "a woman" not in context["prompt"]

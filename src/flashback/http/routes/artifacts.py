@@ -27,6 +27,7 @@ from flashback.artifacts import (
     SCENE_NEGATIVE_PROMPT,
     build_generation_context,
     compose_scene_prompt,
+    figure_noun,
     list_presets,
     people_scene_fragment,
     write_latest_generation_context_async,
@@ -192,6 +193,17 @@ async def _enqueue_artifact_job(
         if person is not None
         else ""
     )
+    if record_type == "entity":
+        entity_gender_context = await _fetch_entity_gender_context(
+            db_pool=db_pool,
+            record_id=record_id,
+            person_id=person_id,
+        )
+        if entity_gender_context:
+            people_context = (
+                (people_context + " " if people_context else "")
+                + entity_gender_context
+            )
     composed_prompt = compose_scene_prompt(
         base_prompt=base_prompt,
         prior_instructions=prior_instructions,
@@ -287,3 +299,39 @@ async def _fetch_active_generation_prompt(
     if row is None:
         return None
     return row[0]
+
+
+async def _fetch_entity_gender_context(
+    *,
+    db_pool: AsyncConnectionPool,
+    record_id: UUID,
+    person_id: UUID,
+) -> str | None:
+    """Ground an entity portrait in the ENTITY'S OWN stored gender.
+
+    ``people_scene_fragment`` only grounds the subject + contributor; an
+    entity portrait (e.g. "Aarav") needs Aarav's own ``attributes.gender``
+    too, or the image model defaults to an ungrounded presentation. Returns
+    None when the entity is missing/inactive or has no stored gender
+    (never invents a noun — CLAUDE.md §1).
+    """
+    query = (
+        "SELECT name, attributes FROM entities "
+        "WHERE id = %s AND person_id = %s AND status = 'active' "
+        "LIMIT 1"
+    )
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (str(record_id), str(person_id)))
+            row = await cur.fetchone()
+    if row is None:
+        return None
+    name, attributes = row
+    gender = (attributes or {}).get("gender") if isinstance(attributes, dict) else None
+    fig = figure_noun(gender)
+    if not fig:
+        return None
+    return (
+        f"Depict {name} as {fig} "
+        "(matching noun, faces turned away or distant)."
+    )
