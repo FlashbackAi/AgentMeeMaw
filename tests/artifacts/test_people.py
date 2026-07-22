@@ -58,8 +58,10 @@ def test_figure_noun_neutral_is_none():
 
 
 def test_people_catalog_empty_when_nothing_known():
+    # No subject name and nothing else known -> "" (the one case that stays
+    # empty now that a named subject is always listed, even gender-unknown).
     assert people_catalog_fragment(
-        subject_name="Meera", subject_relationship="friend",
+        subject_name="", subject_relationship="friend",
         subject_gender=None, contributor_gender=None, involved=[],
     ) == ""
 
@@ -78,4 +80,21 @@ def test_people_catalog_renders_known_genders():
     assert "Aarav" in frag and "a man" in frag
     # An unknown-gender person is still listed by name, with no gender noun.
     assert "Priya" in frag
-    assert "Priya" not in frag.split("Aarav")[0] or "a man" in frag
+    assert "Priya (her cousin) is a man" not in frag
+    assert "Priya (her cousin) is a woman" not in frag
+
+
+def test_people_catalog_lists_unknown_gender_subject_by_name():
+    frag = people_catalog_fragment(
+        subject_name="Meera", subject_relationship="friend",
+        subject_gender="they", contributor_gender=None,
+        involved=[{"name": "Aarav", "relationship": "her brother", "gender": "male"}],
+    )
+    assert "Meera" in frag           # subject still listed by name
+    assert "Meera (the subject" in frag
+    # No gender noun invented for Meera (the fixed <people> header text uses
+    # "a woman" as an illustrative example, so check Meera's own row, not a
+    # bare substring search over the whole fragment).
+    assert "Meera (the subject, the storyteller's friend) is a woman" not in frag
+    assert "Meera (the subject, the storyteller's friend) is a man" not in frag
+    assert "Aarav" in frag and "a man" in frag

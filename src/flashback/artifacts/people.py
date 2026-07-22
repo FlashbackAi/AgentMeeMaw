@@ -65,16 +65,24 @@ def people_catalog_fragment(
 ) -> str:
     """A <people> grounding block for the storybook assembler.
 
-    Lists the subject, the contributor (the storyteller), and each involved
-    person-entity. A gender clause is emitted ONLY where gender is known; an
-    unknown-gender person is still named so the model knows who exists but
-    stays unbiased on presentation. Returns "" when nothing at all is known.
+    The subject is always listed (name-only when gender is unknown — they are
+    the story's throughline and always exist); the contributor is listed only
+    when their gender is known (there is no contributor name/identity here, so
+    a name-only row would be pure boilerplate); involved people are always
+    listed (name-only when gender is unknown). A gender clause is emitted
+    ONLY where gender is known — an unknown-gender person is still named so
+    the model knows who exists but stays unbiased on presentation. Returns
+    "" only when there is no subject name AND nothing else is known.
     """
     rows: list[str] = []
-    subject_fig = figure_noun(subject_gender)
-    if subject_fig:
+    name = (subject_name or "").strip()
+    if name:
         rel = f", the storyteller's {subject_relationship}" if subject_relationship else ""
-        rows.append(f"- {subject_name} (the subject{rel}) is {subject_fig}.")
+        subject_fig = figure_noun(subject_gender)
+        if subject_fig:
+            rows.append(f"- {name} (the subject{rel}) is {subject_fig}.")
+        else:
+            rows.append(f"- {name} (the subject{rel}).")
     contributor_fig = figure_noun(contributor_gender)
     if contributor_fig:
         rows.append(
