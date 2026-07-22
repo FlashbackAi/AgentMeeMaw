@@ -74,20 +74,29 @@ Everything else needs no action: unconfigured themes render Flashbacks
 with the proven Friendship default recipe, and the new layouts appear in
 videos only once an admin adds them to a theme's palette.
 
-## 3b. Relationship-profile `narrative` field (recipe's sibling for tone)
+## 3b. Narrative framing — profile field + campaign override
 
-Migration 0046 adds a `narrative` object to relationship profiles
-(`{audience, arc, throughline}`) — it controls how the video's story is
-FRAMED (who it speaks to, how pages are ordered, what it's about), so a
-friendship reads like a friendship instead of a eulogy. Same proxy as the
-rest of the profile payload; if you whitelist profile keys, allow
-`narrative` through. All keys optional; empty = the memorial default. No
-new endpoint — it rides the existing `/admin/tribute_config/relationship_profiles`
-CRUD the CRM already proxies.
+Two new config objects control how a video's story is FRAMED (who it
+speaks to, how pages are ordered, what it's about) — the fix that stops a
+friendship reading like a eulogy. Both are `{audience, arc, throughline}`,
+all keys optional, empty = inherit:
+
+- **`narrative` on a relationship profile** (migration 0046) — the
+  relationship's default framing. Rides the existing
+  `/admin/tribute_config/relationship_profiles` CRUD.
+- **`narrative_override` on a campaign** (migration 0047) — the OCCASION's
+  framing, which wins over the profile while the campaign is active
+  (Friendship Day frames every video as a friendship). Rides the existing
+  `/admin/tribute_config/tribute_campaigns` CRUD. Same precedence family as
+  `archetype_bank_override` / `visual_theme_id` — nothing structurally new.
+
+If your proxy whitelists payload keys, allow `narrative` (profiles) and
+`narrative_override` (campaigns) through in both directions. No new
+endpoints.
 
 ## 4. Ops awareness (no Node work — just know it)
 
-- Agent deploy runs migrations 0044 + 0045 + 0046 automatically.
+- Agent deploy runs migrations 0044 + 0045 + 0046 + 0047 automatically.
 - The tribute-render worker host needs the Remotion install (Node
   runtime + the agent repo's `remotion/` project; `FLASHBACK_REMOTION_DIR`
   overrides the path). Missing/broken install ⇒ the render silently
