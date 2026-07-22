@@ -301,7 +301,7 @@ async def submit_tribute_message(
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT person_id::text, status FROM tributes WHERE id = %s",
+                "SELECT person_id::text, status, campaign_id FROM tributes WHERE id = %s",
                 (str(tribute_id),),
             )
             row = await cur.fetchone()
@@ -314,6 +314,14 @@ async def submit_tribute_message(
                 "tribute already rendered; edit the message via a new "
                 "tribute or /regenerate flows"
             ),
+        )
+    # The message slot is campaign-only (two-meter model, design 2026-07-22).
+    # The standalone keepsake has no message; reject the write rather than
+    # silently create one that its meter ignores.
+    if row[2] is None:
+        raise HTTPException(
+            status_code=409,
+            detail="standalone tribute has no message step (campaign-only)",
         )
 
     await polish_and_store_message(
@@ -416,11 +424,22 @@ async def _generate_video(
     """Python-owned tribute video: store the render context (assembly inputs +
     presigned URLs) on the row and enqueue tribute_render. Unlocks at 100%. The
     worker assembles the Book, renders MP4 + PDF, and Node writes the URLs on
-    completion -- assembly is NOT done here so the request returns fast."""
-    if progress.percent < 100:
+    completion -- assembly is NOT done here so the request returns fast.
+
+    Gate is `ready` (the hard gate), NOT percent==100 (two-meter model, design
+    2026-07-22): soft slots (appearance/signature, unless a campaign requires
+    them) add to the bar but never block generation, so a video unlocks before
+    the bar fills."""
+    if not progress.ready:
         raise HTTPException(
             status_code=409,
-            detail=f"tribute not at 100% (percent={progress.percent})",
+            detail=(
+                "tribute not ready to generate "
+                f"(percent={progress.percent}); need "
+                + ("enough shared stories"
+                   if progress.kind == "standalone"
+                   else "enough stories and your message")
+            ),
         )
     if not body.video_put_url or not body.pdf_put_url:
         raise HTTPException(

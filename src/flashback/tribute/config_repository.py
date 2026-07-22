@@ -64,6 +64,8 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "closing_card_copy",
         "relationship_groups",
         "narrative_override",
+        "require_appearance",
+        "require_signature",
     ),
     "tribute_visual_themes": (
         "slug",
@@ -163,6 +165,8 @@ def _row_to_campaign(row) -> CampaignConfig:
         version=row[14],
         relationship_groups=tuple(row[15] or ()),
         narrative_override=row[16] or {},
+        require_appearance=bool(row[17]),
+        require_signature=bool(row[18]),
     )
 
 
@@ -170,7 +174,8 @@ _CAMPAIGN_COLS = (
     "id::text, slug, display_name, message_card_copy, archetype_extra_context, "
     "video_target_seconds, featured, active_start, active_end, "
     "archetype_bank_override, deage_cover_override, visual_theme_id, "
-    "closing_card_copy, state, version, relationship_groups, narrative_override"
+    "closing_card_copy, state, version, relationship_groups, narrative_override, "
+    "require_appearance, require_signature"
 )
 
 

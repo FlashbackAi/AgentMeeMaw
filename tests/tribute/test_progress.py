@@ -1,7 +1,11 @@
-"""DB tests for the tribute_status view via fetch_tribute_progress_sync.
+"""DB tests for the two-meter tribute_status view (design 2026-07-22).
 
-Walks a tribute from 0% (empty graph) to 100%/ready by filling each
-checklist slot, asserting the view's weighted percent at each step.
+Two kinds of tribute row:
+  * CAMPAIGN (campaign_id set) — the four weighted slots incl. message; the
+    archetype answer-floor; appearance/signature soft unless the campaign
+    requires them.
+  * STANDALONE (campaign_id NULL) — no message slot; memories-led smooth
+    percent (graded toward ~5 rich stories); unlocks on the story floor alone.
 """
 
 from __future__ import annotations
@@ -17,14 +21,33 @@ def _slot(progress, key: str):
     return next(s for s in progress.slots if s.key == key)
 
 
+def _has_slot(progress, key: str) -> bool:
+    return any(s.key == key for s in progress.slots)
+
+
 def _add_qualifying_moment(cur, person_id: str, title: str) -> None:
-    # sensory_details non-empty => qualifying.
     cur.execute(
         """
         INSERT INTO moments (person_id, title, narrative, sensory_details)
         VALUES (%s, %s, %s, %s)
         """,
         (person_id, title, "a narrative", "the smell of diesel and rain"),
+    )
+
+
+def _add_deep_moment(cur, person_id: str, title: str) -> None:
+    # >80 chars of sensory + a year time_anchor => depth bonuses (0030).
+    long_sensory = (
+        "the smell of diesel and rain on the platform, his cracked hands, "
+        "the cold steel bench, the 4 a.m. dark before the first train"
+    )
+    cur.execute(
+        """
+        INSERT INTO moments (person_id, title, narrative, sensory_details,
+                             time_anchor)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (person_id, title, "a narrative", long_sensory, json.dumps({"year": 1974})),
     )
 
 
@@ -51,22 +74,6 @@ def _add_trait(cur, person_id: str) -> None:
     )
 
 
-def _add_deep_moment(cur, person_id: str, title: str) -> None:
-    # >80 chars of sensory + a year time_anchor => depth bonuses (0030).
-    long_sensory = (
-        "the smell of diesel and rain on the platform, his cracked hands, "
-        "the cold steel bench, the 4 a.m. dark before the first train"
-    )
-    cur.execute(
-        """
-        INSERT INTO moments (person_id, title, narrative, sensory_details,
-                             time_anchor)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        (person_id, title, "a narrative", long_sensory, json.dumps({"year": 1974})),
-    )
-
-
 def _make_tribute_theme(cur, person_id: str, answers: list[dict]) -> str:
     cur.execute(
         """
@@ -80,9 +87,28 @@ def _make_tribute_theme(cur, person_id: str, answers: list[dict]) -> str:
     return cur.fetchone()[0]
 
 
-def test_answer_floor_lifts_percent_without_moments(db_pool, make_person) -> None:
-    # Rich archetype answers but an empty graph: the meter reflects captured
-    # intent (off zero) yet stays NOT ready -- answers are leads, not facts.
+def _make_campaign(cur, person_id: str, *, require_appearance=False,
+                   require_signature=False) -> str:
+    # Unique slug per person: the active-slug index is global, and the session
+    # DB is shared across tests.
+    slug = f"fd_{str(person_id).replace('-', '')[:12]}"
+    cur.execute(
+        """
+        INSERT INTO tribute_campaigns
+            (slug, display_name, require_appearance, require_signature)
+        VALUES (%s, 'FD Test', %s, %s)
+        RETURNING id::text
+        """,
+        (slug, require_appearance, require_signature),
+    )
+    return cur.fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Campaign branch (campaign_id set): four weighted slots + message + floor
+# ---------------------------------------------------------------------------
+
+def test_campaign_answer_floor_lifts_percent(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     answers = [
         {"question_id": "q10", "option_label": "Sold a home"},
@@ -93,28 +119,28 @@ def test_answer_floor_lifts_percent_without_moments(db_pool, make_person) -> Non
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             theme_id = _make_tribute_theme(cur, person_id, answers)
+            cid = _make_campaign(cur, person_id)
             tribute_id = insert_tribute_sync(
-                cur, person_id=person_id, theme_id=theme_id
+                cur, person_id=person_id, theme_id=theme_id, campaign_id=cid
             )
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress is not None
-    assert progress.answered_layers == 3  # the skipped one doesn't count
+    assert progress.kind == "campaign"
+    assert progress.answered_layers == 3
     assert progress.percent == 9  # round(3/14 * 40)
     assert progress.ready is False
-    assert _slot(progress, "memories").filled is False
 
 
-def test_answer_floor_caps_at_16(db_pool, make_person) -> None:
-    # All 14 layers answered => floor caps at 0.4 * 40 = 16, never higher.
+def test_campaign_answer_floor_caps_at_16(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     answers = [{"question_id": f"q{i}", "option_label": "x"} for i in range(1, 15)]
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             theme_id = _make_tribute_theme(cur, person_id, answers)
+            cid = _make_campaign(cur, person_id)
             tribute_id = insert_tribute_sync(
-                cur, person_id=person_id, theme_id=theme_id
+                cur, person_id=person_id, theme_id=theme_id, campaign_id=cid
             )
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
@@ -123,121 +149,85 @@ def test_answer_floor_caps_at_16(db_pool, make_person) -> None:
     assert progress.percent == 16  # capped floor, no other slots
 
 
-def test_depth_weighting_two_vivid_moments_fill_memories(db_pool, make_person) -> None:
-    # Two depth-weighted moments (score 2.0 each) saturate the memories %
-    # contribution (40) even though only 2 stories exist -- but READY still
-    # needs 3 raw qualifying moments, so it stays not ready.
+def test_campaign_depth_weighting_two_vivid_moments_fill_memories(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            cid = _make_campaign(cur, person_id)
+            tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
             _add_deep_moment(cur, person_id, "Deep A")
             _add_deep_moment(cur, person_id, "Deep B")
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress is not None
     assert progress.percent == 40  # depth-weighted memories maxed
     assert _slot(progress, "memories").filled is False  # only 2 raw stories
     assert progress.ready is False
 
 
-def test_progress_empty_tribute_is_zero(db_pool, make_person) -> None:
+def test_campaign_fills_each_slot_to_ready(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
-            conn.commit()
-            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
-
-    assert progress is not None
-    assert progress.percent == 0
-    assert progress.ready is False
-    assert all(s.filled is False for s in progress.slots)
-
-
-def test_progress_fills_each_slot_to_ready(db_pool, make_person) -> None:
-    person_id = make_person("Dad")
-    with db_pool.connection() as conn:
-        with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
-
-            # memories: 3 qualifying moments => +40
+            cid = _make_campaign(cur, person_id)
+            tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
             for i in range(3):
                 _add_qualifying_moment(cur, person_id, f"Memory {i}")
-            # appearance: ground_truth => +20
             _set_appearance_ground_truth(cur, person_id)
-            # signature: one active trait => +10
             _add_trait(cur, person_id)
-            # message: => +30
-            set_message_sync(
-                cur, tribute_id=tribute_id, message_text="Thank you, Dad."
-            )
+            set_message_sync(cur, tribute_id=tribute_id, message_text="Thank you, Dad.")
             conn.commit()
-
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress is not None
-    assert _slot(progress, "memories").filled is True
-    assert _slot(progress, "appearance").filled is True
-    assert _slot(progress, "signature").filled is True
-    assert _slot(progress, "message").filled is True
+    assert progress.kind == "campaign"
+    assert _has_slot(progress, "message")
+    assert all(_slot(progress, k).filled for k in
+               ("memories", "message", "appearance", "signature"))
     assert progress.percent == 100
     assert progress.ready is True
 
 
-def test_progress_partial_memories_scale_weight(db_pool, make_person) -> None:
-    # 2 of 3 memories => 2/3 * 40 ~= 27, no other slots => not ready.
+def test_campaign_partial_memories_scale_weight(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            cid = _make_campaign(cur, person_id)
+            tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
             _add_qualifying_moment(cur, person_id, "Memory A")
             _add_qualifying_moment(cur, person_id, "Memory B")
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress is not None
-    assert _slot(progress, "memories").filled is False  # needs 3
-    assert progress.percent == 27  # floor(2/3 * 40)
+    assert progress.percent == 27  # round(2/3 * 40)
     assert progress.ready is False
 
 
-def test_progress_exposes_next_count_and_hint(db_pool, make_person) -> None:
-    # Granular fields: next points at the first unfilled slot, memories
-    # carries count/target, every slot carries actionable hint copy.
+def test_campaign_require_appearance_gates_ready(db_pool, make_person) -> None:
+    # A campaign with require_appearance=true won't be ready without appearance,
+    # even with stories + message (the soft slot joins the hard gate).
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
-            _add_qualifying_moment(cur, person_id, "Memory A")
-            _add_qualifying_moment(cur, person_id, "Memory B")
+            cid = _make_campaign(cur, person_id, require_appearance=True)
+            tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
+            for i in range(3):
+                _add_qualifying_moment(cur, person_id, f"Memory {i}")
+            set_message_sync(cur, tribute_id=tribute_id, message_text="Thanks.")
             conn.commit()
-            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+            before = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+            _set_appearance_ground_truth(cur, person_id)
+            conn.commit()
+            after = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress is not None
-    # memories is the first unfilled slot (2 of 3).
-    assert progress.next_key == "memories"
-    mem = _slot(progress, "memories")
-    assert (mem.count, mem.target) == (2, 3)
-    assert all(s.hint for s in progress.slots)
-    # Non-memory slots are binary -- no count/target.
-    assert _slot(progress, "message").count is None
-    assert _slot(progress, "message").target is None
-    # Neutral default title when no campaign skin is supplied.
-    assert progress.title == "A Tribute"
+    assert before.ready is False   # stories + message present, appearance required
+    assert after.ready is True     # appearance now present
 
 
-def test_progress_campaign_skins_title_and_message_hint(db_pool, make_person) -> None:
-    # The Father's Day skin overrides the meter title and the message hint;
-    # other hints stay skin-neutral.
+def test_campaign_skins_title_and_message_hint(db_pool, make_person) -> None:
     person_id = make_person("Dad")
     campaign = CampaignConfig(
         id="c-fd", slug="fathers_day_2026", display_name="A Letter to Dad",
-        message_card_copy=(
-            "Fathers and sons don't always say it out loud. If he could "
-            "hear one thing from you right now — what is it?"
-        ),
+        message_card_copy="If he could hear one thing from you — what is it?",
         archetype_extra_context="", video_target_seconds=45, featured=True,
         active_start=None, active_end=None, archetype_bank_override=None,
         deage_cover_override=True, visual_theme_id=None,
@@ -245,14 +235,96 @@ def test_progress_campaign_skins_title_and_message_hint(db_pool, make_person) ->
     )
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            cid = _make_campaign(cur, person_id)
+            tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
             conn.commit()
             progress = fetch_tribute_progress_sync(
                 cur, tribute_id=tribute_id, campaign=campaign
             )
 
-    assert progress is not None
+    assert progress.kind == "campaign"
     assert progress.title == campaign.display_name
     assert _slot(progress, "message").hint == campaign.message_card_copy
-    # A non-message slot keeps the neutral checklist copy.
     assert _slot(progress, "appearance").hint == "A few details so we can picture them."
+
+
+# ---------------------------------------------------------------------------
+# Standalone branch (campaign_id NULL): memories-led, no message
+# ---------------------------------------------------------------------------
+
+def test_standalone_empty_is_zero_and_has_no_message_slot(db_pool, make_person) -> None:
+    person_id = make_person("Dad")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            tribute_id = insert_tribute_sync(cur, person_id=person_id)  # campaign_id NULL
+            conn.commit()
+            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+
+    assert progress.kind == "standalone"
+    assert progress.percent == 0
+    assert progress.ready is False
+    assert not _has_slot(progress, "message")   # simplified: no message
+    assert {s.key for s in progress.slots} == {"memories", "appearance", "signature"}
+
+
+def test_standalone_memories_led_percent(db_pool, make_person) -> None:
+    # 3 plain qualifying moments => score 3.0 => 3/5 * 70 = 42.
+    person_id = make_person("Dad")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            for i in range(3):
+                _add_qualifying_moment(cur, person_id, f"Memory {i}")
+            conn.commit()
+            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+
+    assert progress.percent == 42
+    assert progress.ready is True   # story floor met, no message required
+
+
+def test_standalone_ready_on_stories_without_message(db_pool, make_person) -> None:
+    # Unlocks on stories alone — appearance/signature are soft (not required).
+    person_id = make_person("Dad")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            for i in range(3):
+                _add_qualifying_moment(cur, person_id, f"Memory {i}")
+            conn.commit()
+            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+
+    assert progress.ready is True
+    assert _slot(progress, "appearance").filled is False  # soft, still unlocked
+    assert _slot(progress, "signature").filled is False
+
+
+def test_standalone_soft_slots_raise_percent_to_full(db_pool, make_person) -> None:
+    # 3 deep moments (score 6 -> capped 5 -> 70) + appearance (20) + sig (10) = 100.
+    person_id = make_person("Dad")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            for i in range(3):
+                _add_deep_moment(cur, person_id, f"Deep {i}")
+            _set_appearance_ground_truth(cur, person_id)
+            _add_trait(cur, person_id)
+            conn.commit()
+            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+
+    assert progress.percent == 100
+    assert progress.ready is True
+
+
+def test_standalone_title_and_next(db_pool, make_person) -> None:
+    person_id = make_person("Dad")
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            tribute_id = insert_tribute_sync(cur, person_id=person_id)
+            _add_qualifying_moment(cur, person_id, "Memory A")
+            conn.commit()
+            progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
+
+    assert progress.title == "A Tribute"
+    assert progress.next_key == "memories"   # 1 of 3, first unfilled
+    mem = _slot(progress, "memories")
+    assert (mem.count, mem.target) == (1, 3)

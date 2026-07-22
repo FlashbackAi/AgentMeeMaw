@@ -78,6 +78,13 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         if progress is None:
             return
 
+        # The message is a CAMPAIGN-only slot (two-meter model, design
+        # 2026-07-22). The standalone keepsake is simplified -- it never asks
+        # for "one thing to say", so the invitation never fires for it.
+        if progress.kind != "campaign":
+            log.info("message_tap.skipped", reason="standalone_no_message")
+            return
+
         def _filled(key: str) -> bool:
             return any(s.key == key and s.filled for s in progress.slots)
 

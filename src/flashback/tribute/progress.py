@@ -34,6 +34,9 @@ class TributeProgress:
     tribute_id: str
     percent: int
     ready: bool
+    # 'standalone' (the always-on keepsake, no message slot) or 'campaign'
+    # (the occasion, with the message slot). Two-meter model, design 2026-07-22.
+    kind: str
     slots: list[TributeSlot]
     # Title for the meter header -- the campaign skin's display name
     # ("A Letter to Dad") or the neutral default ("A Tribute").
@@ -48,7 +51,7 @@ class TributeProgress:
 
 _PROGRESS_SQL = """
 SELECT memories_count, message_present, appearance_present,
-       signature_present, percent, ready, answered_layers
+       signature_present, percent, ready, answered_layers, meter_kind
   FROM tribute_status
  WHERE id = %(id)s
 """
@@ -69,6 +72,7 @@ def progress_to_payload(p: TributeProgress) -> dict:
     return {
         "percent": p.percent,
         "ready": p.ready,
+        "kind": p.kind,
         "title": p.title,
         "next": p.next_key,
         "slots": [
@@ -108,7 +112,10 @@ def _decorate(
         percent,
         ready,
         answered_layers,
+        meter_kind,
     ) = row
+
+    kind = meter_kind or ("campaign" if campaign else "standalone")
 
     filled_by_key = {
         "memories": memories_count >= MEMORIES_TARGET,
@@ -120,6 +127,10 @@ def _decorate(
         message_hint_override = campaign.message_card_copy if campaign else None
     slots: list[TributeSlot] = []
     for s in SLOTS:
+        # Standalone has no message slot (simplified keepsake) -- skip it so its
+        # meter is stories + appearance + signature only.
+        if s.key == "message" and kind != "campaign":
+            continue
         hint = (
             message_hint_override
             if s.key == "message" and message_hint_override
@@ -140,6 +151,7 @@ def _decorate(
         tribute_id=str(tribute_id),
         percent=int(percent),
         ready=bool(ready),
+        kind=kind,
         slots=slots,
         title=campaign.display_name if campaign else TRIBUTE_DISPLAY_NAME,
         next_key=next_key,

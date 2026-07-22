@@ -133,7 +133,10 @@ async def test_video_200_stores_context_inputs_and_enqueues(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["artifact_kind"] == "tribute_video"
-    assert body["percent"] == 100
+    # Standalone tribute (no campaign): generate gates on `ready` (the story
+    # floor), not percent==100 — soft slots (appearance/signature) leave the
+    # bar below 100 while still unlocking (two-meter model, design 2026-07-22).
+    assert body["ready"] is True
 
     async with async_db_pool.connection() as conn:
         async with conn.cursor() as cur:
