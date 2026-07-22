@@ -132,9 +132,19 @@ _CAMPAIGN_TOOL = ToolSpec(
             "message_card_copy": {"type": "string", "maxLength": 220},
             "archetype_extra_context": {"type": "string", "maxLength": 400},
             "archetype_bank_override": _BANK_SCHEMA,
+            "narrative_override": {
+                "type": "object",
+                "properties": {
+                    "audience": {"type": "string", "maxLength": 200},
+                    "arc": {"type": "string", "maxLength": 240},
+                    "throughline": {"type": "string", "maxLength": 200},
+                },
+                "required": ["audience", "arc", "throughline"],
+                "additionalProperties": False,
+            },
         },
         "required": ["display_name", "message_card_copy",
-                     "archetype_extra_context"],
+                     "archetype_extra_context", "narrative_override"],
         "additionalProperties": False,
     },
 )
@@ -160,7 +170,11 @@ HARD RULES:
   where natural; never stereotyped.
 - The emotion rule should say WHERE the feeling lives and when sincerity is
   allowed to break through.
-- NARRATIVE framing must fit the relationship, NOT default to a eulogy:
+- NARRATIVE framing must fit the occasion/relationship, NOT default to a
+  eulogy. On a PROFILE it's `narrative`; on a CAMPAIGN it's
+  `narrative_override` (the occasion's framing, which wins over the profile
+  when set -- e.g. a Friendship Day campaign frames every video as a
+  friendship celebration). Author all three keys:
   * audience -- who watches and is spoken to (for a peer/friend the audience
     often includes the subject themselves and the shared circle; for an elder
     memorial it may be someone who never met them).

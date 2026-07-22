@@ -63,6 +63,7 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "visual_theme_id",
         "closing_card_copy",
         "relationship_groups",
+        "narrative_override",
     ),
     "tribute_visual_themes": (
         "slug",
@@ -84,6 +85,7 @@ _JSONB_COLUMNS = {
     "opener",
     "art",
     "narrative",
+    "narrative_override",
     "archetype_bank",
     "archetype_bank_override",
     "fonts",
@@ -160,6 +162,7 @@ def _row_to_campaign(row) -> CampaignConfig:
         state=row[13],
         version=row[14],
         relationship_groups=tuple(row[15] or ()),
+        narrative_override=row[16] or {},
     )
 
 
@@ -167,7 +170,7 @@ _CAMPAIGN_COLS = (
     "id::text, slug, display_name, message_card_copy, archetype_extra_context, "
     "video_target_seconds, featured, active_start, active_end, "
     "archetype_bank_override, deage_cover_override, visual_theme_id, "
-    "closing_card_copy, state, version, relationship_groups"
+    "closing_card_copy, state, version, relationship_groups, narrative_override"
 )
 
 

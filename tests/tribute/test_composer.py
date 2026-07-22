@@ -163,3 +163,23 @@ def test_narrative_block_partial_keys() -> None:
     d = compose_directives(profile, NEUTRAL_CAMPAIGN)
     assert "AUDIENCE" not in d.narrative_block
     assert "- ARC: just the arc" in d.narrative_block
+
+
+def test_campaign_narrative_override_wins() -> None:
+    # The occasion campaign's framing beats the relationship profile's.
+    campaign = _campaign(narrative_override={
+        "audience": "friends celebrating a friendship still going strong",
+        "arc": "the highlight reel of a friendship",
+        "throughline": "why this friendship still matters",
+    })
+    d = compose_directives(_friend_profile(), campaign)
+    assert "friends celebrating a friendship still going strong" in d.narrative_block
+    assert "the highlight reel of a friendship" in d.narrative_block
+    # the profile's narrative is fully replaced, not merged
+    assert "how you met, the everyday" not in d.narrative_block
+
+
+def test_campaign_empty_override_inherits_profile_narrative() -> None:
+    d = compose_directives(_friend_profile(), _campaign(narrative_override={}))
+    # falls back to the friend profile's own framing
+    assert "how you met, the everyday, drifting, the reunion" in d.narrative_block

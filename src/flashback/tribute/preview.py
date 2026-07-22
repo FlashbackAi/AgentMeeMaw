@@ -58,6 +58,7 @@ def campaign_from_payload(payload: dict, *, row_id: str = "draft") -> CampaignCo
         active_start=None,
         active_end=None,
         archetype_bank_override=payload.get("archetype_bank_override"),
+        narrative_override=payload.get("narrative_override") or {},
         deage_cover_override=payload.get("deage_cover_override"),
         visual_theme_id=payload.get("visual_theme_id"),
         closing_card_copy=payload.get("closing_card_copy"),

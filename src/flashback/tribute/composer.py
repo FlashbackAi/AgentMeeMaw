@@ -93,7 +93,11 @@ def compose_directives(
         voice_block=_voice_block(profile.voice),
         opener_style=_opener_style(profile.opener),
         art_mood=_art_mood(profile.art),
-        narrative_block=_narrative_block(profile.narrative),
+        # Occasion wins over relationship: a Friendship Day campaign frames the
+        # story as a friendship regardless of which relationship it targets.
+        # Empty override inherits the profile default (itself -> memorial default).
+        narrative_block=_narrative_block(
+            campaign.narrative_override or profile.narrative),
         fallback_opener=profile.fallback_opener,
         fallback_closing=profile.fallback_closing,
         deage_cover=bool(deage),

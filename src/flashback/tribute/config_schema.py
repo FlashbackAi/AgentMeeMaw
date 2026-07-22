@@ -66,6 +66,9 @@ class CampaignConfig:
     # default behavior). A Friendship Day campaign targeted to
     # ('friend', 'cousin') never surfaces on a father legacy.
     relationship_groups: tuple[str, ...] = ()
+    # Narrative framing override (migration 0047): wins over the relationship
+    # profile's narrative when non-empty. Empty = inherit the profile default.
+    narrative_override: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -205,17 +208,23 @@ def validate_profile_payload(d: dict) -> list[str]:
     ):
         errors.append("video_target_seconds: must be an integer or null")
 
-    # Narrative framing (migration 0046) — all keys optional; empty = default.
-    narrative = d.get("narrative")
-    if narrative is not None:
-        if not isinstance(narrative, dict):
-            errors.append("narrative: must be an object {audience, arc, throughline}")
-        else:
-            for key in ("audience", "arc", "throughline"):
-                v = narrative.get(key)
-                if v is not None and not isinstance(v, str):
-                    errors.append(f"narrative.{key}: must be a string")
+    _validate_narrative(d.get("narrative"), "narrative", errors)
     return errors
+
+
+def _validate_narrative(narrative, field_name: str, errors: list[str]) -> None:
+    """Shared narrative-framing shape check (profile.narrative and
+    campaign.narrative_override, migrations 0046/0047). All keys optional;
+    None/{} is valid (falls back to the default framing)."""
+    if narrative is None:
+        return
+    if not isinstance(narrative, dict):
+        errors.append(f"{field_name}: must be an object {{audience, arc, throughline}}")
+        return
+    for key in ("audience", "arc", "throughline"):
+        v = narrative.get(key)
+        if v is not None and not isinstance(v, str):
+            errors.append(f"{field_name}.{key}: must be a string")
 
 
 def validate_campaign_payload(d: dict) -> list[str]:
@@ -250,6 +259,7 @@ def validate_campaign_payload(d: dict) -> list[str]:
             )
         elif any(not s.strip() for s in rg):
             errors.append("relationship_groups: blank entry")
+    _validate_narrative(d.get("narrative_override"), "narrative_override", errors)
     return errors
 
 
