@@ -104,8 +104,18 @@ async def _seed_tribute(pool, *, with_signature: bool) -> str:
                     display_name=TRIBUTE_DISPLAY_NAME,
                     description=TRIBUTE_DESCRIPTION,
                 )
+                # The message invitation is a CAMPAIGN-only flow (two-meter
+                # model): stamp a campaign so the row is a campaign meter, not
+                # the message-less standalone.
+                await cur.execute(
+                    "INSERT INTO tribute_campaigns (slug, display_name) "
+                    "VALUES (%s, 'FD Test') RETURNING id::text",
+                    (f"fd_{person_id.replace('-', '')[:12]}",),
+                )
+                campaign_id = (await cur.fetchone())[0]
                 tribute_id = await ensure_open_tribute_async(
-                    cur, person_id=person_id, theme_id=theme_id
+                    cur, person_id=person_id, theme_id=theme_id,
+                    campaign_id=campaign_id,
                 )
     return person_id, tribute_id
 

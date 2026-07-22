@@ -20,6 +20,7 @@ from flashback.themes.repository import (
     ensure_tribute_theme_async,
     seed_universal_themes_async,
 )
+from flashback.tribute.repository import ensure_standalone_tribute_async
 from flashback.tribute.theme import (
     TRIBUTE_DESCRIPTION,
     TRIBUTE_DISPLAY_NAME,
@@ -91,12 +92,18 @@ async def insert_person(
                 row = await cur.fetchone()
                 assert row is not None  # INSERT ... RETURNING always yields a row
                 await seed_universal_themes_async(cur, person_id=row[0])
-                await ensure_tribute_theme_async(
+                tribute_theme_id = await ensure_tribute_theme_async(
                     cur,
                     person_id=row[0],
                     slug=TRIBUTE_SLUG,
                     display_name=TRIBUTE_DISPLAY_NAME,
                     description=TRIBUTE_DESCRIPTION,
+                )
+                # The always-on standalone Tribute meter (two-meter model,
+                # design 2026-07-22): a campaign_id-null row so every legacy has
+                # a keepsake meter building from day one, no campaign required.
+                await ensure_standalone_tribute_async(
+                    cur, person_id=row[0], theme_id=tribute_theme_id
                 )
 
     (

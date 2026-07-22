@@ -70,6 +70,11 @@ class CampaignConfig:
     # Narrative framing override (migration 0047): wins over the relationship
     # profile's narrative when non-empty. Empty = inherit the profile default.
     narrative_override: dict = field(default_factory=dict)
+    # Meter hard-gate toggles (migration 0048, two-meter model). When true, the
+    # soft slot joins this campaign's ready gate (a video won't generate without
+    # it). Default false = soft (adds % + AI-led, never blocks).
+    require_appearance: bool = False
+    require_signature: bool = False
 
 
 @dataclass(frozen=True)
@@ -272,6 +277,9 @@ def validate_campaign_payload(d: dict) -> list[str]:
         elif any(not s.strip() for s in rg):
             errors.append("relationship_groups: blank entry")
     _validate_narrative(d.get("narrative_override"), "narrative_override", errors)
+    for key in ("require_appearance", "require_signature"):
+        if key in d and not isinstance(d[key], bool):
+            errors.append(f"{key}: must be a boolean")
     return errors
 
 

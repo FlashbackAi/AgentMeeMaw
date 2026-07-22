@@ -57,21 +57,29 @@ def _row_to_tribute(row) -> TributeRow:
 
 
 _INSERT_TRIBUTE_SQL = """
-INSERT INTO tributes (person_id, theme_id, status)
-VALUES (%(person_id)s, %(theme_id)s, 'draft')
+INSERT INTO tributes (person_id, theme_id, campaign_id, status)
+VALUES (%(person_id)s, %(theme_id)s, %(campaign_id)s, 'draft')
 RETURNING id::text
 """
 
 
 def insert_tribute_sync(
-    cur, *, person_id: UUID | str, theme_id: UUID | str | None = None
+    cur,
+    *,
+    person_id: UUID | str,
+    theme_id: UUID | str | None = None,
+    campaign_id: UUID | str | None = None,
 ) -> str:
-    """Insert a fresh draft tribute and return its id."""
+    """Insert a fresh draft tribute and return its id.
+
+    ``campaign_id`` null = the standalone keepsake meter; set = a campaign
+    (occasion) meter (two-meter model, design 2026-07-22)."""
     cur.execute(
         _INSERT_TRIBUTE_SQL,
         {
             "person_id": str(person_id),
             "theme_id": str(theme_id) if theme_id is not None else None,
+            "campaign_id": str(campaign_id) if campaign_id is not None else None,
         },
     )
     (tribute_id,) = cur.fetchone()
@@ -174,6 +182,47 @@ async def fetch_open_tribute_id_async(
     )
     row = await cur.fetchone()
     return row[0] if row is not None else None
+
+
+async def ensure_standalone_tribute_async(
+    cur,
+    *,
+    person_id: UUID | str,
+    theme_id: UUID | str,
+) -> str:
+    """Get-or-create the standalone (campaign_id IS NULL) tribute row.
+
+    The always-on keepsake meter (two-meter model, design 2026-07-22). Seeded
+    at person creation and backfilled for existing legacies; idempotent (skips
+    when a non-superseded standalone row already exists). NOT the same as
+    ``ensure_open_tribute_async(campaign_id=None)``, which returns *any* open
+    tribute (it would latch onto a campaign row); this targets campaign_id IS
+    NULL specifically.
+    """
+    await cur.execute(
+        """
+        SELECT id::text FROM tributes
+         WHERE person_id = %(pid)s
+           AND campaign_id IS NULL
+           AND status <> 'superseded'
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        {"pid": str(person_id)},
+    )
+    row = await cur.fetchone()
+    if row is not None:
+        return row[0]
+    await cur.execute(
+        """
+        INSERT INTO tributes (person_id, theme_id, campaign_id, status)
+        VALUES (%(pid)s, %(tid)s, NULL, 'draft')
+        RETURNING id::text
+        """,
+        {"pid": str(person_id), "tid": str(theme_id)},
+    )
+    (tribute_id,) = await cur.fetchone()
+    return tribute_id
 
 
 async def ensure_open_tribute_async(
