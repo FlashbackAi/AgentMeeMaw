@@ -69,6 +69,27 @@ def test_opener_example_missing_name_placeholder() -> None:
     assert any("{name}" in e and "opener" in e for e in errors)
 
 
+def test_opener_preset_makes_freetext_optional() -> None:
+    p = copy.deepcopy(VALID_PROFILE)
+    p["opener"] = {"preset": "party_story"}  # no style / examples
+    assert validate_profile_payload(p) == []
+
+
+def test_opener_unknown_preset_rejected() -> None:
+    p = copy.deepcopy(VALID_PROFILE)
+    p["opener"] = {"preset": "no_such_style"}
+    errors = validate_profile_payload(p)
+    assert any("opener.preset" in e and "no_such_style" in e for e in errors)
+
+
+def test_opener_no_preset_still_requires_freetext() -> None:
+    p = copy.deepcopy(VALID_PROFILE)
+    p["opener"] = {}  # neither preset nor style/examples
+    errors = validate_profile_payload(p)
+    assert any("opener.style" in e for e in errors)
+    assert any("opener.examples" in e for e in errors)
+
+
 def test_fallback_missing_name_placeholder() -> None:
     bad = copy.deepcopy(VALID_PROFILE)
     bad["fallback_opener"] = "Meet my friend."

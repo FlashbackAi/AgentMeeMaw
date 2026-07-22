@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from flashback.themes.archetype_llm import ArchetypeQuestion
+from flashback.tribute.opener_presets import OPENER_PRESET_BY_SLUG
 from flashback.tribute.theme import TRIBUTE_DISPLAY_NAME
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -175,15 +176,26 @@ def validate_profile_payload(d: dict) -> list[str]:
     if not isinstance(opener, dict):
         errors.append("opener: required object")
     else:
-        if not isinstance(opener.get("style"), str) or not opener["style"].strip():
-            errors.append("opener.style: required")
-        examples = opener.get("examples")
-        if not _is_str_list(examples) or not examples:
-            errors.append("opener.examples: at least one example required")
-        else:
-            for i, ex in enumerate(examples, start=1):
-                if "{name}" not in ex:
-                    errors.append(f"opener.examples[{i}]: must contain {{name}}")
+        # A chosen opening-style preset (opener.preset slug) supplies the style
+        # + examples from the agent catalog, so free-text style/examples become
+        # optional. An unknown slug is an error.
+        preset = opener.get("preset")
+        if preset not in (None, "") and preset not in OPENER_PRESET_BY_SLUG:
+            errors.append(
+                f"opener.preset: unknown opening style '{preset}' "
+                "(see /flashback/opener-presets)")
+        has_preset = preset in OPENER_PRESET_BY_SLUG
+        if not has_preset:
+            if not isinstance(opener.get("style"), str) or not opener["style"].strip():
+                errors.append("opener.style: required (or pick an opener.preset)")
+            examples = opener.get("examples")
+            if not _is_str_list(examples) or not examples:
+                errors.append("opener.examples: at least one example required "
+                              "(or pick an opener.preset)")
+            else:
+                for i, ex in enumerate(examples, start=1):
+                    if "{name}" not in ex:
+                        errors.append(f"opener.examples[{i}]: must contain {{name}}")
 
     art = d.get("art")
     if not isinstance(art, dict):

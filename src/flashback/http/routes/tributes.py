@@ -39,6 +39,7 @@ from flashback.http.models import (
     TributeRegenerateRequest,
 )
 from flashback.tribute.composer import ComposedDirectives, compose_directives
+from flashback.tribute.opener_presets import public_catalog as opener_public_catalog
 from flashback.tribute.config_repository import (
     active_featured_campaign_db,
     fetch_campaign_by_id,
@@ -214,6 +215,16 @@ async def flashback_layouts() -> dict:
         "motion_presets": MOTION_PRESETS,
         "pinnable_roles": PINNABLE_ROLES,
     }
+
+
+@router.get("/flashback/opener-presets")
+async def flashback_opener_presets() -> dict:
+    """The opening-style catalog for the CRM opener dropdown (profile editor).
+
+    The admin picks a slug, stored on the profile's opener.preset; the composer
+    resolves it to a style + examples at compose time. Read-only; static.
+    """
+    return {"opener_presets": opener_public_catalog()}
 
 
 @router.get(

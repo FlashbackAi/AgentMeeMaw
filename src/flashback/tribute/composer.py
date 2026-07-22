@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from flashback.tribute.config_schema import CampaignConfig, ProfileConfig
+from flashback.tribute.opener_presets import OPENER_PRESET_BY_SLUG
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,15 @@ def _voice_block(voice: dict) -> str:
 
 
 def _opener_style(opener: dict) -> str:
-    style = (opener.get("style") or "").strip()
-    examples = [e.strip() for e in (opener.get("examples") or []) if e.strip()]
+    # A chosen preset (opener.preset slug) supplies the style + examples from
+    # the agent catalog; else fall back to the profile's free-text authoring.
+    preset = OPENER_PRESET_BY_SLUG.get((opener.get("preset") or "").strip())
+    if preset:
+        style = preset["style"]
+        examples = list(preset["examples"])
+    else:
+        style = (opener.get("style") or "").strip()
+        examples = [e.strip() for e in (opener.get("examples") or []) if e.strip()]
     if not examples:
         return style
     return (

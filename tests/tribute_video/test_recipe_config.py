@@ -1,7 +1,11 @@
 """Config-layer wiring for the Remotion recipe (migration 0044), no DB needed."""
 import asyncio
 
-from flashback.http.routes.tributes import _style_dict, flashback_layouts
+from flashback.http.routes.tributes import (
+    _style_dict,
+    flashback_layouts,
+    flashback_opener_presets,
+)
 from flashback.tribute.config_schema import VisualThemeConfig
 from flashback.tribute_video.sequencer import LAYOUT_CATALOG
 
@@ -61,6 +65,19 @@ def test_flashback_layouts_endpoint_shape():
     assert "punchy" in out["motion_presets"]
     assert out["pinnable_roles"] == ["opener", "payoff", "closing"]
     assert out["layouts"] is not LAYOUT_CATALOG or True  # served from the catalog
+
+
+def test_flashback_opener_presets_endpoint_shape():
+    out = asyncio.run(flashback_opener_presets())
+    presets = out["opener_presets"]
+    slugs = {p["slug"] for p in presets}
+    assert {"dedication", "party_story", "scene_setter"} <= slugs
+    for p in presets:
+        assert p["label"] and p["description"]
+        # examples are the dropdown preview; each carries {name}
+        assert p["examples"] and all("{name}" in e for e in p["examples"])
+        # internal prompt wording is NOT leaked to the public catalog
+        assert "style" not in p
 
 
 def test_recipe_snapshot_feeds_render_kwargs():

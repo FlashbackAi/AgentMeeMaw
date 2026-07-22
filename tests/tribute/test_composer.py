@@ -183,3 +183,37 @@ def test_campaign_empty_override_inherits_profile_narrative() -> None:
     d = compose_directives(_friend_profile(), _campaign(narrative_override={}))
     # falls back to the friend profile's own framing
     assert "how you met, the everyday, drifting, the reunion" in d.narrative_block
+
+
+def test_opener_preset_resolves_from_catalog() -> None:
+    profile = _friend_profile()
+    profile = ProfileConfig(
+        **{**profile.__dict__, "opener": {"preset": "party_story"}})
+    d = compose_directives(profile, NEUTRAL_CAMPAIGN)
+    assert "story told at every party" in d.opener_style
+    assert "Nobody warned me about {name}." in d.opener_style
+    # the profile's own free-text opener is not used
+    assert "Some people get lucky" not in d.opener_style
+
+
+def test_opener_preset_wins_over_freetext() -> None:
+    profile = _friend_profile()
+    profile = ProfileConfig(**{**profile.__dict__, "opener": {
+        "preset": "quiet_open",
+        "style": "IGNORED custom style",
+        "examples": ["IGNORED {name}."],
+    }})
+    d = compose_directives(profile, NEUTRAL_CAMPAIGN)
+    assert "understated" in d.opener_style
+    assert "IGNORED" not in d.opener_style
+
+
+def test_opener_unknown_preset_falls_back_to_freetext() -> None:
+    profile = _friend_profile()
+    profile = ProfileConfig(**{**profile.__dict__, "opener": {
+        "preset": "no_such_style",
+        "style": "custom style",
+        "examples": ["Hey {name}."],
+    }})
+    d = compose_directives(profile, NEUTRAL_CAMPAIGN)
+    assert d.opener_style.startswith("custom style")
