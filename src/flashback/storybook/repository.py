@@ -298,6 +298,42 @@ async def fetch_person_for_storybook_async(
     }
 
 
+async def fetch_involved_people_async(
+    cur, *, person_id: UUID | str, moment_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Active person-kind entities involved in the given moments (the cast the
+    book will draw), with their stored gender + relationship.
+
+    Deduped by entity id, ordered by name. Object/place/organization entities
+    are excluded -- the storybook assembler only needs gender-correct pronouns
+    for the people it draws.
+    """
+    if not moment_ids:
+        return []
+    await cur.execute(
+        """
+        SELECT DISTINCT e.id::text, e.name,
+               e.attributes->>'relationship', e.attributes->>'gender'
+          FROM edges ed
+          JOIN entities e ON e.id = ed.to_id
+         WHERE ed.from_kind = 'moment'
+           AND ed.to_kind   = 'entity'
+           AND ed.edge_type = 'involves'
+           AND ed.status    = 'active'
+           AND ed.from_id   = ANY(%(mids)s::uuid[])
+           AND e.status     = 'active'
+           AND e.person_id  = %(pid)s
+           AND e.kind       = 'person'
+         ORDER BY e.name
+        """,
+        {"mids": [str(m) for m in moment_ids], "pid": str(person_id)},
+    )
+    return [
+        {"name": r[1], "relationship": r[2], "gender": r[3]}
+        for r in await cur.fetchall()
+    ]
+
+
 async def insert_storybook_async(
     cur,
     *,
