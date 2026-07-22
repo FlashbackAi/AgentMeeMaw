@@ -192,3 +192,9 @@ def test_cover_art_prompt_is_subject_only(monkeypatch) -> None:
     p = captured["prompt"]
     assert "ONLY person" in p or "only person" in p.lower()
     assert "family" not in p.lower()
+    # Likeness binding must still be present (face/features/hair/build match)...
+    assert "Match Meera's face" in p
+    # ...but the scene anti-promotion tail contradicts a single-figure cover
+    # (where the subject IS the central/only figure) and must not appear.
+    assert "background watcher" not in p
+    assert "not present at all" not in p

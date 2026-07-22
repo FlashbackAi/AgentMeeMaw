@@ -75,14 +75,26 @@ def age_descriptor(stage: str, gender: str | None) -> str:
     return d.get((gender or "").lower(), d[""]) or d[""]
 
 
+def likeness_rule(subject: str, role: str = "the subject") -> str:
+    """Bind the reference image to ONE named person, appearance-only: face,
+    features, hair and build. No scene/other-people language -- safe to use
+    standalone on a single-figure cover where the subject IS the only
+    figure (unlike ``identity_rule``'s anti-promotion tail, which assumes a
+    scene where OTHER people are also present)."""
+    return (
+        f"IMPORTANT -- the character-reference image is {subject} ({role}), "
+        f"and ONLY {subject}. Match {subject}'s face, features, hair and "
+        f"build to the reference every time {subject} appears. "
+    )
+
+
 def identity_rule(subject: str, role: str = "the subject") -> str:
     """Bind the reference image to ONE named person so the model never paints
     the subject's face/age onto a different character, and never promotes the
     subject into an action the scene gives to someone else."""
     return (
-        f"IMPORTANT -- the character-reference image is {subject} ({role}), "
-        f"and ONLY {subject}. Match {subject}'s face, features, hair and "
-        f"build to the reference every time {subject} appears. NEVER put "
+        likeness_rule(subject, role) +
+        f"NEVER put "
         f"{subject}'s face, hair, or age onto anyone else: children, women, "
         f"men and friends in the scene are DIFFERENT individuals who must "
         f"look clearly distinct from {subject} and age-appropriate (a child "

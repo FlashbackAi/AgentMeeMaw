@@ -20,6 +20,7 @@ from flashback.storybook.refs import (
     _gen_image,
     identity_rule,
     image_part,
+    likeness_rule,
 )
 
 log = structlog.get_logger("flashback.storybook.scenes")
@@ -245,7 +246,7 @@ def gen_cover_art(
         f"place, light, objects and atmosphere ONLY, never through other "
         f"people. "
         f"{art_style}. Centered composition, fills the frame, soft "
-        f"uncluttered background. {identity_rule(name, rel)}"
+        f"uncluttered background. {likeness_rule(name, rel)}"
         f"Draw NO text, NO lettering, NO border anywhere -- pure "
         f"illustration."
     )
