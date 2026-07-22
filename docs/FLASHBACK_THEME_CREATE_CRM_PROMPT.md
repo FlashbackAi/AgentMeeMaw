@@ -228,6 +228,31 @@ So a user can type only a display name + slug and hit Create.
       publish), unchanged.
 - [ ] Themes headline/Explainer no longer describe only "generated background".
 
+## Openers — make them a visual picker too (Profiles screen)
+
+Openers (on the **Profile** editor, not the theme) are a text dropdown today.
+Now that example art exists, turn them into the same visual chip grid as the
+layout palette — single-select, one card per opening style.
+
+- **Art shipped:** `public/flashback-openers/<slug>.jpg`, one cover-frame mock
+  per opener preset — `dedication, party_story, scene_setter, bold_claim,
+  quiet_open, question` — same house style as the layout art. Each shows the
+  preset's example line in its register (dedication = warm serif dedication,
+  bold_claim = giant kinetic headline, quiet_open = tender low caption, etc.).
+- **Wiring** (mirror the layout path): an `openerPreviewUrl(slug)` →
+  `${BASE_URL}flashback-openers/${slug}.jpg`, and set it on each item from
+  `useOpenerPresets()` (the agent's `GET /flashback/opener-presets` gives
+  `slug, label, description, examples[]` but **no** image — the CRM owns the
+  picture, exactly like layouts).
+- **Picker:** reuse the extracted `LayoutChoice`/chip component in single-select
+  mode: each card = the opener thumbnail + label, with the example line
+  (`examples[0]`) as the caption under it. Selecting writes `opener.preset`
+  (the field the dropdown writes today). "Custom" stays available as a plain
+  card that reveals the free-text style/examples inputs.
+- New opener presets on the agent appear as cards immediately, thumbnail-less
+  until a matching `<slug>.jpg` is dropped in `public/flashback-openers/` — same
+  contract as layouts.
+
 ## Copy
 
 - Toggle: **Flashback** (animated — layouts, kinetic type, motion) ·
