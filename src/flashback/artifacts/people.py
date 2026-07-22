@@ -14,9 +14,13 @@ fixes presentation, not likeness.
 
 from __future__ import annotations
 
-# Pronoun form -> figure noun. ``they`` is intentionally absent: a neutral
-# pronoun yields no directive, leaving the model unbiased.
-_FIGURE_NOUN = {"he": "a man", "she": "a woman"}
+# Pronoun form OR entity gender -> figure noun. Neutral values ("they",
+# unknown, a name) are intentionally absent: they yield no directive, leaving
+# the model unbiased (CLAUDE.md §1 — no demographic invention).
+_FIGURE_NOUN = {
+    "he": "a man", "she": "a woman",       # persons.gender / contributor_gender
+    "male": "a man", "female": "a woman",  # entities.attributes.gender
+}
 
 
 def figure_noun(gender: str | None) -> str | None:
@@ -48,4 +52,53 @@ def people_scene_fragment(
         "Depict any human figures with correct gender presentation: "
         + ", ".join(clauses)
         + " (matching noun, not a neutral figure; faces turned away or distant)."
+    )
+
+
+def people_catalog_fragment(
+    *,
+    subject_name: str,
+    subject_relationship: str | None,
+    subject_gender: str | None,
+    contributor_gender: str | None,
+    involved: list[dict] | None = None,
+) -> str:
+    """A <people> grounding block for the storybook assembler.
+
+    Lists the subject, the contributor (the storyteller), and each involved
+    person-entity. A gender clause is emitted ONLY where gender is known; an
+    unknown-gender person is still named so the model knows who exists but
+    stays unbiased on presentation. Returns "" when nothing at all is known.
+    """
+    rows: list[str] = []
+    subject_fig = figure_noun(subject_gender)
+    if subject_fig:
+        rel = f", the storyteller's {subject_relationship}" if subject_relationship else ""
+        rows.append(f"- {subject_name} (the subject{rel}) is {subject_fig}.")
+    contributor_fig = figure_noun(contributor_gender)
+    if contributor_fig:
+        rows.append(
+            f"- The person sharing these memories (the storyteller) is "
+            f"{contributor_fig}."
+        )
+    for person in involved or []:
+        name = (person.get("name") or "").strip()
+        if not name:
+            continue
+        rel = (person.get("relationship") or "").strip()
+        who = f" ({rel})" if rel else ""
+        fig = figure_noun(person.get("gender"))
+        if fig:
+            rows.append(f"- {name}{who} is {fig}.")
+        else:
+            rows.append(f"- {name}{who}.")
+    if not rows:
+        return ""
+    return (
+        "<people>\n"
+        "These are the real people in these memories. Use each stated gender "
+        "with a matching noun (\"a man\", \"a woman\") — never guess gender "
+        "from a name, and never invent people not listed here.\n"
+        + "\n".join(rows)
+        + "\n</people>"
     )
