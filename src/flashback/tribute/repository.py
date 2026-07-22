@@ -476,7 +476,8 @@ async def fetch_tribute_for_assembly_async(
     await cur.execute(
         """
         SELECT tr.id::text, tr.person_id::text, tr.message_text,
-               p.name, p.relationship, tr.theme_id::text
+               p.name, p.relationship, tr.theme_id::text,
+               p.gender, p.contributor_gender
           FROM tributes tr
           JOIN persons p ON p.id = tr.person_id
          WHERE tr.id = %(id)s
@@ -493,6 +494,8 @@ async def fetch_tribute_for_assembly_async(
         "person_name": row[3],
         "person_relationship": row[4],
         "theme_id": row[5],
+        "gender": row[6],
+        "contributor_gender": row[7],
     }
 
 

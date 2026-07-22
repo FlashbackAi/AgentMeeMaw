@@ -26,6 +26,8 @@ class RenderContext:
     video_put_url: str
     pdf_put_url: str
     poster_put_url: str = ""
+    gender: str | None = None
+    contributor_gender: str | None = None
     candidates: list[dict[str, Any]] = field(default_factory=list)
     message_text: str = ""
     archetype_leads: list[str] = field(default_factory=list)
@@ -65,6 +67,8 @@ class RenderContext:
             video_put_url=(d.get("video_put_url") or ""),
             pdf_put_url=(d.get("pdf_put_url") or ""),
             poster_put_url=(d.get("poster_put_url") or ""),
+            gender=d.get("gender"),
+            contributor_gender=d.get("contributor_gender"),
             candidates=list(d.get("candidates") or []),
             message_text=(d.get("message_text") or ""),
             archetype_leads=list(d.get("archetype_leads") or []),
@@ -97,6 +101,8 @@ def build_context_dict(
     video_put_url: str,
     pdf_put_url: str,
     poster_put_url: str = "",
+    gender: str | None = None,
+    contributor_gender: str | None = None,
     message_text: str = "",
     archetype_leads: list[str] | None = None,
     edit_instructions: list[str] | None = None,
@@ -126,6 +132,8 @@ def build_context_dict(
         "video_put_url": video_put_url,
         "pdf_put_url": pdf_put_url,
         "poster_put_url": poster_put_url,
+        "gender": gender,
+        "contributor_gender": contributor_gender,
         "message_text": message_text,
         "archetype_leads": archetype_leads or [],
         "edit_instructions": edit_instructions or [],

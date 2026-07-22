@@ -24,6 +24,7 @@ from typing import Any
 
 import structlog
 
+from flashback.artifacts.people import figure_noun
 from flashback.llm.errors import LLMError
 from flashback.llm.interface import call_with_tool
 from flashback.llm.prompt_safety import xml_text
@@ -146,7 +147,10 @@ ART DIRECTION (every page incl. opener + closing): a vivid VISUAL brief -- what
 we SEE: the action, the ONE concrete object, the place, the time of day, the
 light (~20-35 words, grounded in that beat). Paint it; don't restate the line.{art_mood_slot}
 NEVER a face or recognizable likeness -- render figures from behind, at a
-distance, or implied (hands, silhouette, the thing they are doing).
+distance, or implied (hands, silhouette, the thing they are doing). When the
+subject's or a storyteller figure's gender is known (the `<subject>` tag's
+`gender` attribute, or context elsewhere), depict them with the matching
+gendered noun ("a man"/"a woman") rather than a neutral figure.
 
 Also give a `cover_title` (2-6 words, Title Case). Call `compose_book` once.
 """
@@ -200,8 +204,11 @@ def _xml(s: str) -> str:
 def _user_message(*, subject_name: str, relationship: str | None,
                   gt_context: str, candidates: list[dict[str, Any]],
                   message_text: str, archetype_leads: list[str],
-                  edit_instructions: list[str]) -> str:
+                  edit_instructions: list[str],
+                  subject_gender: str | None = None) -> str:
     rel = f' relationship="{_xml(relationship)}"' if relationship else ""
+    fig = figure_noun(subject_gender)
+    gender_attr = f' gender="{_xml(fig)}"' if fig else ""
     blocks = []
     for m in candidates:
         body = (m.get("narrative") or m.get("title") or "").strip()
@@ -228,7 +235,7 @@ def _user_message(*, subject_name: str, relationship: str | None,
         if edits else ""
     )
     return (
-        f"<subject{rel}>{_xml(subject_name)}</subject>\n"
+        f"<subject{rel}{gender_attr}>{_xml(subject_name)}</subject>\n"
         f"{gt_block}{msg_block}{leads_block}{edits_block}"
         f"<memories>\n" + "\n".join(blocks) + "\n</memories>"
     )
@@ -298,6 +305,7 @@ async def assemble_storybook_video(
     relationship: str | None,
     gt_context: str,
     candidates: list[dict[str, Any]],
+    subject_gender: str | None = None,
     message_text: str = "",
     archetype_leads: list[str] | None = None,
     edit_instructions: list[str] | None = None,
@@ -324,6 +332,7 @@ async def assemble_storybook_video(
     by_id = {c["id"] for c in usable}
     user = _user_message(
         subject_name=subject_name, relationship=relationship,
+        subject_gender=subject_gender,
         gt_context=gt_context, candidates=usable, message_text=message_text,
         archetype_leads=archetype_leads or [],
         edit_instructions=edit_instructions or [])
@@ -334,7 +343,7 @@ async def assemble_storybook_video(
         .replace("{opener_slot}", _opener_slot(opener_style))
         .replace("{art_mood_slot}", _art_mood_slot(art_mood))
         .replace("{n}", str(n_pages))
-        .replace("{relationship}", relationship or "grandfather")
+        .replace("{relationship}", relationship or "the subject")
     )
     if voice_block or opener_style or art_mood or narrative_block:
         # CRM opener examples carry {name}; ground them on THIS subject.

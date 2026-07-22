@@ -196,7 +196,7 @@ def test_assemble_book_passes_context_inputs(monkeypatch):
         tribute_id="t1", person_id="p1", subject_name="Dad",
         relationship="father", gt_context="gt", video_put_url="v",
         pdf_put_url="p", candidates=[{"id": "m1"}], message_text="thanks",
-        archetype_leads=["lead"], n_pages=9)
+        archetype_leads=["lead"], n_pages=9, gender="he")
 
     book = assemble_book(ctx, settings=SimpleNamespace())
 
@@ -205,3 +205,19 @@ def test_assemble_book_passes_context_inputs(monkeypatch):
     assert seen["message_text"] == "thanks"
     assert seen["n_pages"] == 9
     assert seen["subject_name"] == "Dad"
+    assert seen["subject_gender"] == "he"
+
+
+def test_render_and_upload_passes_subject_gender_to_render_book(monkeypatch):
+    uploaded = _stub_render(monkeypatch)
+    seen = {}
+
+    def fake_render_book(**kw):
+        seen.update(kw)
+
+    monkeypatch.setattr(worker_mod, "render_book", fake_render_book)
+    ctx = _render_ctx(gender="she")
+    worker_mod.render_and_upload(
+        ctx, artist=None, tmpdir="/tmp", settings=SimpleNamespace())
+    assert seen["subject_gender"] == "she"
+    assert uploaded  # sanity: render still completed

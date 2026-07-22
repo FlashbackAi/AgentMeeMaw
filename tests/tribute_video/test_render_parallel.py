@@ -40,7 +40,8 @@ class _FakeArtist:
     def character_reference(self, *, name, relationship, gt_context):
         return self._tag("reference")
 
-    def portrait_from_photo(self, photo, *, name, gt_context, deage, blend):
+    def portrait_from_photo(self, photo, *, name, gt_context, deage, blend,
+                            gender=None):
         return self._tag("opener_portrait")
 
     def illustrate(self, art_direction, gt_context, blend, *, reference=None,
@@ -84,7 +85,8 @@ def test_uses_prime_photo_for_opener_when_present():
 class _RefusingPortraitArtist(_FakeArtist):
     """portrait_from_photo always refuses (Gemini likeness filter)."""
 
-    def portrait_from_photo(self, photo, *, name, gt_context, deage, blend):
+    def portrait_from_photo(self, photo, *, name, gt_context, deage, blend,
+                            gender=None):
         raise GeminiError("Gemini generation failed: no image in response")
 
 

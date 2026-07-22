@@ -45,6 +45,7 @@ def _generate_illustrations(
     concurrency: int = DEFAULT_CONCURRENCY,
     art_mood: str | None = None,
     aspect: str | None = None,
+    subject_gender: str | None = None,
 ) -> tuple[Image.Image, list[Image.Image], Image.Image]:
     """Generate (opener, [beat...], closing) illustrations concurrently.
 
@@ -67,7 +68,7 @@ def _generate_illustrations(
             try:
                 return artist.portrait_from_photo(
                     prime_photo, name=subject_name, gt_context=gt_context,
-                    deage=deage, blend=blend)
+                    deage=deage, blend=blend, gender=subject_gender)
             except GeminiError as exc:
                 # Gemini refuses to repaint some real photos (likeness filter).
                 # The cover is the ONLY page that reproduces a real face; rather
@@ -126,6 +127,7 @@ def render_book(
     audio_path: str | None = _DEFAULT_AUDIO,  # type: ignore[assignment]
     kit: style.StyleKit | None = None,
     art_mood: str | None = None,
+    subject_gender: str | None = None,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
     template = compose.load_template(kit)
@@ -141,7 +143,8 @@ def render_book(
         artist=artist, book=book, subject_name=subject_name,
         relationship=relationship, gt_context=gt_context,
         prime_photo=prime_photo, deage=deage, blend=blend,
-        concurrency=concurrency, art_mood=art_mood)
+        concurrency=concurrency, art_mood=art_mood,
+        subject_gender=subject_gender)
 
     # Assemble pages in order; the message page reuses the opener illustration
     # as a visual bookend (no extra generation).

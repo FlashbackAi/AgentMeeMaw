@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -77,3 +78,57 @@ def test_build_prompt_art_mood_replaces_default_mood() -> None:
     assert mood in p
     assert art_mod.DEFAULT_MOOD not in p
     assert art_mod.REGISTER in p  # painterly register is not themeable
+
+
+def _capture_prompt(a: Artist, monkeypatch) -> list:
+    prompts: list = []
+
+    def fake_generate(contents, aspect):
+        prompts.append(contents[0])
+        return Image.new("RGB", (4, 4))
+
+    monkeypatch.setattr(a, "_generate", fake_generate)
+    return prompts
+
+
+def _words(pattern: str, prompt: str) -> bool:
+    return re.search(rf"\b{pattern}\b", prompt) is not None
+
+
+def test_portrait_prompt_uses_her_for_female(monkeypatch) -> None:
+    a = _artist()
+    prompts = _capture_prompt(a, monkeypatch)
+    photo = Image.new("RGB", (4, 4))
+    a.portrait_from_photo(photo, name="Meera", gt_context="", deage=True,
+                          gender="she")
+    prompt = prompts[0]
+    assert "KEEP her real" in prompt
+    assert "restore her prime-years" in prompt
+    assert not _words("his", prompt)
+    assert not _words("their", prompt)
+
+
+def test_portrait_prompt_uses_his_for_male(monkeypatch) -> None:
+    a = _artist()
+    prompts = _capture_prompt(a, monkeypatch)
+    photo = Image.new("RGB", (4, 4))
+    a.portrait_from_photo(photo, name="Raj", gt_context="", deage=True,
+                          gender="he")
+    prompt = prompts[0]
+    assert "KEEP his real" in prompt
+    assert "restore his prime-years" in prompt
+    assert not _words("her", prompt)
+    assert not _words("their", prompt)
+
+
+def test_portrait_prompt_neutral_for_unknown_gender(monkeypatch) -> None:
+    a = _artist()
+    prompts = _capture_prompt(a, monkeypatch)
+    photo = Image.new("RGB", (4, 4))
+    a.portrait_from_photo(photo, name="Alex", gt_context="", deage=True,
+                          gender=None)
+    prompt = prompts[0]
+    assert "KEEP their real" in prompt
+    assert "restore their prime-years" in prompt
+    assert not _words("his", prompt)
+    assert not _words("her", prompt)

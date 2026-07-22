@@ -75,6 +75,7 @@ def render_book_remotion(
     palette: list[str] | None = None, pins: dict[str, str] | None = None,
     hold: float = 2.4, transition: float = 0.7, accent: str = "#e8552e",
     motion_preset: str = DEFAULT_MOTION_PRESET,
+    subject_gender: str | None = None,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
     if not kit.generated_template:
@@ -90,7 +91,8 @@ def render_book_remotion(
         artist=artist, book=book, subject_name=subject_name,
         relationship=relationship, gt_context=gt_context,
         prime_photo=prime_photo, deage=deage, blend=SCENE_BLEND,
-        concurrency=concurrency, art_mood=art_mood, aspect=SCENE_ASPECT)
+        concurrency=concurrency, art_mood=art_mood, aspect=SCENE_ASPECT,
+        subject_gender=subject_gender)
 
     with tempfile.TemporaryDirectory() as td:
         public_dir = os.path.join(td, "public")

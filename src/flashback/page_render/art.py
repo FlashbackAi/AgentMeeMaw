@@ -169,17 +169,25 @@ class Artist:
 
     def portrait_from_photo(self, photo: Image.Image, *, name: str,
                             gt_context: str, deage: bool = False,
-                            blend: str = "cream") -> Image.Image:
+                            blend: str = "cream",
+                            gender: str | None = None) -> Image.Image:
         """Repaint a consented prime-years PHOTO into the storybook register,
-        keeping the subject's real likeness (cover/opener likeness exception)."""
+        keeping the subject's real likeness (cover/opener likeness exception).
+
+        ``gender`` (``he``/``she``/``None``) derives the pronoun used in the
+        prompt; unknown/neutral falls back to "their"/"them" rather than
+        defaulting to a specific gender (CLAUDE.md §1 -- no demographic
+        invention)."""
+        poss = {"he": "his", "she": "her"}.get((gender or "").lower(), "their")
+        subj = {"he": "him", "she": "her"}.get((gender or "").lower(), "them")
         deage_clause = (
-            "Render him noticeably YOUNGER -- restore his prime-years self "
-            "(fuller dark hair, upright vigour) while keeping his recognizable "
-            "features and bone structure. " if deage else ""
+            f"Render {subj} noticeably YOUNGER -- restore {poss} prime-years self "
+            f"(fuller hair, upright vigour) while keeping {poss} recognizable "
+            f"features and bone structure. " if deage else ""
         )
         prompt = (
             "Repaint this photograph as a dignified painterly watercolour "
-            f"PORTRAIT of {name}, in the storybook style: {STYLE}. KEEP his real "
+            f"PORTRAIT of {name}, in the storybook style: {STYLE}. KEEP {poss} real "
             f"likeness, face, and features faithfully. {deage_clause}{gt_context} "
             + _background_instruction(blend)
             + " A calm, warm head-and-shoulders portrait. Avoid: "

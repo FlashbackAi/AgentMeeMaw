@@ -49,6 +49,7 @@ def assemble_book(ctx: RenderContext, *, settings) -> Book:
         relationship=ctx.relationship,
         gt_context=ctx.gt_context,
         candidates=ctx.candidates,
+        subject_gender=ctx.gender,
         message_text=ctx.message_text,
         archetype_leads=ctx.archetype_leads,
         edit_instructions=ctx.edit_instructions,
@@ -123,6 +124,7 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
         prime_photo=photo, deage=ctx.deage, blend=ctx.blend, fps=ctx.fps,
         concurrency=getattr(settings, "render_concurrency", 4),
         kit=kit, art_mood=ctx.art_mood or None,
+        subject_gender=ctx.gender,
     )
     if engine == "remotion":
         try:

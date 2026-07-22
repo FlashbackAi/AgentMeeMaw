@@ -87,6 +87,59 @@ async def test_empty_candidates_returns_safe_fallback(monkeypatch):
     assert called is False  # no LLM call when there are no usable candidates
 
 
+def test_user_message_adds_gender_attribute_for_known_gender():
+    msg = assembler._user_message(
+        subject_name="Meera", relationship="friend", subject_gender="she",
+        gt_context="", candidates=_CANDS, message_text="", archetype_leads=[],
+        edit_instructions=[])
+    assert '<subject relationship="friend" gender="a woman">Meera</subject>' in msg
+
+
+def test_user_message_omits_gender_attribute_when_unknown():
+    msg = assembler._user_message(
+        subject_name="Meera", relationship="friend", subject_gender=None,
+        gt_context="", candidates=_CANDS, message_text="", archetype_leads=[],
+        edit_instructions=[])
+    assert "gender=" not in msg
+    assert '<subject relationship="friend">Meera</subject>' in msg
+
+
+def test_user_message_omits_gender_attribute_for_neutral_they():
+    msg = assembler._user_message(
+        subject_name="Meera", relationship=None, subject_gender="they",
+        gt_context="", candidates=_CANDS, message_text="", archetype_leads=[],
+        edit_instructions=[])
+    assert "gender=" not in msg
+
+
+async def test_neutral_relationship_fallback_no_grandfather(monkeypatch):
+    """assemble with relationship=None must NOT inject 'grandfather' into the
+    system prompt (CLAUDE.md: no forced-male default)."""
+    seen = {}
+
+    async def fake(**kw):
+        seen["system_prompt"] = kw["system_prompt"]
+        return {
+            "cover_title": "T",
+            "opener": {"line": "This is the story of Meera.",
+                       "art_direction": "a"},
+            "beats": [{"moment_id": "m1", "line": "A memory of Meera.",
+                       "art_direction": "b"}],
+            "closing": {"line": "Thank you, Meera.", "art_direction": "c"},
+        }
+
+    monkeypatch.setattr(assembler, "call_with_tool", fake)
+    await assembler.assemble_storybook_video(
+        settings=_Settings(), subject_name="Meera", relationship=None,
+        gt_context="", candidates=_CANDS, message_text="", n_pages=15)
+
+    assert "grandfather" not in seen["system_prompt"].lower()
+    # The {relationship} placeholder (inside the default opener slot's "Meet
+    # my {relationship}, ..." text) is neutralized, not defaulted to a
+    # gendered relation.
+    assert "meet my the subject" in seen["system_prompt"].lower()
+
+
 async def test_fallback_book_always_carries_text(monkeypatch):
     """The degraded book must never ship image-only pages: the opener and
     closing lines + cover title are template-derived, not empty."""
