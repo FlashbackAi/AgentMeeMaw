@@ -546,7 +546,7 @@ def find_existing_active_entities_by_name(
 def _reuse_existing_entity(
     cursor,
     *,
-    existing: tuple[str, str | None, list[str]],
+    existing: tuple[str, str | None, list[str], dict],
     extracted: ExtractedEntity,
     merged_description: str | None = None,
 ) -> "EntityWriteResult":
