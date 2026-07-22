@@ -254,15 +254,43 @@ So in the current CRM: theme → Flashback recipe → **Opener pin** (cover layo
 + **Motion preset** (its motion). Surface this clearly — label the Opener pin
 "**Cover / opener layout**" so it's discoverable as the cover control.
 
-**Proposed first-class cover control (small add, if you want cover independent
-of the body):** add to the recipe —
-- `cover_layout` (a layout slug; defaults to `layout_pins.opener` then the
-  palette head),
-- `cover_motion` (a motion preset; defaults to the global `motion_preset`).
+### Pick the cover VISUALLY — reuse the palette chip grid, not a dropdown
+
+The role pins (Opener/Payoff/Closing) are plain `<select>`s today. That's the
+wrong affordance now that the **Layout palette** renders a grid of chips with
+**preview thumbnails** (Split/Duotone, Scrapbook, Big Type, … — the 13). The
+cover picker should reuse **the exact same chip grid**, just in **single-select**
+mode:
+
+- Same chip component as the palette (preview image + label), rendered as a
+  grid.
+- **Single-select** (a radio-style pick) — one layout is the cover; the
+  selected chip gets the `ring-2 ring-accent` treatment the palette chips
+  already use.
+- Scope it to the **selected palette** (only layouts this theme uses), so the
+  cover is always a layout that actually appears; if the palette is empty, show
+  the full catalog.
+- This replaces the "Opener pin" dropdown with a visual "**Cover**" chip picker.
+  Do the same for Payoff/Closing pins while you're in there — three small
+  single-select chip rows read far better than three dropdowns.
+
+Component-wise this is the palette chip loop from `RecipeSection` extracted into
+a small `LayoutChoice` (props: `layouts`, `value | values`, `multi`,
+`onChange`) — the palette passes `multi`, the cover/pins pass single-select.
+Reuses `FlashbackLayout.preview_url` (already wired) so no new assets.
+
+### First-class cover control (recipe fields to back the picker)
+
+Back the visual cover picker with recipe fields so the cover is independent of
+the body:
+- `cover_layout` (a layout slug; defaults to `layout_pins.opener`, then the
+  palette head) — set by the single-select cover chip grid above.
+- `cover_motion` (a motion preset; defaults to the global `motion_preset`) — a
+  small "match the film / …" select beside it.
 
 Agent: `remotion_render` already assigns the opener scene first, so honoring a
 `cover_*` override is a localized change (apply it to scene 0 instead of the
-shared pins/motion). CRM: one "Cover" sub-section in the recipe editor with a
-layout picker + motion select, both defaulting to "match the film". This is a
-NEW control — flag it as future scope unless you want it in this pass; the
-Opener-pin + Motion-preset path above works now with zero backend change.
+shared pins/motion). If you'd rather not touch the agent this pass, the picker
+can write `layout_pins.opener` instead of a new `cover_layout` field — the
+visual chip grid is the win either way; the dedicated `cover_*` fields are the
+follow-up that makes the cover truly independent.
