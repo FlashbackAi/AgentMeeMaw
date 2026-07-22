@@ -35,6 +35,8 @@ class StorybookRenderContext:
     cover_put_url: str
     page_put_urls: list[str] = field(default_factory=list)
     gender: str | None = None
+    contributor_gender: str | None = None
+    people: list[dict[str, Any]] = field(default_factory=list)
     moments: list[dict[str, Any]] = field(default_factory=list)
     anchor_photo_get_url: str = ""
     # Cumulative free-text adjustments from the family; reshape the script.
@@ -61,6 +63,8 @@ class StorybookRenderContext:
             cover_put_url=(d.get("cover_put_url") or ""),
             page_put_urls=list(d.get("page_put_urls") or []),
             gender=d.get("gender"),
+            contributor_gender=d.get("contributor_gender"),
+            people=list(d.get("people") or []),
             moments=list(d.get("moments") or []),
             anchor_photo_get_url=(d.get("anchor_photo_get_url") or ""),
             edit_instructions=list(d.get("edit_instructions") or []),
@@ -81,6 +85,8 @@ def build_context_dict(
     cover_put_url: str,
     page_put_urls: list[str],
     gender: str | None = None,
+    contributor_gender: str | None = None,
+    people: list[dict[str, Any]] | None = None,
     anchor_photo_get_url: str = "",
     edit_instructions: list[str] | None = None,
     reuse_script: bool = False,
@@ -94,6 +100,8 @@ def build_context_dict(
         "relationship": relationship,
         "gt_context": gt_context,
         "gender": gender,
+        "contributor_gender": contributor_gender,
+        "people": people or [],
         "moments": moments,
         "pdf_put_url": pdf_put_url,
         "cover_put_url": cover_put_url,

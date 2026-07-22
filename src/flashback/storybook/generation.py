@@ -40,6 +40,7 @@ from flashback.storybook.repository import (
     collection_floor,
     demote_used_moments,
     effective_min_select,
+    fetch_involved_people_async,
     fetch_moments_by_ids_async,
     fetch_person_for_storybook_async,
     fetch_scope_scene_moments_async,
@@ -243,6 +244,7 @@ def _context(
     collection: str,
     person: dict[str, Any],
     moments: list[dict[str, Any]],
+    people: list[dict[str, Any]],
     gt_context: str,
     pdf_put_url: str,
     cover_put_url: str,
@@ -259,6 +261,8 @@ def _context(
         relationship=person.get("person_relationship"),
         gt_context=gt_context,
         gender=person.get("gender"),
+        contributor_gender=person.get("contributor_gender"),
+        people=people,
         moments=_moments_payload(moments),
         pdf_put_url=pdf_put_url,
         cover_put_url=cover_put_url,
@@ -336,10 +340,18 @@ async def generate_storybook(
         )
     else:
         moments = auto_slice
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            people = await fetch_involved_people_async(
+                cur,
+                person_id=person_id,
+                moment_ids=[str(m["id"]) for m in moments],
+            )
     ctx, composed_at = _context(
         collection=collection,
         person=person,
         moments=moments,
+        people=people,
         gt_context=gt_context,
         pdf_put_url=pdf_put_url,
         cover_put_url=cover_put_url,
@@ -451,10 +463,18 @@ async def _rerender(
                 floor=floor,
             )
             user_curated = False
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            people = await fetch_involved_people_async(
+                cur,
+                person_id=person_id,
+                moment_ids=[str(m["id"]) for m in moments],
+            )
     ctx, composed_at = _context(
         collection=collection,
         person=person,
         moments=moments,
+        people=people,
         gt_context=gt_context,
         pdf_put_url=pdf_put_url,
         cover_put_url=cover_put_url,

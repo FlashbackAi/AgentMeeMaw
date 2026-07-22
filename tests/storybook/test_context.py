@@ -83,3 +83,23 @@ def test_context_round_trips_user_curated_and_ids() -> None:
     )
     assert ctx.user_curated is True
     assert ctx.moments[0]["id"] == "m-1"
+
+
+def test_context_roundtrips_new_gender_fields() -> None:
+    d = build_context_dict(
+        collection="friends", subject_name="Meera", relationship="friend",
+        gt_context="", gender="she", contributor_gender="she",
+        people=[{"name": "Aarav", "relationship": "her brother", "gender": "male"}],
+        moments=[], pdf_put_url="", cover_put_url="", page_put_urls=[],
+    )
+    ctx = StorybookRenderContext.from_dict(d, storybook_id="s", person_id="p")
+    assert ctx.contributor_gender == "she"
+    assert ctx.people == [{"name": "Aarav", "relationship": "her brother", "gender": "male"}]
+
+
+def test_context_old_dict_defaults_new_fields() -> None:
+    ctx = StorybookRenderContext.from_dict(
+        {"collection": "friends", "subject_name": "Meera"},
+        storybook_id="s", person_id="p")
+    assert ctx.contributor_gender is None
+    assert ctx.people == []
