@@ -96,3 +96,13 @@ def test_extraction_prompt_mentions_contributor_display_name() -> None:
     display name for natural attribution and how to fall back when empty."""
     assert "<contributor_display_name>" in EXTRACTION_SYSTEM_PROMPT
     assert "neutral attribution" in EXTRACTION_SYSTEM_PROMPT
+
+
+def test_extraction_prompt_captures_person_entity_gender_only_from_evidence() -> None:
+    """Invariant #17a companion: entity gender is captured only on explicit
+    evidence (pronoun / gendered relationship word / direct statement), and
+    the prompt explicitly forbids inferring it from a first name alone."""
+    assert 'attributes.gender' in EXTRACTION_SYSTEM_PROMPT
+    assert "explicit pronoun" in EXTRACTION_SYSTEM_PROMPT
+    assert "gendered relationship word" in EXTRACTION_SYSTEM_PROMPT
+    assert "NEVER infer gender from a first name" in EXTRACTION_SYSTEM_PROMPT

@@ -478,20 +478,20 @@ def _persist_entities(
 
 def _find_existing_active_entity(
     cursor, *, person_id: str, kind: str, name: str
-) -> tuple[str, str | None, list[str]] | None:
+) -> tuple[str, str | None, list[str], dict] | None:
     """Oldest active same-kind entity whose normalized name matches ``name``.
 
-    Returns ``(id, description, aliases)`` or ``None``. Oldest-first is the
-    ambiguity guard: if pre-existing legacy duplicates share the name, we
-    resolve to the oldest and let the reconcile backstop clean up the rest
-    rather than guessing among them.
+    Returns ``(id, description, aliases, attributes)`` or ``None``.
+    Oldest-first is the ambiguity guard: if pre-existing legacy duplicates
+    share the name, we resolve to the oldest and let the reconcile backstop
+    clean up the rest rather than guessing among them.
     """
     normalized = (name or "").strip().lower()
     if not normalized:
         return None
     cursor.execute(
         """
-        SELECT id::text, description, COALESCE(aliases, '{}')
+        SELECT id::text, description, COALESCE(aliases, '{}'), attributes
           FROM entities
          WHERE person_id = %s
            AND status = 'active'
@@ -505,7 +505,7 @@ def _find_existing_active_entity(
     row = cursor.fetchone()
     if row is None:
         return None
-    return row[0], row[1], list(row[2] or [])
+    return row[0], row[1], list(row[2] or []), dict(row[3] or {})
 
 
 def find_existing_active_entities_by_name(
@@ -560,8 +560,12 @@ def _reuse_existing_entity(
         clobber accumulated detail with a raw single mention).
     When the description changes, NULL the embedding columns and signal a
     re-embed.
+
+    Also folds a newly-known ``attributes.gender`` in, but only when the
+    existing row has none set — a later ambiguous/conflicting mention must
+    never clobber a confident one (invariant #17a).
     """
-    existing_id, existing_desc, existing_aliases = existing
+    existing_id, existing_desc, existing_aliases, existing_attrs = existing
 
     merged_aliases = _fold_aliases(existing_aliases, extracted.aliases)
     aliases_changed = merged_aliases != list(existing_aliases or [])
@@ -576,24 +580,34 @@ def _reuse_existing_entity(
         final_desc = extracted.description
         desc_changed = True
 
-    if aliases_changed or desc_changed:
+    # Fold a newly-known gender into an existing entity only when unset —
+    # a later ambiguous mention must never clobber a confident one (#17a).
+    final_attrs = dict(existing_attrs or {})
+    attrs_changed = False
+    new_gender = (extracted.attributes or {}).get("gender")
+    if new_gender and not final_attrs.get("gender"):
+        final_attrs["gender"] = new_gender
+        attrs_changed = True
+
+    if aliases_changed or desc_changed or attrs_changed:
         if desc_changed:
             cursor.execute(
                 """
                 UPDATE entities
                    SET aliases = %s,
                        description = %s,
+                       attributes = %s,
                        description_embedding = NULL,
                        embedding_model = NULL,
                        embedding_model_version = NULL
                  WHERE id = %s
                 """,
-                (merged_aliases, final_desc, existing_id),
+                (merged_aliases, final_desc, Json(final_attrs), existing_id),
             )
         else:
             cursor.execute(
-                "UPDATE entities SET aliases = %s WHERE id = %s",
-                (merged_aliases, existing_id),
+                "UPDATE entities SET aliases = %s, attributes = %s WHERE id = %s",
+                (merged_aliases, Json(final_attrs), existing_id),
             )
 
     log.info(

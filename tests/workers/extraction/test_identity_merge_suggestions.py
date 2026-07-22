@@ -8,6 +8,8 @@ time, and the verifier-gated reconcile handles the rest out of band.
 
 from __future__ import annotations
 
+from psycopg.types.json import Json
+
 from flashback.workers.extraction.persistence import (
     PersonRow,
     persist_extraction,
@@ -15,7 +17,12 @@ from flashback.workers.extraction.persistence import (
 from flashback.workers.extraction.schema import ExtractionResult
 
 
-def _extraction_with_entity(name: str, *, description: str, aliases=None) -> ExtractionResult:
+def _extraction_with_entity(
+    name: str, *, description: str, aliases=None, gender: str | None = None
+) -> ExtractionResult:
+    attributes: dict = {"relationship": "friend"}
+    if gender is not None:
+        attributes["gender"] = gender
     return ExtractionResult.model_validate(
         {
             "moments": [],
@@ -25,7 +32,7 @@ def _extraction_with_entity(name: str, *, description: str, aliases=None) -> Ext
                     "name": name,
                     "description": description,
                     "aliases": list(aliases or []),
-                    "attributes": {"relationship": "friend"},
+                    "attributes": attributes,
                     "related_to_entity_indexes": [],
                     "generation_prompt": "A friend at a farmhouse party.",
                 }
@@ -37,20 +44,41 @@ def _extraction_with_entity(name: str, *, description: str, aliases=None) -> Ext
     )
 
 
-def _insert_entity(db_pool, person_id, name, description="An existing person."):
+def _insert_entity(
+    db_pool, person_id, name, description="An existing person.", attributes=None
+):
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO entities (person_id, kind, name, description, aliases)
-                VALUES (%s, 'person', %s, %s, '{}')
-                RETURNING id::text
-                """,
-                (person_id, name, description),
-            )
+            if attributes is None:
+                cur.execute(
+                    """
+                    INSERT INTO entities (person_id, kind, name, description, aliases)
+                    VALUES (%s, 'person', %s, %s, '{}')
+                    RETURNING id::text
+                    """,
+                    (person_id, name, description),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO entities
+                          (person_id, kind, name, description, aliases, attributes)
+                    VALUES (%s, 'person', %s, %s, '{}', %s)
+                    RETURNING id::text
+                    """,
+                    (person_id, name, description, Json(attributes)),
+                )
             entity_id = cur.fetchone()[0]
             conn.commit()
     return entity_id
+
+
+def _get_attributes(db_pool, entity_id) -> dict:
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT attributes FROM entities WHERE id = %s", (entity_id,))
+            (attributes,) = cur.fetchone()
+    return dict(attributes or {})
 
 
 def _count_active(db_pool, person_id, name):
@@ -255,3 +283,57 @@ def test_different_kind_same_name_is_not_reused(db_pool, make_person):
             )
             kinds = [r[0] for r in cur.fetchall()]
     assert kinds == ["object", "place"]
+
+
+def test_reuse_fills_empty_gender_from_extracted_attributes(db_pool, make_person):
+    """Deterministic reuse (invariant #17a): a newly-known ``attributes.gender``
+    folds into an existing entity only when the stored value is empty."""
+    person_id = make_person("Test Subject")
+    existing_id = _insert_entity(db_pool, person_id, "Aarav")  # attributes = {}
+
+    extraction = _extraction_with_entity(
+        "Aarav", description="A close friend.", gender="male"
+    )
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                result = persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=[],
+                    seeded_question_id=None,
+                )
+
+    assert result.entity_ids == [existing_id]
+    assert result.entity_writes[0].reused is True
+    assert _get_attributes(db_pool, existing_id).get("gender") == "male"
+
+
+def test_reuse_never_overwrites_an_already_set_gender(db_pool, make_person):
+    """A later mention with a different/ambiguous gender must never clobber
+    a confidently-stored one (invariant #17a)."""
+    person_id = make_person("Test Subject")
+    existing_id = _insert_entity(
+        db_pool, person_id, "Aarav", attributes={"gender": "male"}
+    )
+
+    extraction = _extraction_with_entity(
+        "Aarav", description="A close friend.", gender="female"
+    )
+
+    with db_pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                result = persist_extraction(
+                    cur,
+                    person=PersonRow(id=person_id, name="Test Subject", aliases=[]),
+                    extraction=extraction,
+                    moment_decisions=[],
+                    seeded_question_id=None,
+                )
+
+    assert result.entity_ids == [existing_id]
+    assert result.entity_writes[0].reused is True
+    assert _get_attributes(db_pool, existing_id).get("gender") == "male"

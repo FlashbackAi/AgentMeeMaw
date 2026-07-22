@@ -398,6 +398,11 @@ people mentioned ARE entities.
 contributor said anything about them.
 - For person entities, populate `attributes.relationship` (their relationship \
 to the SUBJECT, not to the contributor).
+- For person entities, populate `attributes.gender` ("male" or "female") \
+ONLY when the conversation makes it unambiguous — an explicit pronoun, a \
+gendered relationship word ("my sister", "his uncle"), or a direct \
+statement. NEVER infer gender from a first name alone; if it is not clear \
+from what was said, omit the field.
 - If the contributor corrects an identity, extract ONE canonical entity with \
 the corrected name and put the mistaken/prior label in `aliases`. Do not emit \
 both as separate entities.
