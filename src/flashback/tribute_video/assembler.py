@@ -148,9 +148,9 @@ we SEE: the action, the ONE concrete object, the place, the time of day, the
 light (~20-35 words, grounded in that beat). Paint it; don't restate the line.{art_mood_slot}
 NEVER a face or recognizable likeness -- render figures from behind, at a
 distance, or implied (hands, silhouette, the thing they are doing). When the
-subject's or a storyteller figure's gender is known (the `<subject>` tag's
-`gender` attribute, or context elsewhere), depict them with the matching
-gendered noun ("a man"/"a woman") rather than a neutral figure.
+subject's gender is known (the `<subject>` tag's `gender` attribute), depict
+them with the matching gendered noun ("a man"/"a woman"); otherwise render
+figures neutrally.
 
 Also give a `cover_title` (2-6 words, Title Case). Call `compose_book` once.
 """
