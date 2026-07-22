@@ -23,6 +23,7 @@ from typing import Any
 
 import structlog
 
+from flashback.artifacts.people import figure_noun, people_catalog_fragment
 from flashback.llm.errors import LLMError
 from flashback.llm.interface import call_with_tool
 from flashback.llm.prompt_safety import xml_text
@@ -58,8 +59,12 @@ _TOOL = ToolSpec(
                         "name": {"type": "string", "maxLength": 60},
                         "who": {"type": "string", "maxLength": 80},
                         "appearance": {"type": "string", "maxLength": 200},
+                        "gender": {
+                            "type": "string",
+                            "enum": ["male", "female", "unknown"],
+                        },
                     },
-                    "required": ["name", "who", "appearance"],
+                    "required": ["name", "who", "appearance", "gender"],
                     "additionalProperties": False,
                 },
             },
@@ -132,6 +137,7 @@ class Character:
     name: str
     who: str
     appearance: str
+    gender: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -144,7 +150,12 @@ class BookScript:
         return {
             "cover_title": self.cover_title,
             "characters": [
-                {"name": c.name, "who": c.who, "appearance": c.appearance}
+                {
+                    "name": c.name,
+                    "who": c.who,
+                    "appearance": c.appearance,
+                    "gender": c.gender,
+                }
                 for c in self.characters
             ],
             "pages": [
@@ -190,6 +201,7 @@ class BookScript:
                 name=(c.get("name") or "").strip(),
                 who=(c.get("who") or "").strip(),
                 appearance=(c.get("appearance") or "").strip(),
+                gender=(c.get("gender") or "unknown").strip() or "unknown",
             )
             for c in d.get("characters") or []
             if (c.get("name") or "").strip()
@@ -263,15 +275,21 @@ _GENTLE_RULE = (
 
 
 def _sys_prompt(
-    collection: Collection, name: str, rel: str | None, counts: list[int]
+    collection: Collection,
+    name: str,
+    rel: str | None,
+    counts: list[int],
+    subject_gender: str | None = None,
 ) -> str:
     chapter = collection.layout == "chapter"
     rel_part = f" ({rel})" if rel else ""
+    subject_fig = figure_noun(subject_gender)
+    gender_part = f" -- {name} is {subject_fig}" if subject_fig else ""
     gentle = _GENTLE_RULE if collection.tone == "gentle" else ""
     return (
         f"You are writing a children's PICTURE BOOK ('{collection.display}') "
-        f"about {name}{rel_part} -- a keepsake the family will read aloud to "
-        f"little ones, in {collection.voice}.\n\n"
+        f"about {name}{rel_part}{gender_part} -- a keepsake the family will "
+        f"read aloud to little ones, in {collection.voice}.\n\n"
         f"THIS IS ONE STORY, NOT A LIST OF ANECDOTES. A child must be able "
         f"to follow it from the first page to the last like a single bedtime "
         f"tale that feels like magic. Build a clear arc:\n"
@@ -334,13 +352,18 @@ def _sys_prompt(
         f"typical clothing) that must NOT mention age -- the same "
         f"description is reused whenever they appear, at whatever age that "
         f"scene states. This is what keeps them recognisable and clearly "
-        f"distinct from {name} in the art.\n"
-        f"- AGES: panels are illustrated INDEPENDENTLY, so every scene "
-        f"description must state the apparent age of EVERY person present "
-        f"('his son, now about seventeen', 'a girl of ten') -- an unstated "
-        f"age WILL be drawn wrong. Keep each person's age identical across "
-        f"all panels of the same event, keep it consistent with that "
-        f"memory's when-label, and never give an event an age the memory "
+        f"distinct from {name} in the art. Set each character's 'gender' "
+        f"from <people> or an explicit pronoun; use 'unknown' only when "
+        f"neither says.\n"
+        f"- AGES & GENDERS: panels are illustrated INDEPENDENTLY, so every "
+        f"scene description must state the apparent age AND gender of "
+        f"EVERY person present ('his son, now about seventeen', 'a girl of "
+        f"ten', 'his friend, a woman of about sixty') -- an unstated age or "
+        f"gender WILL be drawn wrong. Take each person's gender from "
+        f"<people> or from an explicit pronoun in the memories; never guess "
+        f"it from a name. Keep each person's age identical across all "
+        f"panels of the same event, keep it consistent with that memory's "
+        f"when-label, and never give an event an age the memory "
         f"contradicts.\n"
         f"- On EVERY panel set `age_stage` to how old {name} is in that "
         f"scene so they are drawn at the right age (the story may span a "
@@ -385,6 +408,9 @@ async def assemble_script(
     gt_context: str,
     moments: list[dict[str, Any]],
     edit_instructions: list[str] | None = None,
+    subject_gender: str | None = None,
+    contributor_gender: str | None = None,
+    people: list[dict[str, Any]] | None = None,
 ) -> BookScript:
     """Write the whole book (cover title + PAGE_COUNT pages) in one call.
 
@@ -406,16 +432,27 @@ async def assemble_script(
             f"\n<family_edit_requests>\n{lines}\n</family_edit_requests>\n"
             f"Honour every request above when reshaping the book."
         )
+    people_block = people_catalog_fragment(
+        subject_name=subject_name,
+        subject_relationship=relationship,
+        subject_gender=subject_gender,
+        contributor_gender=contributor_gender,
+        involved=people or [],
+    )
+    people_xml = f"\n{people_block}\n" if people_block else ""
     user = (
         f'<subject rel="{xml_text(relationship or "")}">{name}</subject>\n'
         f"<world>{gt_context}</world>\n"
         f"<panel_counts>{counts}</panel_counts>\n"
+        f"{people_xml}"
         f"<memories>\n{blocks}\n</memories>{edits}"
     )
     args = await call_with_tool(
         provider=settings.llm_big_provider,
         model=settings.llm_big_model,
-        system_prompt=_sys_prompt(collection, name, relationship, counts),
+        system_prompt=_sys_prompt(
+            collection, name, relationship, counts, subject_gender
+        ),
         user_message=user,
         tool=_TOOL,
         max_tokens=6000,

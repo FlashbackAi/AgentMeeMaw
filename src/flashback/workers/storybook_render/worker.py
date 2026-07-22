@@ -54,6 +54,9 @@ async def _assemble(ctx: StorybookRenderContext, *, settings) -> BookScript:
         gt_context=ctx.gt_context,
         moments=ctx.moments,
         edit_instructions=ctx.edit_instructions or None,
+        subject_gender=ctx.gender,
+        contributor_gender=ctx.contributor_gender,
+        people=ctx.people,
     )
 
 

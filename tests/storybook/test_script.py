@@ -63,6 +63,27 @@ def test_nameless_character_entries_are_dropped() -> None:
     assert len(BookScript.from_dict(d).characters) == 1
 
 
+def test_character_roundtrip_defaults_unknown_gender() -> None:
+    s = BookScript.from_dict({
+        "cover_title": "T",
+        "characters": [{"name": "Aarav", "who": "her brother", "appearance": "tall"}],
+        "pages": [],
+    })
+    assert s.characters[0].gender == "unknown"
+    assert s.to_dict()["characters"][0]["gender"] == "unknown"
+
+
+def test_character_roundtrip_preserves_gender() -> None:
+    s = BookScript.from_dict({
+        "cover_title": "T",
+        "characters": [{"name": "Aarav", "who": "brother", "appearance": "tall",
+                        "gender": "male"}],
+        "pages": [],
+    })
+    assert s.characters[0].gender == "male"
+    assert s.to_dict()["characters"][0]["gender"] == "male"
+
+
 def test_bad_age_stage_rejected() -> None:
     d = _raw()
     d["pages"][0]["panels"][0]["age_stage"] = "toddler"
@@ -152,6 +173,29 @@ async def test_full_tone_omits_child_safety_rules() -> None:
     assert "NEVER show a child drinking toddy" not in llm.call_args.kwargs[
         "system_prompt"
     ]
+
+
+async def test_assemble_injects_people_block_and_gender_rules() -> None:
+    with patch(
+        "flashback.storybook.script.call_with_tool",
+        new=AsyncMock(return_value=_raw()),
+    ) as llm:
+        await assemble_script(
+            settings=_SETTINGS,
+            collection=COLLECTIONS["childhood"],
+            subject_name="S",
+            relationship="Grand Mother",
+            gt_context="",
+            moments=[{"title": "t", "narrative": "n"}],
+            subject_gender="she",
+            contributor_gender=None,
+            people=[{"name": "Aarav", "relationship": "brother", "gender": "male"}],
+        )
+    user = llm.call_args.kwargs["user_message"]
+    sys_prompt = llm.call_args.kwargs["system_prompt"]
+    assert "<people>" in user
+    assert "a woman" in user
+    assert "AGES & GENDERS" in sys_prompt
 
 
 async def test_edit_instructions_reach_the_prompt() -> None:
