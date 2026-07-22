@@ -216,7 +216,7 @@ async def insert_entities_async(
         if normalized:
             await cur.execute(
                 """
-                SELECT id::text, description, COALESCE(aliases, '{}')
+                SELECT id::text, description, COALESCE(aliases, '{}'), attributes
                   FROM entities
                  WHERE person_id = %s
                    AND status = 'active'
@@ -230,10 +230,11 @@ async def insert_entities_async(
             existing = await cur.fetchone()
 
         if existing is not None:
-            existing_id, existing_desc, existing_aliases = (
+            existing_id, existing_desc, existing_aliases, existing_attrs = (
                 existing[0],
                 existing[1],
                 list(existing[2] or []),
+                dict(existing[3] or {}),
             )
             merged_aliases = _fold_aliases(existing_aliases, list(e.aliases))
             aliases_changed = merged_aliases != existing_aliases
@@ -242,23 +243,36 @@ async def insert_entities_async(
             if not (existing_desc or "").strip() and (e.description or "").strip():
                 final_desc = e.description
                 desc_changed = True
+
+            # Fold a newly-known gender into an existing entity only when
+            # unset — a later ambiguous mention must never clobber a
+            # confident one (invariant #17a). Mirrors
+            # ``persistence._reuse_existing_entity``.
+            final_attrs = dict(existing_attrs or {})
+            attrs_changed = False
+            new_gender = (e.attributes or {}).get("gender")
+            if new_gender and not final_attrs.get("gender"):
+                final_attrs["gender"] = new_gender
+                attrs_changed = True
+
             if desc_changed:
                 await cur.execute(
                     """
                     UPDATE entities
                        SET aliases = %s,
                            description = %s,
+                           attributes = %s,
                            description_embedding = NULL,
                            embedding_model = NULL,
                            embedding_model_version = NULL
                      WHERE id = %s
                     """,
-                    (merged_aliases, final_desc, existing_id),
+                    (merged_aliases, final_desc, Json(final_attrs), existing_id),
                 )
-            elif aliases_changed:
+            elif aliases_changed or attrs_changed:
                 await cur.execute(
-                    "UPDATE entities SET aliases = %s WHERE id = %s",
-                    (merged_aliases, existing_id),
+                    "UPDATE entities SET aliases = %s, attributes = %s WHERE id = %s",
+                    (merged_aliases, Json(final_attrs), existing_id),
                 )
             results.append(
                 EntityWriteResult(
