@@ -27,17 +27,43 @@ def test_identity_rule_is_appearance_only() -> None:
 def test_cast_rule_pins_recurring_people() -> None:
     r = cast_rule(
         [Character(name="Mokshith", who="his son",
-                   appearance="short black hair, slim, clean-shaven")],
+                   appearance="short black hair, slim, clean-shaven",
+                   gender="male")],
         "Chandraiah",
     )
-    assert "Mokshith (his son): short black hair, slim, clean-shaven" in r
+    assert "Mokshith (his son, a man): short black hair, slim, clean-shaven" in r
     assert "never drawn from the reference image" in r
-    assert "NEVER show the same face twice" in r
-    assert "do not add anyone it does not mention" in r
+    # The anti-invention clause moved to _ident's UNCONDITIONAL tail so it
+    # fires even when the roster is empty — it no longer belongs here.
+    assert "NEVER show the same face twice" not in r
+    assert "do not add anyone it does not mention" not in r
 
 
 def test_cast_rule_empty_for_no_characters() -> None:
     assert cast_rule([], "S") == ""
+
+
+def test_cast_rule_includes_gender_noun() -> None:
+    class C:  # duck-types the roster
+        def __init__(s, n, w, a, g):
+            s.name, s.who, s.appearance, s.gender = n, w, a, g
+
+    rule = cast_rule(
+        [C("Aarav", "her brother", "tall, curly hair", "male")], "Meera"
+    )
+    assert "a man" in rule
+    assert "Aarav" in rule
+
+
+def test_cast_rule_omits_noun_for_unknown_gender() -> None:
+    r = cast_rule(
+        [Character(name="Priya", who="her friend", appearance="short hair",
+                   gender="unknown")],
+        "Meera",
+    )
+    assert "Priya (her friend): short hair" in r
+    assert "a man" not in r
+    assert "a woman" not in r
 
 
 def test_four_age_stages_with_mid_primary() -> None:

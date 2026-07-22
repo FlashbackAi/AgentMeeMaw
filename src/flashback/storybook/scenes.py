@@ -83,12 +83,22 @@ def lettering_ok(openai_client, img: Image.Image, expected: str,
         return True
 
 
+# UNCONDITIONAL -- appended to every scene/chapter panel prompt regardless of
+# whether there is a named recurring cast (cast_rule returns "" when the
+# roster is empty, so this can't live there; it must fire every time).
+_NO_INVENT = (
+    "Draw ONLY the people the scene explicitly names -- do not add anyone "
+    "it does not mention (no extra family, no bystanders, no crowd), and "
+    "NEVER show the same face twice in one panel. "
+)
+
+
 def _ident(subject: str, role: str) -> str:
     if subject:
-        return identity_rule(subject, role)
+        return identity_rule(subject, role) + _NO_INVENT
     return (
         "Keep the SAME characters consistent with the character-reference "
-        "image. "
+        "image. " + _NO_INVENT
     )
 
 
@@ -220,14 +230,20 @@ def gen_cover_art(
 
     ``age`` is the descriptor of the book's dominant life stage; without an
     explicit age the model follows the reference sheet / relationship word
-    and paints the subject old on every cover."""
+    and paints the subject old on every cover.
+
+    The cover shows {name} ALONE: no family, no crowd, no bystanders. Their
+    world is evoked through place, light and objects only -- never through
+    other people, so the cover can never invent a face nobody described."""
     rel = relationship or "the subject"
     age_line = f"Depict {name} as {age} on this cover. " if age else ""
     prompt = (
-        f"A single cover illustration for a family storybook about {name} "
-        f"({rel}) -- {gt_context}. A warm, dignified portrait-scene with "
-        f"{name} as the central figure, evocative of their life and world. "
-        f"{age_line}"
+        f"A single-figure cover portrait-scene of {name} ({rel}) -- "
+        f"{gt_context}. {age_line}"
+        f"{name} is the ONLY person in the image -- no other people, no "
+        f"companions, no crowd, no bystanders. Evoke their world through "
+        f"place, light, objects and atmosphere ONLY, never through other "
+        f"people. "
         f"{art_style}. Centered composition, fills the frame, soft "
         f"uncluttered background. {identity_rule(name, rel)}"
         f"Draw NO text, NO lettering, NO border anywhere -- pure "

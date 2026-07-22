@@ -23,6 +23,7 @@ import structlog
 from google.genai import types
 from PIL import Image
 
+from flashback.artifacts.people import figure_noun
 from flashback.usage import recorder as usage_recorder
 
 log = structlog.get_logger("flashback.storybook.refs")
@@ -98,23 +99,29 @@ def identity_rule(subject: str, role: str = "the subject") -> str:
     )
 
 
+def _cast_line(c) -> str:
+    fig = figure_noun(getattr(c, "gender", None))
+    noun = f", {fig}" if fig else ""
+    return f"{c.name} ({c.who}{noun}): {c.appearance}"
+
+
 def cast_rule(characters, subject: str) -> str:
-    """Pin the OTHER recurring people (name + stable appearance) so they stay
-    recognisable panel to panel and are never painted with the subject's face
-    (the two-identical-men bug). ``characters`` duck-types the script roster:
-    objects with ``name`` / ``who`` / ``appearance``."""
+    """Pin the OTHER recurring people (name + stable appearance + gender) so
+    they stay recognisable panel to panel and are never painted with the
+    subject's face (the two-identical-men bug), nor with the wrong gender.
+    ``characters`` duck-types the script roster: objects with ``name`` /
+    ``who`` / ``appearance`` / ``gender``. The anti-invention clause ("draw
+    only who the scene names") lives in ``scenes._ident`` instead, since it
+    must fire even when there is no recurring cast (this function returns
+    "" for an empty roster)."""
     if not characters:
         return ""
-    listing = "; ".join(
-        f"{c.name} ({c.who}): {c.appearance}" for c in characters
-    )
+    listing = "; ".join(_cast_line(c) for c in characters)
     return (
         f"OTHER RECURRING PEOPLE -- never drawn from the reference image: "
         f"{listing}. Whenever the scene names one of them, draw that person "
         f"matching this description at the age the scene states, always "
-        f"clearly different from {subject} in face, hair, and build. Draw "
-        f"ONLY the people the scene describes -- do not add anyone it does "
-        f"not mention, and NEVER show the same face twice in one panel. "
+        f"clearly different from {subject} in face, hair, and build. "
     )
 
 

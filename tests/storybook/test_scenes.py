@@ -7,7 +7,9 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 from flashback.storybook.scenes import (
+    _ident,
     gen_chapter_art,
+    gen_cover_art,
     gen_scene,
     lettering_ok,
 )
@@ -153,3 +155,40 @@ def test_lettering_ok_parses_ok_and_bad() -> None:
     assert lettering_ok(client, Image.new("RGB", (4, 4)), "w") is True
     msg.choices[0].message.content = "BAD"
     assert lettering_ok(client, Image.new("RGB", (4, 4)), "w") is False
+
+
+def test_ident_forbids_inventing_people_with_known_subject() -> None:
+    text = _ident("Meera", "friend")
+    assert "APPEARANCE-ONLY" in text  # existing identity_rule text preserved
+    low = text.lower()
+    assert "do not add anyone" in low or "only the people" in low
+
+
+def test_ident_forbids_inventing_people_with_empty_subject() -> None:
+    text = _ident("", "friend")
+    assert "Keep the SAME characters consistent" in text
+    low = text.lower()
+    assert "do not add anyone" in low or "only the people" in low
+
+
+def test_cover_art_prompt_is_subject_only(monkeypatch) -> None:
+    captured: dict = {}
+    import flashback.storybook.scenes as sc
+
+    def fake_gen_image(client, contents, aspect, **kwargs):
+        captured["prompt"] = contents[0]
+        return None
+
+    monkeypatch.setattr(sc, "_gen_image", fake_gen_image)
+    sc.gen_cover_art(
+        MagicMock(),
+        name="Meera",
+        relationship="friend",
+        gt_context="1960s Kerala",
+        ref=None,
+        art_style="X",
+        age="a woman in her sixties",
+    )
+    p = captured["prompt"]
+    assert "ONLY person" in p or "only person" in p.lower()
+    assert "family" not in p.lower()
