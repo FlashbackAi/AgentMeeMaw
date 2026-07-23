@@ -105,7 +105,7 @@ class TestArchetypeQuestions:
 
 
 class TestArchetypeAnswers:
-    async def test_persists_answers_entities_and_coverage(
+    async def test_persists_answers_and_coverage_without_seeding_entities(
         self, client_with_db, async_db_pool
     ) -> None:
         person_id = await _create_friend_person(client_with_db)
@@ -196,10 +196,10 @@ class TestArchetypeAnswers:
         assert ground_truth["region"]["provenance"] == "onboarding"
         assert ground_truth["birth_era"]["value"] == "1950s or 60s"
 
-        assert entity_rows
-        assert entity_rows[0][0] == "place"
-        assert entity_rows[0][1] == "school"
-        assert entity_rows[0][2]["source"] == "archetype_onboarding"
+        # Onboarding no longer seeds entities — the implied "school" place
+        # is not persisted. Coverage deltas above are the only graph effect;
+        # extraction mines the resulting conversation for real entities.
+        assert entity_rows == []
 
     async def test_full_ten_question_submission_succeeds(
         self, client_with_db, async_db_pool
@@ -244,7 +244,7 @@ class TestArchetypeAnswers:
                 "answers": [
                     # "Through school" + "Through work": coverage unions to
                     # place/era/relation; conflicting life periods (school vs
-                    # working years) are dropped; both entities persist.
+                    # working years) are dropped. Onboarding seeds no entities.
                     {"question_id": "friend_meet", "option_ids": ["school", "work"]},
                     {"question_id": "friend_shared_place", "skipped": True},
                     {"question_id": "friend_usual_activity", "option_ids": ["talk", "eat"]},
@@ -291,9 +291,9 @@ class TestArchetypeAnswers:
         assert coverage["voice"] == 1
         assert coverage["sensory"] == 1
 
-        names = {(kind, name) for kind, name in entity_rows}
-        assert ("place", "school") in names
-        assert ("organization", "workplace") in names
+        # Coverage unions correctly, but no entities are seeded from the
+        # implied place/organization.
+        assert entity_rows == []
 
     async def test_multi_select_rejected_on_ground_truth_question(
         self, client_with_db, async_db_pool

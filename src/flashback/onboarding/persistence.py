@@ -70,26 +70,23 @@ async def persist_archetype_onboarding(
     answers: list[dict[str, Any]],
     implies_blocks: list[dict[str, Any]],
 ) -> OnboardingPersistResult:
-    """Persist onboarding answers and implied graph state.
+    """Persist onboarding answers and implied coverage state.
 
     Caller owns the transaction and has locked ``persons``.
+
+    Onboarding no longer seeds entities. The free-text parser's "implied
+    entities" bypassed extraction's quality bar (under-extract, subject
+    guard, behavioral anchoring), which minted vague non-entities like
+    "mutual friends" / "Friend" as persons — and those rows never got an
+    artifact job, so they rendered as blank cards. Onboarding answers are
+    ephemeral priors (cf. invariant #22d); extraction mines the resulting
+    conversation for real entities. We keep the coverage deltas — they seed
+    cold-start dimensions off ``implies["coverage"]``, independent of any
+    entity. ``embedding_jobs`` is consequently always empty.
     """
 
     embedding_jobs: list[EntityEmbeddingJob] = []
     coverage_deltas = _coverage_deltas(implies_blocks)
-
-    for answer, raw_implies in zip(answers, implies_blocks, strict=True):
-        implies = sanitize_implies(raw_implies)
-        for raw_entity in implies.get("entities", []):
-            job = await _upsert_entity(
-                cur,
-                person_id=str(person.person_id),
-                entity=raw_entity,
-                answer=answer,
-                relationship=person.relationship,
-            )
-            if job is not None:
-                embedding_jobs.append(job)
 
     if any(coverage_deltas.values()):
         await _apply_coverage_deltas(
@@ -111,75 +108,6 @@ async def persist_archetype_onboarding(
         embedding_jobs=embedding_jobs,
         coverage_deltas=coverage_deltas,
     )
-
-
-async def _upsert_entity(
-    cur,
-    *,
-    person_id: str,
-    entity: dict[str, Any],
-    answer: dict[str, Any],
-    relationship: str | None,
-) -> EntityEmbeddingJob | None:
-    kind = str(entity.get("type") or entity.get("kind") or "").strip().lower()
-    name = str(entity.get("name") or "").strip()
-    if not kind or not name:
-        return None
-    description = str(entity.get("description") or "").strip()
-    if not description:
-        rel = f" connected to the contributor's {relationship}" if relationship else ""
-        description = f"{name} was mentioned during onboarding{rel}."
-
-    attributes = dict(entity.get("attributes") or {})
-    attributes["source"] = "archetype_onboarding"
-    attributes["question_id"] = answer.get("question_id")
-    if answer.get("option_id"):
-        attributes["option_id"] = answer.get("option_id")
-    if answer.get("option_ids"):
-        attributes["option_ids"] = list(answer["option_ids"])
-
-    await cur.execute(
-        """
-        SELECT id::text
-          FROM active_entities
-         WHERE person_id = %s
-           AND kind = %s
-           AND lower(name) = lower(%s)
-         LIMIT 1
-        """,
-        (person_id, kind, name),
-    )
-    row = await cur.fetchone()
-    if row is not None:
-        entity_id = str(row[0])
-        await cur.execute(
-            """
-            UPDATE entities
-               SET description = COALESCE(description, %s),
-                   attributes = attributes || %s::jsonb
-             WHERE id = %s
-               AND person_id = %s
-               AND status = 'active'
-            """,
-            (description, Json(attributes), entity_id, person_id),
-        )
-        return None
-
-    aliases = [
-        str(alias).strip()
-        for alias in entity.get("aliases", []) or []
-        if str(alias).strip()
-    ]
-    await cur.execute(
-        """
-        INSERT INTO entities (person_id, kind, name, description, aliases, attributes)
-        VALUES               (%s,        %s,   %s,   %s,          %s,      %s)
-        RETURNING id::text
-        """,
-        (person_id, kind, name, description, aliases, Json(attributes)),
-    )
-    entity_id = str((await cur.fetchone())[0])
-    return EntityEmbeddingJob(entity_id=entity_id, source_text=description)
 
 
 def _coverage_deltas(implies_blocks: list[dict[str, Any]]) -> dict[str, int]:
