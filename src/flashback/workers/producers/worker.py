@@ -11,6 +11,7 @@ import structlog
 
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
+from flashback.usage.context import bind_usage_context
 
 from .runner import RunResult, run_once
 from .sqs_client import ProducerSQSClient, ReceivedProducerMessage
@@ -54,18 +55,19 @@ class ProducerWorker:
                 raise ValueError(
                     f"producer {producer!r} not allowed on this queue"
                 )
-            result = asyncio.run(
-                run_once(
-                    db_pool=self.db_pool,
-                    embedding_sender=self.embedding_sender,
-                    settings=self.settings,
-                    producer_tag=producer,
-                    person_id=person_id,
-                    idempotency_key=idempotency_key,
-                    embedding_model=self.embedding_model,
-                    embedding_model_version=self.embedding_model_version,
+            with bind_usage_context(person_id=person_id):
+                result = asyncio.run(
+                    run_once(
+                        db_pool=self.db_pool,
+                        embedding_sender=self.embedding_sender,
+                        settings=self.settings,
+                        producer_tag=producer,
+                        person_id=person_id,
+                        idempotency_key=idempotency_key,
+                        embedding_model=self.embedding_model,
+                        embedding_model_version=self.embedding_model_version,
+                    )
                 )
-            )
         except LLMTimeout as exc:
             log.warning(
                 "producer.llm_timeout_no_ack",

@@ -41,6 +41,7 @@ import structlog
 
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
+from flashback.usage.context import bind_usage_context
 from flashback.workers.extraction.sqs_client import EmbeddingJobSender
 
 from .runner import RunResult, run_once
@@ -89,19 +90,20 @@ class TraitSynthesizerWorker:
         person_id = str(msg.payload.person_id)
         idempotency_key = msg.payload.idempotency_key or msg.message_id
         try:
-            result = run_once(
-                db_pool=self.db_pool,
-                embedding_sender=self.embedding_sender,
-                synth_cfg=self.synth_cfg,
-                settings=self.settings,
-                person_id=person_id,
-                idempotency_key=idempotency_key,
-                embedding_model=self.embedding_model,
-                embedding_model_version=self.embedding_model_version,
-                contributor_display_name=(
-                    msg.payload.contributor_display_name or ""
-                ),
-            )
+            with bind_usage_context(person_id=person_id):
+                result = run_once(
+                    db_pool=self.db_pool,
+                    embedding_sender=self.embedding_sender,
+                    synth_cfg=self.synth_cfg,
+                    settings=self.settings,
+                    person_id=person_id,
+                    idempotency_key=idempotency_key,
+                    embedding_model=self.embedding_model,
+                    embedding_model_version=self.embedding_model_version,
+                    contributor_display_name=(
+                        msg.payload.contributor_display_name or ""
+                    ),
+                )
         except LLMTimeout as exc:
             log.warning(
                 "trait_synthesizer.llm_timeout_no_ack",

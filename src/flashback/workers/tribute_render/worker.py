@@ -20,6 +20,7 @@ import structlog
 
 from flashback.tribute_video import transfer
 from flashback.tribute_video.art import Artist
+from flashback.usage.context import bind_usage_context
 from flashback.tribute_video.assembler import assemble_storybook_video
 from flashback.tribute_video.book import Book
 from flashback.tribute_video.context import RenderContext
@@ -158,7 +159,8 @@ def process_one(msg: TributeRenderMessage, *, load_context, run_render,
         log.info("tribute_render.skip", tribute_id=msg.tribute_id,
                  reason="missing_or_stale")
         return "skip"
-    video_present, pdf_present, poster_present = run_render(ctx)
+    with bind_usage_context(person_id=str(ctx.person_id)):
+        video_present, pdf_present, poster_present = run_render(ctx)
     mark_complete(ctx.tribute_id, ctx.person_id, video_present, pdf_present,
                   poster_present)
     log.info("tribute_render.complete", tribute_id=ctx.tribute_id,

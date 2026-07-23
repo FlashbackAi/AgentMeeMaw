@@ -76,6 +76,7 @@ from flashback.response_generator import ResponseGenerator
 from flashback.response_generator.voice_style import VoiceStyleStreamParser
 from flashback.session_summary import SessionSummaryGenerator
 from flashback.tribute.progress import progress_to_payload
+from flashback.usage.context import reset_usage_context, set_usage_context
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -105,6 +106,9 @@ class Orchestrator:
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
@@ -196,6 +200,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def handle_first_time_opener(
         self,
@@ -220,6 +225,9 @@ class Orchestrator:
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
@@ -288,6 +296,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def handle_turn(
         self,
@@ -305,6 +314,9 @@ class Orchestrator:
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             turn_id=str(state.turn_id),
@@ -432,6 +444,7 @@ class Orchestrator:
             return _build_turn_result(state)
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def handle_turn_stream(
         self,
@@ -457,6 +470,9 @@ class Orchestrator:
             user_message=user_message,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             turn_id=str(state.turn_id),
@@ -638,6 +654,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def handle_session_start_stream(
         self,
@@ -655,6 +672,9 @@ class Orchestrator:
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
@@ -725,6 +745,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def handle_first_time_opener_stream(
         self,
@@ -742,6 +763,9 @@ class Orchestrator:
             session_metadata=session_metadata,
             started_at=datetime.now(timezone.utc),
             mode="voice" if mode == "voice" else "text",
+        )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
         )
         token = structlog.contextvars.bind_contextvars(
             session_id=str(state.session_id),
@@ -785,6 +809,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
     async def _stream_opener(
         self,
@@ -901,6 +926,9 @@ class Orchestrator:
             person_id=person_id,
             started_at=datetime.now(timezone.utc),
         )
+        _usage_token = set_usage_context(
+            person_id=state.person_id, session_id=state.session_id
+        )
         token = structlog.contextvars.bind_contextvars(
             wrap_id=str(uuid4()),
             session_id=str(session_id),
@@ -914,6 +942,7 @@ class Orchestrator:
             )
         finally:
             structlog.contextvars.reset_contextvars(**token)
+            reset_usage_context(_usage_token)
 
 
 class _StreamTextAccumulator:

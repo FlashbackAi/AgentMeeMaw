@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from flashback.db.connection import make_pool
+from flashback.usage.context import current_usage_context
 from flashback.usage.pricing import compute_cost, compute_image_cost
 from flashback.usage.queries import INSERT_USAGE_EVENT
 
@@ -33,6 +34,20 @@ def _get_pool():
             return None
         _pool = make_pool(dsn, max_size=2)
     return _pool
+
+
+def _resolve_attribution(
+    person_id: str | None, session_id: str | None
+) -> tuple[str | None, str | None]:
+    """Fill missing attribution from the ambient usage context.
+
+    An explicit argument always wins; only ``None`` falls back to the
+    request/job binding (see ``flashback.usage.context``)."""
+    ctx = current_usage_context()
+    return (
+        person_id if person_id is not None else ctx.person_id,
+        session_id if session_id is not None else ctx.session_id,
+    )
 
 
 def insert_event(row: dict[str, Any]) -> str | None:
@@ -67,6 +82,7 @@ def record_llm_usage_sync(
         input_tokens=input_tokens, output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
     )
+    person_id, session_id = _resolve_attribution(person_id, session_id)
     insert_event({
         "service": "agent",
         "feature": feature,
@@ -98,6 +114,7 @@ def record_image_usage_sync(
     Same soft-fail contract as the LLM recorder: metering must never
     break a render, so failures log and drop.
     """
+    person_id, session_id = _resolve_attribution(person_id, session_id)
     insert_event({
         "service": "agent",
         "feature": feature,

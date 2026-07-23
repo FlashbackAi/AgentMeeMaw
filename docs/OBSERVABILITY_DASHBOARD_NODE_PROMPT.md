@@ -16,6 +16,20 @@ The agent meters every Python-side LLM and embedding call and inserts a row into
 `usage_events` with the computed `cost_usd`. That covers OpenAI (`gpt-5.1`),
 Anthropic (Sonnet/Haiku), and Voyage embeddings. Node does **not** touch those.
 
+**Per-user attribution (`usage_events.person_id`).** Agent rows are stamped with
+`person_id` for per-user cost attribution (the Phase 21 users dashboard). The
+binding is ambient — set once at the turn/job boundary (orchestrator handlers,
+the background + render workers, the identity-merge scan) and read by the
+recorder — so text-LLM, per-person `embedding_query`, and image-render rows all
+carry it. **One documented exception:** `embedding_row` (the async embedding
+worker) issues a single Voyage batch call spanning *multiple* persons, so those
+rows stay `person_id = NULL` rather than be misattributed; attributing them
+needs `person_id` on the embedding-job payload plus per-message
+metering with proportional token-splitting (deferred; Voyage embeddings are the
+cheapest line item). A few low-volume route-level `gpt-5.1` calls
+(`onboarding_parse`, `theme_archetype`, `node_edit`) are not yet bound and may
+also show NULL.
+
 ## 2. What Node must do — record generation cost
 
 Node consumes `artifact_generation` (image/video) and any voice generation, so

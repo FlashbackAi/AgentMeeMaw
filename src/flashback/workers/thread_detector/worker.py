@@ -32,6 +32,7 @@ from dataclasses import dataclass
 import structlog
 
 from flashback.http.logging import configure_logging
+from flashback.usage.context import bind_usage_context
 
 from .clustering import count_outliers, run_hdbscan
 from .naming_llm import NamingLLMConfig
@@ -95,10 +96,11 @@ class ThreadDetectorWorker:
         contributor_display_name = msg.payload.contributor_display_name or ""
 
         try:
-            outcomes = self._run_for_person(
-                person_id=person_id,
-                contributor_display_name=contributor_display_name,
-            )
+            with bind_usage_context(person_id=person_id):
+                outcomes = self._run_for_person(
+                    person_id=person_id,
+                    contributor_display_name=contributor_display_name,
+                )
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "thread_detector.run_failed",

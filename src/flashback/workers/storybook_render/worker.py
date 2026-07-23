@@ -20,6 +20,7 @@ import structlog
 from google import genai
 
 from flashback.storybook.collections import COLLECTIONS
+from flashback.usage.context import bind_usage_context
 from flashback.storybook.context import StorybookRenderContext
 from flashback.storybook.refs import MasterRefs
 from flashback.storybook.render import render_storybook
@@ -136,7 +137,8 @@ def process_one(msg: StorybookRenderMessage, *, load_context, run_render,
         log.info("storybook_render.skip", storybook_id=msg.storybook_id,
                  reason="missing_or_stale")
         return "skip"
-    pdf_present, pages_present, cover_present = run_render(ctx)
+    with bind_usage_context(person_id=str(ctx.person_id)):
+        pdf_present, pages_present, cover_present = run_render(ctx)
     mark_complete(ctx.storybook_id, ctx.person_id, ctx.collection,
                   pdf_present, pages_present, cover_present)
     log.info("storybook_render.complete", storybook_id=ctx.storybook_id,

@@ -19,6 +19,7 @@ from flashback.http.deps import (
     get_redis,
 )
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
+from flashback.usage.context import bind_usage_context
 from flashback.identity_merges import (
     AutoMergeNotification,
     IdentityMergeActionResponse,
@@ -76,18 +77,19 @@ async def scan_suggestions(
             queue_url=cfg.embedding_queue_url,
             region_name=cfg.aws_region,
         ).send
-    async with db_pool.connection() as conn:
-        async with conn.transaction():
-            async with conn.cursor() as cur:
-                result = await scan_identity_merge_suggestions_async(
-                    cur,
-                    person_id=str(request.person_id),
-                    verifier=verifier.verify,
-                    limit=request.limit,
-                    push_embedding=push_embedding,
-                    embedding_model=cfg.embedding_model,
-                    embedding_model_version=cfg.embedding_model_version,
-                )
+    with bind_usage_context(person_id=str(request.person_id)):
+        async with db_pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    result = await scan_identity_merge_suggestions_async(
+                        cur,
+                        person_id=str(request.person_id),
+                        verifier=verifier.verify,
+                        limit=request.limit,
+                        push_embedding=push_embedding,
+                        embedding_model=cfg.embedding_model,
+                        embedding_model_version=cfg.embedding_model_version,
+                    )
     log.info(
         "identity_merge.scan_completed",
         person_id=str(request.person_id),

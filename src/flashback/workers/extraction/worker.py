@@ -51,6 +51,7 @@ from flashback.ground_truth.store import (
 )
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
+from flashback.usage.context import bind_usage_context
 
 from .compatibility_llm import (
     CompatibilityLLMConfig,
@@ -243,9 +244,10 @@ class ExtractionWorker:
                 timeout_seconds=self.visibility_timeout_seconds,
                 interval_seconds=self.visibility_heartbeat_interval_seconds,
             ):
-                self._extract_and_persist(
-                    payload=msg.payload, message_id=msg.message_id
-                )
+                with bind_usage_context(person_id=str(msg.payload.person_id)):
+                    self._extract_and_persist(
+                        payload=msg.payload, message_id=msg.message_id
+                    )
         except _DuplicateDelivery:
             # Concurrent redelivery lost the mark_processed race; the whole
             # transaction rolled back. Treat it exactly like the pre-check

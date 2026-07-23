@@ -36,6 +36,7 @@ import structlog
 
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
+from flashback.usage.context import bind_usage_context
 from flashback.profile_facts.extraction import FactExtractionConfig
 
 from .runner import RunResult, run_once
@@ -96,23 +97,24 @@ class ProfileSummaryWorker:
         person_id = str(msg.payload.person_id)
         idempotency_key = msg.payload.idempotency_key or msg.message_id
         try:
-            result = run_once(
-                db_pool=self.db_pool,
-                summary_cfg=self.summary_cfg,
-                settings=self.settings,
-                person_id=person_id,
-                idempotency_key=idempotency_key,
-                top_traits_max=self.top_traits_max,
-                top_threads_max=self.top_threads_max,
-                top_entities_max=self.top_entities_max,
-                fact_extraction_cfg=self.fact_extraction_cfg,
-                embedding_sender=self.embedding_sender,
-                embedding_model=self.embedding_model,
-                embedding_model_version=self.embedding_model_version,
-                contributor_display_name=(
-                    msg.payload.contributor_display_name or ""
-                ),
-            )
+            with bind_usage_context(person_id=person_id):
+                result = run_once(
+                    db_pool=self.db_pool,
+                    summary_cfg=self.summary_cfg,
+                    settings=self.settings,
+                    person_id=person_id,
+                    idempotency_key=idempotency_key,
+                    top_traits_max=self.top_traits_max,
+                    top_threads_max=self.top_threads_max,
+                    top_entities_max=self.top_entities_max,
+                    fact_extraction_cfg=self.fact_extraction_cfg,
+                    embedding_sender=self.embedding_sender,
+                    embedding_model=self.embedding_model,
+                    embedding_model_version=self.embedding_model_version,
+                    contributor_display_name=(
+                        msg.payload.contributor_display_name or ""
+                    ),
+                )
         except LLMTimeout as exc:
             log.warning(
                 "profile_summary.llm_timeout_no_ack",
