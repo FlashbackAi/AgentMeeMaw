@@ -34,9 +34,10 @@ from flashback.tribute.progress import fetch_tribute_progress_async
 log = structlog.get_logger("flashback.orchestrator")
 
 MESSAGE_TAP_COOLDOWN_USER_TURNS = 2
-# Floor on overall completion before we invite the message. Memories +
-# appearance + signature alone (no message) top out at 70; requiring 40
-# means at least a couple of memories plus another slot are in place.
+# Floor on overall completion before we invite the message. Since appearance
+# was retired as a scored slot (migration 0050), memories + signature alone
+# (no message) top out at 65; requiring 40 means memories are substantially
+# filled before the message lands as the emotional climax.
 MESSAGE_INVITATION_PERCENT_FLOOR = 40
 
 
@@ -95,12 +96,17 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         # Warm climax (one-time): the ONE in-conversation moment this card
         # fires. The message-only-left fallback lives on the tribute card
         # outside chat now (POST /tributes/{id}/message) — never re-nag here.
+        # NOTE: this used to also require _filled("appearance"), which
+        # deadlocked the meter — a legacy without appearance ground truth could
+        # never be invited for its message and so never reached `ready`.
+        # Appearance is no longer a scored slot (migration 0050), so the gate
+        # is gone; a warm story turn with memories substantially filled is
+        # enough for the message to land.
         warm_climax = (
             not wm_state.message_invitation_asked
             and state.intent_result is not None
             and state.intent_result.intent in {"story", "deepen"}
             and state.effective_temperature == "high"
-            and _filled("appearance")
             and progress.percent >= MESSAGE_INVITATION_PERCENT_FLOOR
         )
 

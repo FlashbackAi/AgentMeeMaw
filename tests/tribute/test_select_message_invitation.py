@@ -64,9 +64,13 @@ class _Deps:
         self.db_pool = pool
 
 
-async def _seed_tribute(pool, *, with_signature: bool) -> str:
-    """A tribute with 3 qualifying memories + appearance ground truth and,
-    optionally, a trait (so the signature slot fills). Message stays empty."""
+async def _seed_tribute(pool, *, with_signature: bool, with_appearance: bool = True) -> str:
+    """A tribute with 3 qualifying memories and, optionally, appearance ground
+    truth and a trait (so the signature slot fills). Message stays empty.
+
+    Appearance is no longer a scored slot (migration 0050) and no longer gates
+    the invitation, so ``with_appearance`` is purely about whether the person
+    has physical ground truth — it must NOT change whether the tap fires."""
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -74,17 +78,18 @@ async def _seed_tribute(pool, *, with_signature: bool) -> str:
                     "INSERT INTO persons (name) VALUES ('Dad') RETURNING id::text"
                 )
                 person_id = (await cur.fetchone())[0]
-                gt = json.dumps(
-                    {
-                        "region": {"value": "South India"},
-                        "birth_era": {"value": "1950s"},
-                        "attire": {"value": "white cotton shirt"},
-                    }
-                )
-                await cur.execute(
-                    "UPDATE persons SET ground_truth = %s WHERE id = %s",
-                    (gt, person_id),
-                )
+                if with_appearance:
+                    gt = json.dumps(
+                        {
+                            "region": {"value": "South India"},
+                            "birth_era": {"value": "1950s"},
+                            "attire": {"value": "white cotton shirt"},
+                        }
+                    )
+                    await cur.execute(
+                        "UPDATE persons SET ground_truth = %s WHERE id = %s",
+                        (gt, person_id),
+                    )
                 for i in range(3):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
@@ -121,7 +126,8 @@ async def _seed_tribute(pool, *, with_signature: bool) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Warm-climax path: memories + appearance filled, signature NOT (percent 60).
+# Warm-climax path: memories filled (percent 50, above the 40 floor), signature
+# NOT. Appearance no longer participates in the meter or the gate.
 # ---------------------------------------------------------------------------
 
 
@@ -133,6 +139,21 @@ async def test_warm_climax_emits_message_tap(async_pool) -> None:
     assert len(state.taps) == 1
     assert state.taps[0].kind == "message"
     assert deps.working_memory.emitted is True
+
+
+async def test_warm_climax_fires_without_appearance(async_pool) -> None:
+    """Regression (migration 0050): the message invitation must fire even when
+    the subject has NO appearance ground truth. This is the deadlock that froze
+    campaign tributes at 50% — a no-appearance legacy could never be prompted
+    for its message and so never reached `ready`."""
+    person_id, tribute_id = await _seed_tribute(
+        async_pool, with_signature=False, with_appearance=False
+    )
+    deps = _Deps(async_pool)
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
+    await select_message_invitation(state, deps)
+    assert len(state.taps) == 1
+    assert state.taps[0].kind == "message"
 
 
 async def test_warm_gate_wrong_intent_no_tap(async_pool) -> None:

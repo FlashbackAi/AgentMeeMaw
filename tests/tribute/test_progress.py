@@ -1,11 +1,11 @@
 """DB tests for the two-meter tribute_status view (design 2026-07-22).
 
 Two kinds of tribute row:
-  * CAMPAIGN (campaign_id set) — the four weighted slots incl. message; the
-    archetype answer-floor; appearance/signature soft unless the campaign
-    requires them.
+  * CAMPAIGN (campaign_id set) — memories 50 / message 35 / signature 15 (the
+    archetype answer-floor lifts memories); appearance retired as a scored slot
+    (migration 0050) but its require_appearance gate on `ready` still honored.
   * STANDALONE (campaign_id NULL) — no message slot; memories-led smooth
-    percent (graded toward ~5 rich stories); unlocks on the story floor alone.
+    percent (memories 85 / signature 15); unlocks on the story floor alone.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ def test_campaign_answer_floor_lifts_percent(db_pool, make_person) -> None:
 
     assert progress.kind == "campaign"
     assert progress.answered_layers == 3
-    assert progress.percent == 9  # round(3/14 * 40)
+    assert progress.percent == 11  # round(3/14 * 50)
     assert progress.ready is False
 
 
@@ -146,7 +146,7 @@ def test_campaign_answer_floor_caps_at_16(db_pool, make_person) -> None:
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
     assert progress.answered_layers == 14
-    assert progress.percent == 16  # capped floor, no other slots
+    assert progress.percent == 20  # capped floor (0.4 * 50), no other slots
 
 
 def test_campaign_depth_weighting_two_vivid_moments_fill_memories(db_pool, make_person) -> None:
@@ -160,7 +160,7 @@ def test_campaign_depth_weighting_two_vivid_moments_fill_memories(db_pool, make_
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress.percent == 40  # depth-weighted memories maxed
+    assert progress.percent == 50  # depth-weighted memories maxed
     assert _slot(progress, "memories").filled is False  # only 2 raw stories
     assert progress.ready is False
 
@@ -173,7 +173,7 @@ def test_campaign_fills_each_slot_to_ready(db_pool, make_person) -> None:
             tribute_id = insert_tribute_sync(cur, person_id=person_id, campaign_id=cid)
             for i in range(3):
                 _add_qualifying_moment(cur, person_id, f"Memory {i}")
-            _set_appearance_ground_truth(cur, person_id)
+            _set_appearance_ground_truth(cur, person_id)  # feeds art, not scored
             _add_trait(cur, person_id)
             set_message_sync(cur, tribute_id=tribute_id, message_text="Thank you, Dad.")
             conn.commit()
@@ -181,9 +181,10 @@ def test_campaign_fills_each_slot_to_ready(db_pool, make_person) -> None:
 
     assert progress.kind == "campaign"
     assert _has_slot(progress, "message")
+    assert not _has_slot(progress, "appearance")  # retired slot (0050)
     assert all(_slot(progress, k).filled for k in
-               ("memories", "message", "appearance", "signature"))
-    assert progress.percent == 100
+               ("memories", "message", "signature"))
+    assert progress.percent == 100  # 50 + 35 + 15
     assert progress.ready is True
 
 
@@ -198,7 +199,7 @@ def test_campaign_partial_memories_scale_weight(db_pool, make_person) -> None:
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress.percent == 27  # round(2/3 * 40)
+    assert progress.percent == 33  # round(2/3 * 50)
     assert progress.ready is False
 
 
@@ -245,7 +246,7 @@ def test_campaign_skins_title_and_message_hint(db_pool, make_person) -> None:
     assert progress.kind == "campaign"
     assert progress.title == campaign.display_name
     assert _slot(progress, "message").hint == campaign.message_card_copy
-    assert _slot(progress, "appearance").hint == "A few details so we can picture them."
+    assert not _has_slot(progress, "appearance")  # retired slot (0050)
 
 
 # ---------------------------------------------------------------------------
@@ -264,11 +265,11 @@ def test_standalone_empty_is_zero_and_has_no_message_slot(db_pool, make_person) 
     assert progress.percent == 0
     assert progress.ready is False
     assert not _has_slot(progress, "message")   # simplified: no message
-    assert {s.key for s in progress.slots} == {"memories", "appearance", "signature"}
+    assert {s.key for s in progress.slots} == {"memories", "signature"}
 
 
 def test_standalone_memories_led_percent(db_pool, make_person) -> None:
-    # 3 plain qualifying moments => score 3.0 => 3/5 * 70 = 42.
+    # 3 plain qualifying moments => score 3.0 => round(3/5 * 85) = 51.
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -278,12 +279,13 @@ def test_standalone_memories_led_percent(db_pool, make_person) -> None:
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
-    assert progress.percent == 42
+    assert progress.percent == 51
     assert progress.ready is True   # story floor met, no message required
 
 
 def test_standalone_ready_on_stories_without_message(db_pool, make_person) -> None:
-    # Unlocks on stories alone — appearance/signature are soft (not required).
+    # Unlocks on stories alone — signature is soft (not required); appearance
+    # is no longer a slot at all (0050).
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -294,19 +296,20 @@ def test_standalone_ready_on_stories_without_message(db_pool, make_person) -> No
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)
 
     assert progress.ready is True
-    assert _slot(progress, "appearance").filled is False  # soft, still unlocked
+    assert not _has_slot(progress, "appearance")  # retired slot (0050)
     assert _slot(progress, "signature").filled is False
 
 
 def test_standalone_soft_slots_raise_percent_to_full(db_pool, make_person) -> None:
-    # 3 deep moments (score 6 -> capped 5 -> 70) + appearance (20) + sig (10) = 100.
+    # 3 deep moments (score 6 -> capped 5 -> 85) + signature (15) = 100.
+    # Appearance is set but no longer scored (0050).
     person_id = make_person("Dad")
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             tribute_id = insert_tribute_sync(cur, person_id=person_id)
             for i in range(3):
                 _add_deep_moment(cur, person_id, f"Deep {i}")
-            _set_appearance_ground_truth(cur, person_id)
+            _set_appearance_ground_truth(cur, person_id)  # feeds art, not scored
             _add_trait(cur, person_id)
             conn.commit()
             progress = fetch_tribute_progress_sync(cur, tribute_id=tribute_id)

@@ -37,30 +37,30 @@ class SlotMeta:
 
 
 # Order = display order = steering priority (highest weight first).
+# The `appearance` slot was retired as a SCORED slot (migration 0050): it
+# capped the meter because the subject's physical ground truth rarely gets
+# captured, and it deadlocked the message invitation. Appearance ground truth
+# is still captured opportunistically and still feeds the image composers
+# (ground_truth/render.py) -- it is simply no longer a checklist item. The
+# remaining slots reweight to sum to 100 (campaign 50/35/15).
 SLOTS: tuple[SlotMeta, ...] = (
     SlotMeta(
         key="memories",
         label="Shared memories",
         hint="Tell three stories about a time with them.",
-        weight=40,
+        weight=50,
     ),
     SlotMeta(
         key="message",
         label="Your message",
         hint="Say one thing straight to them.",
-        weight=30,
-    ),
-    SlotMeta(
-        key="appearance",
-        label="How they looked",
-        hint="A few details so we can picture them.",
-        weight=20,
+        weight=35,
     ),
     SlotMeta(
         key="signature",
         label="What made them them",
         hint="A saying, a habit, or a trait of theirs.",
-        weight=10,
+        weight=15,
     ),
 )
 

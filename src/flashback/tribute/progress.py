@@ -117,10 +117,13 @@ def _decorate(
 
     kind = meter_kind or ("campaign" if campaign else "standalone")
 
+    # `appearance` is retired as a scored slot (migration 0050) -- not in
+    # SLOTS, so never emitted. appearance_present is still read from the view
+    # (and kept as a column for Node) but no longer drives the meter.
+    _ = appearance_present
     filled_by_key = {
         "memories": memories_count >= MEMORIES_TARGET,
         "message": bool(message_present),
-        "appearance": bool(appearance_present),
         "signature": bool(signature_present),
     }
     if message_hint_override is None:
