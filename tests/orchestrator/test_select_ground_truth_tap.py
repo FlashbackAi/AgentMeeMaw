@@ -67,13 +67,22 @@ async def test_skips_on_non_story_intents(intent, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_skips_on_high_temperature(monkeypatch):
-    called = AsyncMock()
+async def test_high_temperature_no_longer_skips(monkeypatch):
+    # The high-temperature short-circuit was removed: a high-temp turn now
+    # proceeds past the cheap gates into the ground-truth fetch (rather than
+    # skipping outright). Cooldown is cleared so the fetch is actually reached;
+    # the LLM selector is stubbed to skip so no real call is made.
+    called = AsyncMock(return_value={})
     monkeypatch.setattr(step_mod, "fetch_ground_truth", called)
+    monkeypatch.setattr(
+        step_mod, "select_ground_truth_question", AsyncMock(return_value=None)
+    )
     state = _state(temperature="high")
-    await step_mod.select_ground_truth_tap(state, _deps(_wm_state()))
-    assert state.taps == []
-    called.assert_not_awaited()
+    await step_mod.select_ground_truth_tap(
+        state, _deps(_wm_state(user_turns_since_last_tap=9))
+    )
+    called.assert_awaited()
+    assert state.taps == []  # LLM skipped, so no tap — but the fetch was reached
 
 
 @pytest.mark.asyncio

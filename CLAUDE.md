@@ -552,9 +552,10 @@ Every piece of code touching the graph or queues must respect these.
     `story`/`deepen` intents only (never `switch` — that surface
     belongs to the question bank), capped per session
     (`GT_TAPS_PER_SESSION_CAP`, currently 9) with a 2-user-turn
-    cooldown so cards never land back-to-back, gated on emotional
-    temperature, ≥9 user turns into the session, and a small-LLM
-    skip-gate that never asks what the conversation already revealed;
+    cooldown so cards never land back-to-back, ≥9 user turns into the
+    session, and a small-LLM skip-gate that never asks what the
+    conversation already revealed (the old high-emotional-temperature
+    skip was removed — tap cards may now surface on warm turns too);
     (c) two onboarding
     questions (region, birth decade). Answers return as the structured
     `ground_truth_answer` sidecar on `/turn` — never as chat text, so

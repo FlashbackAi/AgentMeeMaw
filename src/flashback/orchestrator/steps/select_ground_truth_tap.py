@@ -44,9 +44,12 @@ async def select_ground_truth_tap(state: TurnState, deps: OrchestratorDeps) -> N
             "deepen",
         }:
             return
-        if state.effective_temperature == "high":
-            log.info("gt_tap.skipped", reason="high_temperature")
-            return
+        # (The old high-temperature skip was removed: the tap cards may now
+        # surface on emotionally-high turns too. Note this step runs BEFORE
+        # select_message_invitation, which requires high temperature — so on a
+        # high-temp turn a GT tap can now claim the turn the message card used
+        # to get. The persistent message ask lives on Node's tribute card, so
+        # in-chat message starvation is acceptable; revisit if that changes.)
         if state.taps:
             log.info("gt_tap.skipped", reason="other_tap_pending")
             return
