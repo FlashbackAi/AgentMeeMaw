@@ -145,23 +145,31 @@ async def fetch_open_tribute_id_async(
     person_id: UUID | str,
     theme_id: UUID | str,
     campaign_id: str | None = None,
+    campaign_slug: str | None = None,
 ) -> str | None:
     """Return the most-recent non-complete tribute id for (person, theme).
 
-    Campaign-scoped: with a ``campaign_id``, an open tribute stamped with
-    THAT campaign wins, else an unstamped one (which the caller stamps —
-    pre-0039 rows and neutral drafts adopt the campaign on entry). An open
-    tribute stamped with a DIFFERENT campaign is never returned — each
-    campaign runs its own tribute lifecycle, so one campaign's draft can't
-    hijack another campaign's entry (and a completed FD video is never
-    reopened by a Friendship Day tap). Without a campaign: any open
-    tribute, the pre-CRM behavior.
+    Campaign-scoped. Prefer ``campaign_slug``: it matches any version of the
+    same occasion, because campaigns supersede on every CRM edit (new id,
+    version+1) and a tribute is stamped with the version id that was current
+    when it was created. Scoping by the exact ``campaign_id`` therefore
+    ORPHANS an in-flight tribute the moment its campaign is edited — the bug
+    that made unlock_prepare re-ask already-answered archetype questions
+    (2026-07-22). Slug scoping mirrors what ``_resolve_render_config`` already
+    does (re-resolve by slug). An open tribute stamped with a DIFFERENT slug
+    is still never returned. ``campaign_id`` is kept for creation callers
+    (ensure_open_tribute) that intentionally pin the current version; without
+    either, any open tribute (pre-CRM behavior).
     """
-    campaign_filter = (
-        "AND (campaign_id = %(campaign_id)s OR campaign_id IS NULL)"
-        if campaign_id
-        else ""
-    )
+    if campaign_slug:
+        campaign_filter = (
+            "AND (campaign_id IN (SELECT id FROM tribute_campaigns "
+            "WHERE slug = %(campaign_slug)s) OR campaign_id IS NULL)"
+        )
+    elif campaign_id:
+        campaign_filter = "AND (campaign_id = %(campaign_id)s OR campaign_id IS NULL)"
+    else:
+        campaign_filter = ""
     await cur.execute(
         f"""
         SELECT id::text
@@ -178,6 +186,7 @@ async def fetch_open_tribute_id_async(
             "theme_id": str(theme_id),
             "statuses": list(_OPEN_STATUSES),
             "campaign_id": str(campaign_id) if campaign_id else None,
+            "campaign_slug": campaign_slug,
         },
     )
     row = await cur.fetchone()
@@ -304,20 +313,27 @@ async def fetch_latest_tribute_answers_async(
     *,
     person_id: UUID | str,
     theme_id: UUID | str,
-    campaign_id: str | None,
+    campaign_id: str | None = None,
+    campaign_slug: str | None = None,
 ) -> list[dict]:
-    """The most recent SAME-CAMPAIGN tribute's committed answers.
+    """The most recent SAME-OCCASION tribute's committed answers.
 
     Used by unlock_prepare when no tribute is open: re-entering a campaign
     after completing its video should prefill the modal from the answers
-    given last time, not start blank. Same-campaign only — another
-    campaign's answers belong to different questions.
+    given last time, not start blank. Prefer ``campaign_slug`` so the match
+    survives campaign version bumps (same reason as
+    ``fetch_open_tribute_id_async``); another occasion's answers belong to
+    different questions and never match.
     """
-    campaign_filter = (
-        "AND campaign_id = %(campaign_id)s"
-        if campaign_id
-        else "AND campaign_id IS NULL"
-    )
+    if campaign_slug:
+        campaign_filter = (
+            "AND campaign_id IN (SELECT id FROM tribute_campaigns "
+            "WHERE slug = %(campaign_slug)s)"
+        )
+    elif campaign_id:
+        campaign_filter = "AND campaign_id = %(campaign_id)s"
+    else:
+        campaign_filter = "AND campaign_id IS NULL"
     await cur.execute(
         f"""
         SELECT archetype_answers
@@ -333,6 +349,7 @@ async def fetch_latest_tribute_answers_async(
             "person_id": str(person_id),
             "theme_id": str(theme_id),
             "campaign_id": str(campaign_id) if campaign_id else None,
+            "campaign_slug": campaign_slug,
         },
     )
     row = await cur.fetchone()

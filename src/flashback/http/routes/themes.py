@@ -117,10 +117,29 @@ class UnlockPrepareResponse(BaseModel):
     tribute_answered: list[dict] | None = Field(
         default=None,
         description=(
-            "Tribute themes only (0042): answers already committed on THIS "
-            "campaign's open tribute. The app prefills questions whose "
-            "question_text matches and may skip the modal when every "
-            "returned question is covered."
+            "Tribute themes only: archetype answers already committed for this "
+            "OCCASION, used to prefill/skip. Resolved slug-scoped (survives "
+            "campaign version bumps, 2026-07-22) with precedence: the open "
+            "tribute row's answers win; the theme-level answers (pre-0042) "
+            "fill in only when the row has none."
+        ),
+    )
+    archetype_complete: bool = Field(
+        default=False,
+        description=(
+            "Every served archetype question is already covered by "
+            "tribute_answered (normalized question_text match). Convenience / "
+            "telemetry — next_step is the routing contract."
+        ),
+    )
+    next_step: str = Field(
+        default="archetype",
+        description=(
+            "Where 'Keep going' should land AFTER unlock_prepare: 'archetype' "
+            "(questions remain), 'message' (campaign only, archetype done + "
+            "message slot empty), or 'conversation' (everything else, incl. "
+            "every standalone entry — message is campaign-only). The frontend's "
+            "tribute-status branches (watch/rendering/none) outrank this."
         ),
     )
     prompt_version: str = ARCHETYPE_PROMPT_VERSION
@@ -217,6 +236,11 @@ async def unlock_prepare(
     generated_this_call = False
     tribute_answered: list[dict] | None = None
     questions: list[ArchetypeQuestion]
+    # next_step inputs (2026-07-22): whether this entry is a real campaign (so
+    # the message step is even allowed — standalone/neutral never is) and
+    # whether the campaign's tribute already has its message.
+    is_campaign = False
+    message_present = False
     if theme.kind == "tribute":
         # Tribute CRM chain (spec 2026-07-14 §6.3): campaign bank override ->
         # relationship-profile bank -> theme-row cache (pre-CRM legacies) ->
@@ -243,6 +267,9 @@ async def unlock_prepare(
                 # questions.
                 if not campaign_applies(campaign, group):
                     campaign = NEUTRAL_CAMPAIGN
+                # A real, applicable campaign resolved => campaign entry (the
+                # only kind where next_step may be "message"). Neutral => no id.
+                is_campaign = bool(campaign.id)
                 profile = await fetch_profile_by_group(cur, group)
                 if profile is None and group != "other":
                     profile = await fetch_profile_by_group(cur, "other")
@@ -257,11 +284,14 @@ async def unlock_prepare(
                 # No open tribute (last one completed)? Fall back to the
                 # latest same-campaign tribute so re-entry prefills instead
                 # of starting blank.
+                # Scope by SLUG, not the version-specific campaign id, so
+                # answers survive CRM campaign edits (2026-07-22 bug: a version
+                # bump orphaned the tribute and re-asked answered questions).
                 open_id = await fetch_open_tribute_id_async(
                     cur,
                     person_id=str(body.person_id),
                     theme_id=str(theme_id),
-                    campaign_id=campaign.id or None,
+                    campaign_slug=campaign.slug or None,
                 )
                 if open_id is not None:
                     tribute_answered = (
@@ -275,9 +305,28 @@ async def unlock_prepare(
                             cur,
                             person_id=str(body.person_id),
                             theme_id=str(theme_id),
-                            campaign_id=campaign.id or None,
+                            campaign_slug=campaign.slug or None,
                         )
                     )
+                # Fold theme-level answers in as a FALLBACK (frontend's call,
+                # 2026-07-22): tribute-row answers win when present; the
+                # pre-0042 theme-level answers fill in only when the row has
+                # none, so legacy tributes stop re-asking with zero FE change.
+                if not tribute_answered and isinstance(
+                    theme.archetype_answers, list
+                ):
+                    tribute_answered = theme.archetype_answers
+                # Message-slot state for next_step: the campaign's open tribute
+                # already has its "one thing to say"?
+                if open_id is not None:
+                    await cur.execute(
+                        "SELECT message_text IS NOT NULL "
+                        "AND length(btrim(message_text)) > 0 "
+                        "FROM tributes WHERE id = %s",
+                        (open_id,),
+                    )
+                    mrow = await cur.fetchone()
+                    message_present = bool(mrow[0]) if mrow else False
         subject_relationship = rel_row[0] if rel_row else None
         bank = None
         if profile is not None:
@@ -340,16 +389,44 @@ async def unlock_prepare(
                         )
             generated_this_call = True
 
+    # ── next_step: the server's routing opinion AFTER unlock_prepare (2026-07-22).
+    # The frontend's tribute-status branches (complete->watch, generating->
+    # rendering, no theme->none) run BEFORE this and outrank it; next_step only
+    # governs where "Keep going" lands once unlock_prepare is actually called.
+    # Coverage match mirrors the frontend: normalized (trim/collapse/lower)
+    # question_text against the (slug-scoped, theme-folded) answered set.
+    def _norm(s: str) -> str:
+        return " ".join((s or "").split()).lower()
+
+    _answered_texts = {
+        _norm(a.get("question_text", ""))
+        for a in (tribute_answered or [])
+        if isinstance(a, dict)
+    }
+    archetype_complete = all(_norm(q.text) in _answered_texts for q in questions)
+    if not archetype_complete:
+        next_step = "archetype"
+    elif is_campaign and not message_present:
+        # message step is campaign-only (0050: /message 400s for standalone),
+        # so a neutral/standalone entry never routes here.
+        next_step = "message"
+    else:
+        next_step = "conversation"
+
     log.info(
         "themes.unlock_prepare",
         theme_id=str(theme_id),
         slug=theme.slug,
         kind=theme.kind,
         questions_count=len(questions),
+        archetype_complete=archetype_complete,
+        next_step=next_step,
         generated_this_call=generated_this_call,
     )
 
     return UnlockPrepareResponse(
+        archetype_complete=archetype_complete,
+        next_step=next_step,
         theme_id=theme_id,
         person_id=body.person_id,
         slug=theme.slug,
