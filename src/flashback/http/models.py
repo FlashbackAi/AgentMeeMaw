@@ -236,6 +236,10 @@ class TributeProgressResponse(BaseModel):
 
     percent: int
     ready: bool
+    # 'standalone' | 'campaign' (two-meter model). progress_to_payload emits
+    # it; the model forbids extras, so it must be declared here or the whole
+    # endpoint 500s (regression 2026-07-27).
+    kind: str
     title: str
     next: str | None = None
     slots: list[TributeProgressSlotOut]
