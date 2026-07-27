@@ -79,12 +79,28 @@ to match it 1:1. The frontend also keeps its local `shouldAskForMessage`
 predicate for the persistent home-screen ask (not an entry decision) — that's
 independent and shouldn't cost a round trip.
 
+## 4b. BUNDLED HOTFIX — `GET /tributes/{id}/progress` was 500ing (agent-only)
+
+Surfaced in prod logs 2026-07-27: the two-meter work added `kind` to the
+progress payload but not to the `TributeProgressResponse` model (which forbids
+extras), so **`GET /tributes/{id}/progress` returned 500** (`ValidationError:
+kind Extra inputs are not permitted`) — and so did the progress block echoed by
+`/tributes/{id}/generate` + `/regenerate`. The live meter endpoint was broken
+for every tribute. Fixed in `e85af51` (adds the `kind` field + a payload↔model
+contract test). `/turn`'s `tribute_progress` is a plain dict and was never
+affected. **No frontend action** — but this explains any flaky/blank meter and
+it ships in the same agent deploy as `next_step`. The `/progress` response now
+carries `kind: "standalone" | "campaign"` too, if you want it.
+
 ## 5. Deploy coordination
 
-- Agent code is on `main`, **undeployed**. Until it deploys, prod still re-asks.
-- No migration; `next_step` rides the existing response. Deploy is a plain agent
-  code roll.
-- Wire the FE `useBeginThemeUnlock` branch, then ping to flip together.
+- Agent changes on `main`: `9bfc180` (`next_step` + slug scoping) and `e85af51`
+  (the `/progress` 500 hotfix). Both need the next agent deploy.
+- No migration; everything rides existing responses. Plain agent code roll
+  (`git push` → `deploy.sh` on the box).
+- Until deployed, prod still 500s on `/progress` and (frontend) still re-asks.
+- Wire the FE `useBeginThemeUnlock` branch to honor `next_step`, then ping to
+  flip together.
 
 ## 6. Verification repro (`prod-test-1`)
 
