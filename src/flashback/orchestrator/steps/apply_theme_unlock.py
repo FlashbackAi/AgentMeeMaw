@@ -33,6 +33,7 @@ from flashback.tribute.leads import build_leads, leads_to_json
 from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
     ensure_open_tribute_async,
+    ensure_standalone_tribute_async,
     merge_tribute_archetype_answers_async,
 )
 
@@ -100,6 +101,19 @@ async def apply_theme_unlock(
                     # tribute lifecycle (its own row, its own video), and a
                     # completed prior campaign's tribute is never reopened.
                     if theme.kind == "tribute":
+                        # Self-heal the always-on keepsake row before anything
+                        # campaign-shaped runs. insert_person seeds it, but a
+                        # legacy that lost it stayed lost: nothing re-created
+                        # one, so the keepsake meter was simply absent from the
+                        # legacy screen until a hand-run backfill. That is what
+                        # prod looked like on 2026-07-28 -- 14 legacies with a
+                        # campaign card and no keepsake card, every one of them
+                        # a row the pre-af3ec20 lookup had adopted and stamped.
+                        # Idempotent (returns the existing row when present), so
+                        # on the healthy path this is one indexed SELECT.
+                        await ensure_standalone_tribute_async(
+                            cur, person_id=person_id, theme_id=theme_id
+                        )
                         group = await ensure_relationship_group(
                             cur, settings=deps.settings, person_id=person_id
                         )

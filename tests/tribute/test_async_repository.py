@@ -5,6 +5,7 @@ from __future__ import annotations
 from flashback.themes.repository import ensure_tribute_theme_async
 from flashback.tribute.repository import (
     ensure_open_tribute_async,
+    ensure_standalone_tribute_async,
     set_message_async,
 )
 from flashback.tribute.theme import (
@@ -178,6 +179,77 @@ async def test_campaign_entry_does_not_adopt_a_neutral_draft(
                     "SELECT campaign_id FROM tributes WHERE id = %s", (neutral,)
                 )
                 assert (await cur.fetchone())[0] is None
+
+
+async def test_keepsake_is_healed_when_only_a_campaign_row_exists(
+    async_pool,
+) -> None:
+    """A legacy whose keepsake row is gone gets one back on tribute entry.
+
+    Prod 2026-07-28: 14 legacies showed a campaign card and no keepsake card.
+    The pre-af3ec20 lookup had adopted each keepsake and stamped a campaign_id
+    onto it, and nothing ever re-created one -- insert_person only runs at
+    creation, so the meter stayed absent until a hand-run backfill. The heal in
+    apply_theme_unlock's tribute branch is this call.
+    """
+    person_id = await _make_person(async_pool)
+    theme_id = await _seed_theme(async_pool, person_id)
+    camp = await _campaign_id(async_pool, "healing_campaign_test")
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                # the stranded shape: a campaign row is the ONLY row
+                campaign_row = await ensure_open_tribute_async(
+                    cur, person_id=person_id, theme_id=theme_id,
+                    campaign_id=camp,
+                )
+                healed = await ensure_standalone_tribute_async(
+                    cur, person_id=person_id, theme_id=theme_id
+                )
+                assert healed != campaign_row
+                await cur.execute(
+                    "SELECT campaign_id FROM tributes WHERE id = %s", (healed,)
+                )
+                assert (await cur.fetchone())[0] is None
+                # re-entry heals nothing further -- one keepsake, not a fork
+                assert healed == await ensure_standalone_tribute_async(
+                    cur, person_id=person_id, theme_id=theme_id
+                )
+                await cur.execute(
+                    "SELECT count(*) FROM tributes WHERE person_id = %s "
+                    "AND campaign_id IS NULL AND status <> 'superseded'",
+                    (person_id,),
+                )
+                assert (await cur.fetchone())[0] == 1
+
+
+async def test_heal_reuses_a_finished_keepsake_instead_of_forking_one(
+    async_pool,
+) -> None:
+    """A completed keepsake still counts as present.
+
+    Otherwise the heal would deal a second keepsake card to every legacy that
+    already rendered one -- prod carries six such legacies from the pre-two-
+    meter era, each finished row holding its own video.
+    """
+    person_id = await _make_person(async_pool)
+    theme_id = await _seed_theme(async_pool, person_id)
+
+    async with async_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                keepsake = await ensure_standalone_tribute_async(
+                    cur, person_id=person_id, theme_id=theme_id
+                )
+                await cur.execute(
+                    "UPDATE tributes SET status = 'complete', "
+                    "video_url = 'https://s3/keepsake.mp4' WHERE id = %s",
+                    (keepsake,),
+                )
+                assert keepsake == await ensure_standalone_tribute_async(
+                    cur, person_id=person_id, theme_id=theme_id
+                )
 
 
 async def test_tribute_status_view_exposes_campaign(async_pool) -> None:
