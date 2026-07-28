@@ -47,6 +47,10 @@ async def async_db_pool(schema_applied: str):
                 await cur.execute("DELETE FROM entities")
                 await cur.execute("DELETE FROM threads")
                 await cur.execute("DELETE FROM traits")
+                # question_decisions FKs questions/persons with NO ACTION (every
+                # other child cascades), so it has to go first or a row another
+                # test module left behind blocks both deletes below.
+                await cur.execute("DELETE FROM question_decisions")
                 await cur.execute("DELETE FROM questions WHERE source <> 'coverage_tap'")
                 await cur.execute("DELETE FROM persons")
                 await conn.commit()

@@ -65,7 +65,7 @@ def test_dry_run_calls_no_sqs() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_seed_migration_yields_15_question_rows(db_pool):
+def test_seed_migration_yields_15_question_rows(db_pool, clean_graph):
     """The starter seed now surfaces as 15 coverage_tap rows."""
     sqs = _CapturingSQS()
     results = backfill(
@@ -78,7 +78,7 @@ def test_seed_migration_yields_15_question_rows(db_pool):
     assert questions.enqueued == 0
 
 
-def test_question_only_run_enqueues_15_with_correct_payload(db_pool):
+def test_question_only_run_enqueues_15_with_correct_payload(db_pool, clean_graph):
     sqs = _CapturingSQS()
     backfill(
         pool=db_pool, sqs=sqs,
@@ -97,7 +97,7 @@ def test_question_only_run_enqueues_15_with_correct_payload(db_pool):
     assert isinstance(sample["source_text"], str) and sample["source_text"]
 
 
-def test_all_default_picks_up_only_questions_when_other_tables_empty(db_pool):
+def test_all_default_picks_up_only_questions_when_other_tables_empty(db_pool, clean_graph):
     """Right after migrations, only the 15 questions exist."""
     sqs = _CapturingSQS()
     results = backfill(
@@ -113,7 +113,7 @@ def test_all_default_picks_up_only_questions_when_other_tables_empty(db_pool):
     assert len(sqs.sent) == 15
 
 
-def test_dry_run_against_seeded_db_enqueues_nothing(db_pool):
+def test_dry_run_against_seeded_db_enqueues_nothing(db_pool, clean_graph):
     sqs = _CapturingSQS()
     results = backfill(
         pool=db_pool, sqs=sqs,
@@ -126,7 +126,7 @@ def test_dry_run_against_seeded_db_enqueues_nothing(db_pool):
     assert by_type["question"].enqueued == 0
 
 
-def test_moment_with_null_embedding_is_picked_up(db_pool, make_person):
+def test_moment_with_null_embedding_is_picked_up(db_pool, clean_graph, make_person):
     person_id = make_person()
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -152,7 +152,7 @@ def test_moment_with_null_embedding_is_picked_up(db_pool, make_person):
     assert sqs.sent[0]["source_text"] == "the narrative"
 
 
-def test_trait_source_expression_handles_null_description(db_pool, make_person):
+def test_trait_source_expression_handles_null_description(db_pool, clean_graph, make_person):
     """traits.description is nullable; the source expr must still produce text."""
     person_id = make_person()
     with db_pool.connection() as conn:
@@ -180,7 +180,7 @@ def test_trait_source_expression_handles_null_description(db_pool, make_person):
 
 
 def test_thread_source_expression_concatenates_name_and_description(
-    db_pool, make_person,
+    db_pool, clean_graph, make_person,
 ):
     person_id = make_person()
     with db_pool.connection() as conn:
@@ -206,7 +206,7 @@ def test_thread_source_expression_concatenates_name_and_description(
     assert sqs.sent[0]["source_text"] == "Mornings, how he started his day"
 
 
-def test_already_embedded_rows_are_skipped(db_pool, make_person):
+def test_already_embedded_rows_are_skipped(db_pool, clean_graph, make_person):
     person_id = make_person()
     vec = [0.1] * 1024
     with db_pool.connection() as conn:

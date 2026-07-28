@@ -14,9 +14,19 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(autouse=True)
 def _dsn(monkeypatch, schema_applied):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    # These tests assert usage_events holds exactly their own row, so the
+    # table has to start empty — both of each other's rows and of anything
+    # an earlier module recorded (nothing rolls back between tests).
+    _truncate_usage_events()
     recorder.reset_pool_for_tests()
     yield
     recorder.reset_pool_for_tests()
+
+
+def _truncate_usage_events() -> None:
+    with psycopg.connect(os.environ["TEST_DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM usage_events")
+        conn.commit()
 
 
 def _rows():

@@ -110,3 +110,50 @@ def reset_questions(db_pool):
                 conn.commit()
 
     return _reset
+
+
+@pytest.fixture
+def clean_graph(db_pool):
+    """
+    Reset the canonical graph to its just-migrated state.
+
+    ``db_pool`` does not roll back, so any test that commits leaves rows
+    behind for the rest of the session. Tests that assert absolute counts
+    ("right after migrations there are exactly 15 questions") need a real
+    clean slate rather than whatever earlier modules happened to leave.
+
+    Deletes in FK-safe order: question_decisions first (it references
+    questions and persons with NO ACTION), then edges (generic table, no
+    cascade from persons), then persons (every other child cascades). The
+    15 coverage_tap seed rows have person_id IS NULL and are preserved.
+    """
+
+    def _clean() -> None:
+        with db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM question_decisions")
+                cur.execute("DELETE FROM edges")
+                cur.execute("DELETE FROM persons")
+                cur.execute("DELETE FROM questions WHERE source <> 'coverage_tap'")
+                cur.execute("DELETE FROM usage_events")
+                conn.commit()
+
+    _clean()
+    return _clean
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_circuit_breaker():
+    """
+    The provider circuit breaker in flashback.llm.interface keeps its state
+    in a module-level dict. Tests that deliberately drive provider failures
+    (timeout / malformed-response cases) leave the breaker OPEN, and every
+    later test that touches the same provider then fails with
+    "circuit breaker open" instead of exercising its own path. Clear it
+    around every test so the breaker can never leak across tests.
+    """
+    from flashback.llm import interface
+
+    interface._CIRCUIT_STATE.clear()
+    yield
+    interface._CIRCUIT_STATE.clear()
