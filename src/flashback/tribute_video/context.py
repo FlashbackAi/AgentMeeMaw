@@ -16,6 +16,71 @@ from typing import Any
 CONTEXT_KEY = "tribute_video"
 
 
+def _anchor_year(anchor: Any) -> int | None:
+    """A 4-digit year out of a moment's ``time_anchor``, when it has one."""
+    if not isinstance(anchor, dict):
+        return None
+    for key in ("year", "start_year", "end_year"):
+        value = anchor.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    return None
+
+
+def choose_candidate_pool(
+    themed: list[dict[str, Any]],
+    wider: list[dict[str, Any]],
+    *,
+    target: int,
+) -> list[dict[str, Any]]:
+    """Pick the pool the book is built from: on-theme, or the person's whole one.
+
+    The readiness gate counts qualifying moments PERSON-WIDE, but the render
+    fetched only the ones tagged to the tribute's theme and widened solely when
+    that came back empty. A subject with nine qualifying memories and two tagged
+    ones therefore passed the gate and got a two-memory book, while seven usable
+    memories sat unread.
+
+    On-theme stays preferred while it can carry the story; below ``target`` the
+    person-wide pool wins, and it is a strict superset (same qualifying
+    predicate, no theme join) so nothing on-theme is lost by widening.
+    """
+    if len(themed) >= target:
+        return themed
+    return wider if len(wider) > len(themed) else themed
+
+
+def order_candidates_for_narrative(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Order the memories the way a story would tell them.
+
+    The fetch returns them newest-EXTRACTED first, which is neither chronology
+    nor the order the contributor told them -- so the assembler, asked to lay
+    the pages along an arc, had nothing to sort by and the meeting could land
+    halfway through the video. Reversing to oldest-extracted approximates the
+    telling order, because an interview opens at the beginning.
+
+    True chronology wins when it is actually available, but only when MOST of
+    the pool carries a year: on live tributes 32 of 33 moments had no time
+    anchor at all, and hoisting the single dated memory to page one would be
+    worse than leaving the telling order alone.
+    """
+    told = list(reversed(candidates))
+    years = [_anchor_year(m.get("time_anchor")) for m in told]
+    dated = [y for y in years if y is not None]
+    if len(dated) < max(2, (len(told) + 1) // 2):
+        return told
+    anchored = [(y, i, m) for i, (y, m) in enumerate(zip(years, told)) if y is not None]
+    plain = [m for y, m in zip(years, told) if y is None]
+    anchored.sort(key=lambda t: (t[0], t[1]))
+    return [m for _y, _i, m in anchored] + plain
+
+
 @dataclass(frozen=True)
 class RenderContext:
     tribute_id: str

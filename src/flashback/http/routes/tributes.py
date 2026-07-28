@@ -62,7 +62,9 @@ from flashback.tribute.progress import (
 from flashback.tribute.invitation import resolve_invitation_copy
 from flashback.tribute.message_capture import polish_and_store_message
 from flashback.tribute.relationships import ensure_relationship_group
+from flashback.tribute.leads import build_leads, leads_to_lines
 from flashback.tribute.repository import (
+    fetch_render_archetype_answers_async,
     fetch_scene_moments_async,
     fetch_theme_scene_moments_async,
     fetch_tribute_campaign_id_async,
@@ -72,13 +74,19 @@ from flashback.tribute.repository import (
     stamp_tribute_campaign_async,
     write_tribute_generation_context_async,
 )
-from flashback.tribute_video.context import CONTEXT_KEY, build_context_dict
+from flashback.tribute_video.context import (
+    CONTEXT_KEY,
+    build_context_dict,
+    choose_candidate_pool,
+    order_candidates_for_narrative,
+)
 from flashback.tribute_video.sequencer import (
     LAYOUT_CATALOG,
     MOTION_PRESETS,
     PINNABLE_ROLES,
 )
 from flashback.tribute_video.edit_suggestions import generate_edit_suggestions
+from flashback.tribute.checklist import MEMORIES_TARGET
 from flashback.tribute.theme import STORYBOOK_MAX_PAGES
 
 if TYPE_CHECKING:
@@ -453,14 +461,27 @@ async def _generate_video(
     # snapshot (spec 2026-07-14 §6.4).
     async with db_pool.connection() as conn:
         async with conn.cursor() as cur:
-            candidates: list = []
+            themed: list = []
             if tribute.get("theme_id"):
-                candidates = await fetch_theme_scene_moments_async(
+                themed = await fetch_theme_scene_moments_async(
                     cur, person_id=body.person_id,
                     theme_id=tribute["theme_id"], limit=STORYBOOK_MAX_PAGES)
-            if not candidates:
-                candidates = await fetch_scene_moments_async(
-                    cur, person_id=body.person_id, limit=STORYBOOK_MAX_PAGES)
+            candidates = themed
+            # Widen when the theme pool is THIN, not only when it is empty --
+            # the ready gate counts person-wide, so a thin theme pool means the
+            # book is built from less than the gate promised.
+            if len(themed) < MEMORIES_TARGET:
+                candidates = choose_candidate_pool(
+                    themed,
+                    await fetch_scene_moments_async(
+                        cur, person_id=body.person_id,
+                        limit=STORYBOOK_MAX_PAGES),
+                    target=MEMORIES_TARGET)
+            # Both fetches return newest-extracted first; the book needs
+            # telling order (see order_candidates_for_narrative).
+            candidates = order_candidates_for_narrative(candidates)
+            archetype_answers = await fetch_render_archetype_answers_async(
+                cur, tribute_id=tribute_id)
             campaign, profile, directives, visual_theme = (
                 await _resolve_render_config(
                     cur, person_id=str(body.person_id),
@@ -489,8 +510,12 @@ async def _generate_video(
         gt_context=gt_scene,
         candidates=candidates,
         message_text=tribute["message_text"] or "",
-        archetype_leads=[],
-        n_pages=STORYBOOK_MAX_PAGES,
+        archetype_leads=leads_to_lines(build_leads(archetype_answers)),
+        # One page per memory, capped. A fixed 13 made the assembler stretch a
+        # thin pool into filler -- a 3-memory tribute came back as twelve
+        # interchangeable affirmations ("Every bad day ended better once he
+        # arrived") with no place, object or event in them.
+        n_pages=max(1, min(len(candidates), STORYBOOK_MAX_PAGES)),
         video_put_url=body.video_put_url,
         pdf_put_url=body.pdf_put_url,
         poster_put_url=body.poster_put_url or "",
@@ -565,6 +590,11 @@ async def _reenqueue_tribute_render(
                 await _resolve_render_config(
                     cur, person_id=str(person_id), tribute_id=tribute_id,
                     campaign_id_hint=stored.get("campaign_id") or None))
+            # Leads come off the row rather than the snapshot: regenerate is
+            # the recovery path, and snapshots taken before leads were wired
+            # into the render all carry an empty list.
+            archetype_answers = await fetch_render_archetype_answers_async(
+                cur, tribute_id=tribute_id)
             # Backstop stamp (mirrors /generate): once the campaign is known,
             # pin it on the row so progress reads and later regenerates stop
             # depending on the snapshot hint. No-op when already stamped.
@@ -594,17 +624,24 @@ async def _reenqueue_tribute_render(
         fallback_opener = stored.get("fallback_opener") or ""
         fallback_closing = stored.get("fallback_closing") or ""
 
+    # Candidates are reused verbatim, ORDER INCLUDED: /generate already put
+    # them in telling order, and re-ordering here would reverse it back. The
+    # page count is re-derived (idempotent) so a regenerate repairs a snapshot
+    # taken while it was still a fixed 13.
+    candidates = list(stored.get("candidates") or [])
+    leads = leads_to_lines(build_leads(archetype_answers))
+
     context = build_context_dict(
         subject_name=stored.get("subject_name") or "",
         relationship=stored.get("relationship"),
         gt_context=stored.get("gt_context") or "",
         gender=stored.get("gender"),
         contributor_gender=stored.get("contributor_gender"),
-        candidates=list(stored.get("candidates") or []),
+        candidates=candidates,
         message_text=stored.get("message_text") or "",
-        archetype_leads=list(stored.get("archetype_leads") or []),
+        archetype_leads=leads or list(stored.get("archetype_leads") or []),
         edit_instructions=edit_instructions,
-        n_pages=int(stored.get("n_pages") or STORYBOOK_MAX_PAGES),
+        n_pages=max(1, min(len(candidates), STORYBOOK_MAX_PAGES)),
         blend=stored.get("blend") or "cream",
         transition=stored.get("transition") or "bleed",
         fps=int(stored.get("fps") or 30),

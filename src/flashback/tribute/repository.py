@@ -308,6 +308,34 @@ async def fetch_tribute_archetype_answers_async(
     return row[0] if row and isinstance(row[0], list) else []
 
 
+async def fetch_render_archetype_answers_async(
+    cur, *, tribute_id: UUID | str
+) -> list[dict]:
+    """Committed archetype answers for the render: tribute row, then theme row.
+
+    Both surfaces are written by the unlock flow, but the per-campaign
+    slug-scoping means a tribute row can be empty while the theme still holds
+    the answers the contributor gave (observed on live rows). The render wants
+    whatever the contributor actually said, so try both.
+    """
+    await cur.execute(
+        """
+        SELECT CASE
+                 WHEN jsonb_typeof(t.archetype_answers) = 'array'
+                  AND jsonb_array_length(t.archetype_answers) > 0
+                   THEN t.archetype_answers
+                 ELSE th.archetype_answers
+               END
+          FROM tributes t
+          LEFT JOIN themes th ON th.id = t.theme_id
+         WHERE t.id = %s
+        """,
+        (str(tribute_id),),
+    )
+    row = await cur.fetchone()
+    return row[0] if row and isinstance(row[0], list) else []
+
+
 async def fetch_latest_tribute_answers_async(
     cur,
     *,
