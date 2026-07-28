@@ -57,8 +57,42 @@ class CapturingExtractionQueue:
 
 
 class FakeDbPool:
+    """Serves only READ_COVERAGE_STATE.
+
+    This test is about segment sequencing, but select_coverage_tap runs on
+    every turn and reads coverage_state. Reporting every dimension as
+    covered makes that step short-circuit on "coverage_complete" so it
+    stays out of the way; any other query is still a hard error.
+    """
+
     def connection(self):
-        raise AssertionError("DB should not be touched in this sequence test")
+        return _AsyncContext(FakeConnection())
+
+
+class FakeConnection:
+    def cursor(self):
+        return _AsyncContext(FakeCursor())
+
+
+class FakeCursor:
+    async def execute(self, sql, params=None):
+        self.sql = sql
+
+    async def fetchone(self):
+        if "coverage_state" in self.sql:
+            return ({"sensory": 1, "voice": 1, "place": 1, "relation": 1, "era": 1},)
+        raise AssertionError(f"unexpected SQL in sequence test: {self.sql}")
+
+
+class _AsyncContext:
+    def __init__(self, value) -> None:
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 @pytest_asyncio.fixture
@@ -96,9 +130,10 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
     queue = CapturingExtractionQueue()
     app.state.redis = fake_redis
     app.state.working_memory = wm
+    app.state.db_pool = FakeDbPool()
     app.state.orchestrator = Orchestrator(
         OrchestratorDeps(
-            db_pool=FakeDbPool(),
+            db_pool=app.state.db_pool,
             working_memory=wm,
             intent_classifier=FixedClassifier(),
             retrieval=None,
@@ -106,7 +141,14 @@ async def test_five_turn_sequence_closes_one_segment(fake_redis):
             response_generator=None,
             segment_detector=detector,
             extraction_queue=queue,
-            settings=SimpleNamespace(segment_detector_min_turns=4),
+            settings=SimpleNamespace(
+                # This sequence is shaped by segment_detector_min_turns.
+                # The user-turn cadence gate (invariant #11) is a separate,
+                # newer knob; pin it to 1 so it never masks the min-turns
+                # gate this test is actually exercising.
+                segment_detector_user_turn_cadence=1,
+                segment_detector_min_turns=4,
+            ),
         )
     )
     session_id = uuid4()

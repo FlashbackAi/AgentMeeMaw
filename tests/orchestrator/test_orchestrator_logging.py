@@ -69,6 +69,12 @@ class FakeCursor:
         self.sql = sql
 
     async def fetchone(self):
+        # READ_COVERAGE_STATE also selects "FROM persons", so it has to
+        # be matched first. All dimensions covered => select_coverage_tap
+        # short-circuits on "coverage_complete" and stays out of the way
+        # of what these tests actually assert.
+        if "coverage_state" in self.sql:
+            return ({"sensory": 1, "voice": 1, "place": 1, "relation": 1, "era": 1},)
         if "FROM persons" in self.sql:
             return ("Maya", "mother", "starter")
         raise AssertionError(f"unexpected SQL: {self.sql}")
@@ -133,7 +139,14 @@ def _orchestrator_with_boundary_detector(wm: WorkingMemory) -> Orchestrator:
             response_generator=None,
             segment_detector=BoundaryDetector(),
             extraction_queue=CapturingExtractionQueue(),
-            settings=SimpleNamespace(segment_detector_min_turns=2),
+            settings=SimpleNamespace(
+                # This sequence is shaped by segment_detector_min_turns.
+                # The user-turn cadence gate (invariant #11) is a separate,
+                # newer knob; pin it to 1 so it never masks the min-turns
+                # gate this test is actually exercising.
+                segment_detector_user_turn_cadence=1,
+                segment_detector_min_turns=2,
+            ),
         )
     )
 

@@ -56,7 +56,14 @@ class FakePhaseGate:
         self.next_raises = next_raises
         self.next_calls = 0
 
-    async def select_next_question(self, person_id, session_id, recently_asked_ids=None):
+    async def select_next_question(
+        self,
+        person_id,
+        session_id,
+        recently_asked_ids=None,
+        active_theme_slug=None,
+        last_seeded_source=None,
+    ):
         self.next_calls += 1
         if self.next_raises:
             raise self.next_raises
@@ -87,6 +94,12 @@ class FakeCursor:
         self.sql = sql
 
     async def fetchone(self):
+        # READ_COVERAGE_STATE also selects "FROM persons", so it has to
+        # be matched first. All dimensions covered => select_coverage_tap
+        # short-circuits on "coverage_complete" and stays out of the way
+        # of what these tests actually assert.
+        if "coverage_state" in self.sql:
+            return ({"sensory": 1, "voice": 1, "place": 1, "relation": 1, "era": 1},)
         if "FROM persons" in self.sql:
             return ("Maya", "mother", self.phase, "she", None)
         raise AssertionError(f"unexpected SQL: {self.sql}")
@@ -173,11 +186,57 @@ async def _init_wm(app, session_id, person_id, role_id):
     )
 
 
-async def test_session_start_opens_without_question_selection(fake_redis, monkeypatch):
+async def test_session_start_anchors_opener_on_a_starter_question(
+    fake_redis, monkeypatch
+):
+    """
+    In starter phase the opener selects a seeded question as its *anchor*
+    (CLAUDE.md §6) and the route stamps it into the per-session asked
+    register (invariant #21) so the next selector won't repeat it.
+    """
     call = AsyncMock(return_value="Tell me about Maya.")
     monkeypatch.setattr(generator_module, "call_text", call)
     phase_gate = FakePhaseGate()
     app = await _app(fake_redis, classifier=FixedClassifier("story"), phase_gate=phase_gate)
+
+    async with await _client(app) as client:
+        session_id, person_id, role_id = new_uuids()
+        resp = await client.post(
+            "/session/start",
+            headers=auth_headers(),
+            json={
+                "session_id": session_id,
+                "person_id": person_id,
+                "role_id": role_id,
+                "session_metadata": {},
+            },
+        )
+
+    assert resp.status_code == 200
+    assert phase_gate.next_calls == 1
+    user_message = call.await_args.kwargs["user_message"]
+    assert "<seeded_question>" in user_message
+    assert "What did she keep on the porch?" in user_message
+    state = await app.state.working_memory.get_state(session_id)
+    assert state.last_seeded_question_id == str(STEADY_Q)
+    asked = await app.state.working_memory.get_recently_asked_question_ids(session_id)
+    assert asked == [str(STEADY_Q)]
+
+
+async def test_steady_session_start_opens_without_question_selection(
+    fake_redis, monkeypatch
+):
+    """select_starter_question is starter-phase only, so a steady-phase opener
+    selects nothing and carries no anchor."""
+    call = AsyncMock(return_value="Tell me about Maya.")
+    monkeypatch.setattr(generator_module, "call_text", call)
+    phase_gate = FakePhaseGate()
+    app = await _app(
+        fake_redis,
+        classifier=FixedClassifier("story"),
+        phase_gate=phase_gate,
+        person_phase="steady",
+    )
 
     async with await _client(app) as client:
         session_id, person_id, role_id = new_uuids()

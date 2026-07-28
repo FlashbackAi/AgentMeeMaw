@@ -187,7 +187,12 @@ async def test_bank_exhaustion_returns_empty_list(wm):
     assert state.taps == []
 
 
-async def test_no_tap_on_first_user_turn(wm):
+async def test_tap_fires_on_the_first_eligible_switch_turn(wm):
+    """
+    The 2-user-turn cooldown is *between* taps (CLAUDE.md §6), not a warm-up
+    before the first one -- ``user_turns_since_last_tap`` defaults to 999
+    precisely so the first eligible switch turn is free to tap.
+    """
     session_id = uuid4()
     person_id = uuid4()
     role_id = uuid4()
@@ -205,6 +210,19 @@ async def test_no_tap_on_first_user_turn(wm):
         intent_result=_intent("switch"),
         effective_intent="switch",
     )
+
+    await select_coverage_tap(state, _deps(wm, FakePool()))
+
+    assert len(state.taps) == 1
+
+
+async def test_cooldown_blocks_a_back_to_back_tap(wm):
+    """A tap on the immediately following user turn would re-ask the same gap
+    dim, because coverage_state lags real-time (extraction is async)."""
+    state = await _state(wm, intent="switch")
+    # A tap just went out (resets the counter to 0), then one user turn passed.
+    await wm.record_tap_emitted(str(state.session_id), str(uuid4()), "prior tap")
+    await wm.increment_user_turns_since_last_tap(str(state.session_id))
 
     await select_coverage_tap(state, _deps(wm, FakePool()))
 

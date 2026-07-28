@@ -58,6 +58,45 @@ class FakeRetrieval:
         return [object()]
 
 
+class FakeDbPool:
+    """Serves only READ_COVERAGE_STATE.
+
+    These tests assert which retrieval calls each intent makes, but
+    select_coverage_tap runs on switch/clarify turns and reads
+    coverage_state. Reporting every dimension as covered makes that step
+    short-circuit on "coverage_complete"; any other query is a hard error.
+    """
+
+    def connection(self):
+        return _AsyncContext(FakeConnection())
+
+
+class FakeConnection:
+    def cursor(self):
+        return _AsyncContext(FakeCursor())
+
+
+class FakeCursor:
+    async def execute(self, sql, params=None):
+        self.sql = sql
+
+    async def fetchone(self):
+        if "coverage_state" in self.sql:
+            return ({"sensory": 1, "voice": 1, "place": 1, "relation": 1, "era": 1},)
+        raise AssertionError(f"unexpected SQL in retrieval test: {self.sql}")
+
+
+class _AsyncContext:
+    def __init__(self, value) -> None:
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 @pytest_asyncio.fixture
 async def fake_redis():
     client = fakeredis.aioredis.FakeRedis()
@@ -82,7 +121,7 @@ async def app(fake_redis):
     )
     application = create_app(cfg)
     application.state.redis = fake_redis
-    application.state.db_pool = None
+    application.state.db_pool = FakeDbPool()
     application.state.working_memory = WorkingMemory(
         redis_client=fake_redis,
         ttl_seconds=cfg.working_memory_ttl_seconds,
@@ -112,7 +151,7 @@ async def _post_turn(app, client, *, classifier, retrieval):
     await _init_wm(app, session_id, person_id, role_id)
     app.state.orchestrator = StubOrchestrator(
         wm=app.state.working_memory,
-        db_pool=None,
+        db_pool=app.state.db_pool,
         intent_classifier=classifier,
         retrieval=retrieval,
     )
