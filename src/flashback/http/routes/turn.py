@@ -17,6 +17,7 @@ from flashback.http.deps import (
     get_redis,
     get_working_memory,
 )
+from flashback.http.ground_truth_answer import persist_ground_truth_answer
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.http.models import (
     QuestionChipsOut,
@@ -27,6 +28,7 @@ from flashback.http.models import (
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.question_decisions import QuestionDecisionRepository
+from flashback.tribute.message_capture import persist_message_answer
 from flashback.working_memory import WorkingMemory
 
 try:  # AsyncConnectionPool is a runtime dependency; type-only here.
@@ -88,6 +90,30 @@ async def turn(
             "question_decision.recorded",
             question_id=str(body.question_decision.question_id),
             action=body.question_decision.action,
+        )
+
+    if body.ground_truth_answer is not None:
+        # Persist before the pipeline runs (mirrors question_decision):
+        # the same-call gap-selector and extraction context must see it.
+        await persist_ground_truth_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.ground_truth_answer,
+            wm=wm,
+            db_pool=db_pool,
+        )
+
+    if body.message_answer is not None:
+        # Persist before the pipeline (mirrors ground_truth_answer): the
+        # contributor's message is polished into the tribute row and never
+        # enters the transcript, so extraction never mines it.
+        await persist_message_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.message_answer,
+            wm=wm,
+            db_pool=db_pool,
+            settings=cfg,
         )
 
     return await run_idempotent(
@@ -154,6 +180,7 @@ async def _run_turn(
             taps=result.taps,
             question_chips=chips_out,
             voice_style=result.voice_style,
+            tribute_progress=result.tribute_progress,
         ),
     )
 

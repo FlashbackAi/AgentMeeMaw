@@ -114,6 +114,7 @@ rejected with `422`.
 | `POST` | `/turn` | One user message → one assistant reply |
 | `POST` | `/turn/stream` | Same as above, streamed as SSE |
 | `POST` | `/session/wrap` | Force-close the open segment, run post-session sequencing |
+| `GET` | `/questions/feed` | Ranked producer-bank question feed for the scrolling browse surface |
 | `POST` | `/profile_facts/upsert` | Node-driven edit of one profile fact |
 | `GET` | `/identity_merges/suggestions` | List pending entity merge suggestions |
 | `POST` | `/identity_merges/scan` | Manually scan a person for merge candidates |
@@ -130,6 +131,10 @@ rejected with `422`.
 | `POST` | `/collaborators/remove` | Reversibly remove a contributor (hide their moments + orphaned entities) |
 | `POST` | `/collaborators/restore` | Restore a removed contributor's content |
 | `POST` | `/nodes/{node_type}/{node_id}/edit` | Generic edit for moments and entities |
+| `GET` | `/storybook-collections` | Fixed collection registry (chooser + URL mint counts) |
+| `POST` | `/storybooks` | Mint a collection storybook (context + enqueue `storybook_render`) |
+| `POST` | `/storybooks/{id}/regenerate` | Redraw the art, keep the stored script |
+| `POST` | `/storybooks/{id}/edit` | Re-assemble the book with cumulative edit requests |
 | `POST` | `/admin/reset_phase` | Force a person back to `starter` phase |
 
 ---
@@ -170,12 +175,48 @@ agent-owned `persons` row instead of a Node-owned `person_roles` row.
 ### `POST /persons`
 
 Create the `persons` row after the contributor supplies the subject's
-display name, relationship, subject gender, and contributor name. DOB
-/ DOD are not accepted; `persons` is intentionally status-agnostic.
+display name, relationship, subject gender, contributor name, and
+contributor gender. DOB / DOD are not accepted; `persons` is
+intentionally status-agnostic.
+
+**Request**
+```json
+{
+  "name": "string",
+  "relationship": "string",
+  "contributor_display_name": "string",
+  "gender": "he | she | they (optional)",
+  "contributor_gender": "he | she | they (optional)",
+  "reference_s3_key": "string (optional)"
+}
+```
+
+`gender` is the **subject's** pronoun form; `contributor_gender` is the
+**contributor's**. Both feed artifact generation so the figures in moment
+scenes (the subject, and the contributor when a memory includes them —
+"my father and I on a bike") render with the correct gender instead of
+defaulting. `they` / omitted leaves the figure gender-neutral.
+
+**Response 200**
+```json
+{
+  "person_id": "uuid",
+  "name": "string",
+  "relationship": "string",
+  "gender": "he | she | they | null",
+  "contributor_gender": "he | she | they | null",
+  "phase": "starter",
+  "created_at": "iso-8601"
+}
+```
 
 ### `GET /api/v1/onboarding/archetype-questions`
 
-Return 2-3 tappable questions tailored to `persons.relationship`.
+Return tappable questions tailored to `persons.relationship` (4-5
+relationship questions), plus the two ground-truth questions appended
+to every set: `gt_region` ("Where did most of their life happen?") and
+`gt_birth_era` ("Roughly when were they born?") — CLAUDE.md invariant
+26. Both are skippable.
 
 **Query**
 ```
@@ -194,6 +235,7 @@ person_id=uuid
       "text": "How did you two first meet?",
       "allow_free_text": true,
       "allow_skip": true,
+      "allow_multiple": true,
       "options": [
         { "id": "school", "label": "At school or college" }
       ]
@@ -203,6 +245,9 @@ person_id=uuid
 ```
 
 The server-side `implies` blocks are deliberately omitted.
+`allow_multiple` is `true` on every question except the two
+ground-truth questions (`gt_region`, `gt_birth_era`), which write a
+single value into `persons.ground_truth` and stay single-choice.
 
 **Errors**
 - `404` -- person not found
@@ -223,19 +268,37 @@ embeddings when configured, and return the first session id.
 {
   "person_id": "uuid",
   "answers": [
-    { "question_id": "friend_meet", "option_id": "school" },
     {
-      "question_id": "friend_first_impression",
-      "option_id": null,
-      "free_text": "He was quietly confident"
+      "question_id": "friend_meet",
+      "option_ids": ["school", "work"],
+      "free_text": "and later became neighbors"
     },
+    { "question_id": "friend_kind", "option_id": "funny" },
     { "question_id": "friend_shared_place", "skipped": true }
   ]
 }
 ```
 
-Each answer must choose exactly one of `option_id`, `free_text`, or
-`skipped`.
+Chips are multi-select: `option_ids` carries any number of selected
+options and may combine with `free_text` on the same answer. The
+legacy single `option_id` shape stays accepted and is treated as a
+one-element list. `skipped: true` stands alone — a skipped answer
+cannot also carry chips or free text. Single-choice questions
+(`allow_multiple: false` — the ground-truth pair) keep the old
+exactly-one rule: one chip OR free text, never both and never
+multiple chips.
+
+The selected options' `implies` blocks merge per answer: coverage
+dimensions union, entities dedupe by `(type, name)`, and
+`life_period_estimate` survives only when every selected option
+agrees. Free text is parsed by the small LLM and its implications
+merge in the same way.
+
+The answers array must cover every question returned by
+`archetype-questions` exactly once — including `gt_region` and
+`gt_birth_era` (3-12 answers accepted). Ground-truth answers are written
+to `persons.ground_truth` with `provenance='onboarding'`; they do not
+seed entities or coverage.
 
 **Response 200**
 ```json
@@ -271,7 +334,8 @@ gate + question selection, return the agent's opener.
   "contributor_display_name": "string (optional, recommended)",
   "session_metadata": {
     "prior_session_summary": "string (optional)",
-    "archetype_answers": "array (optional, first session)"
+    "archetype_answers": "array (optional, first session)",
+    "question_id": "uuid (optional — the feed question the user tapped)"
   }
 }
 ```
@@ -302,6 +366,14 @@ are:
 - `archetype_answers`, the stored onboarding answers for the person. The
   first-turn opener renders these naturally and anchors on the most
   concrete detail without re-asking it.
+- `question_id`, the producer-bank question the contributor tapped in the
+  feed (`GET /questions/feed`). The agent loads that active, person-scoped
+  question and the opener anchors on it — overriding any auto-selected
+  starter question, in both starter and steady phase. An explicit pick is
+  **exempt** from the same-source cooldown and recency dedup: the exact
+  question tapped is always honored. An unknown / foreign / inactive id is
+  ignored (the opener falls back to normal). Composes with `theme_id` —
+  both may be present and both are soft opener context.
 
 **Response 200**
 ```json
@@ -358,6 +430,13 @@ One user message in, one assistant reply out. Idempotent on
   "question_decision": {
     "question_id": "uuid",
     "action": "skip | suppress | defer"
+  },
+  "ground_truth_answer": {
+    "kind": "ground_truth | segment_anchor",
+    "field": "string | null",
+    "option_label": "string | null",
+    "free_text": "string | null",
+    "skipped": false
   }
 }
 ```
@@ -368,6 +447,17 @@ One user message in, one assistant reply out. Idempotent on
 decision in the `question_decisions` table before the turn pipeline
 runs, so the same call's selector excludes the decided question. See
 CLAUDE.md invariant 23.
+
+`ground_truth_answer` is **optional**. It carries the user's tap on a
+`ground_truth` / `segment_anchor` card from a prior turn (CLAUDE.md
+invariant 26). The agent persists it before the pipeline runs:
+person-field answers write to `persons.ground_truth`
+(`provenance='tap'`); segment-anchor answers stash in Working Memory
+and ride the extraction payload at the next segment boundary;
+`skipped: true` suppresses that field for the rest of the session. The
+answer is ignored (not an error) when no GT tap is pending — safe
+against UI replays. The conversation `message` should NOT duplicate the
+answer text; the sidecar is the only channel.
 
 **Headers**
 - `Idempotency-Key` *(optional)*
@@ -382,9 +472,12 @@ CLAUDE.md invariant 23.
     "segment_boundary": false,
     "taps": [
       {
-        "question_id": "uuid",
+        "question_id": "uuid | null",
         "text": "string",
-        "dimension": "era | relation | place | voice | sensory"
+        "dimension": "era | relation | place | voice | sensory | ''",
+        "options": ["string"],
+        "kind": "coverage | ground_truth | segment_anchor",
+        "field": "string | null"
       }
     ],
     "question_chips": {
@@ -398,7 +491,18 @@ CLAUDE.md invariant 23.
 `segment_boundary` is `true` on the turn at which the Segment Detector
 decided to close a segment and push it onto the extraction queue.
 `metadata.taps` is always present. v1 emits at most one coverage-gap tap
-on eligible `switch` or `clarify` turns; otherwise it is `[]`.
+on eligible `switch` or `clarify` turns, and at most one ground-truth /
+segment-anchor tap per turn on `story` / `deepen` turns (session-capped,
+with a 2-user-turn cooldown between tap cards); otherwise it
+is `[]`.
+
+Tap `kind` distinguishes the three surfaces. `coverage` taps carry a
+real `question_id`; `ground_truth` and `segment_anchor` taps carry
+`question_id: null` and (for `ground_truth`) the registry key in
+`field`. All three render with the same card UI. Answers to
+`ground_truth` / `segment_anchor` taps return via the next `/turn`'s
+`ground_truth_answer` sidecar — never as the chat message — and the UI
+must not post `question_decision` for null-`question_id` taps.
 
 `metadata.question_chips` is set when the agent inlines a producer-bank
 question (sources `dropped_reference`, `underdeveloped_entity`,
@@ -1050,6 +1154,323 @@ that legacy and refuse cross-legacy edits.
 
 ---
 
+## 7b. Tributes — video render
+
+A tribute produces a **video** (shown in-app) + a **PDF** (print). The agent
+assembles the story and renders both via the `tribute_render` worker, uploading
+to **Node-minted presigned URLs**; Node writes the URL columns on completion.
+Full handshake: `NODE_INTEGRATION.md` §7b.
+
+### `POST /tributes/{tribute_id}/generate`
+
+Trigger a tribute video render. Call when the meter is at **100%**
+(`tribute_status.percent = 100`).
+
+Request:
+
+```json
+{
+  "person_id": "<uuid>",
+  "artifact_kind": "tribute_video",
+  "video_put_url": "<presigned PUT for the MP4 (video/mp4)>",
+  "pdf_put_url": "<presigned PUT for the PDF (application/pdf)>",
+  "poster_put_url": "<presigned PUT for the cover poster (image/jpeg), optional>",
+  "prime_photo_get_url": "<presigned GET for the prime photo, optional>",
+  "campaign": "fathers_day_2026",
+  "cover_photo_is_prime_years": false
+}
+```
+
+- `video_put_url` + `pdf_put_url` are **required**; expiry must cover queue
+  latency + render (**≥ 24h** recommended). Sign for the content-types shown.
+- `poster_put_url` optional — when present the worker PUTs the **cover poster**
+  (the opener page: portrait + title, the video's first frame) as a JPEG, and
+  the NOTIFY carries `poster_present:true`. Node writes `tributes.thumbnail_url`
+  from the key it minted so the tribute card/thumbnail shows the cover instead
+  of a stray video frame. Omit to skip the poster (thumbnail unchanged).
+- `prime_photo_get_url` optional — when present the opener becomes a painterly
+  portrait of the subject (image-to-image, likeness kept).
+- `cover_photo_is_prime_years` — `false` (default) de-ages an older/current
+  photo to prime years; `true` skips de-age.
+
+Response `200`:
+
+```json
+{
+  "job_id": "<uuid>", "tribute_id": "<uuid>", "artifact_kind": "tribute_video",
+  "enqueued": true, "percent": 100, "ready": true, "scene_count": 15
+}
+```
+
+Errors:
+
+- `404` — tribute not found / not owned by `person_id`, or status unavailable.
+- `409` — meter below 100% (`detail` carries the current percent).
+- `400` — missing `video_put_url` / `pdf_put_url`.
+- `410` — `artifact_kind='storybook'`: the tribute storybook is retired; use
+  `tribute_video`. (The standalone `/storybooks` feature is separate.)
+
+Generation is **async**: `200` means enqueued. The `tribute_render` worker
+renders + PUTs the MP4/PDF, flips `tributes.status` `generating → complete` (or
+`failed`), and fires the transactional `tribute_render_complete` NOTIFY. Node
+reads the `tribute_status` view (now exposing `pdf_url` + `rendered_at`) and
+writes `video_url` / `pdf_url` on that NOTIFY. **Not retry-safe** — a repeat
+call re-renders.
+
+### `GET /tributes/{tribute_id}/progress`
+
+Standalone read of the tribute **completion meter** — the same decorated shape
+the `/turn` metadata carries as `tribute_progress`, but pollable on its own so
+the meter updates without a chat turn. Pure read, no side effects.
+
+Query params:
+
+- `person_id` (**required**, UUID) — owning legacy; scopes the lookup. A tribute
+  that doesn't belong to this person `404`s.
+- `campaign` (optional, slug) — campaign skin. When set, the `title` and the
+  `message` slot's `hint` use the skin copy; otherwise neutral. Pass the same
+  slug the UI is themed with (mirrors `/generate`'s `campaign`).
+
+Response `200`:
+
+```json
+{
+  "percent": 70,
+  "ready": false,
+  "title": "A Letter to Dad",
+  "next": "appearance",
+  "slots": [
+    {"key": "memories",   "label": "...", "hint": "...", "filled": true,  "count": 3, "target": 3},
+    {"key": "message",    "label": "...", "hint": "...", "filled": true,  "count": null, "target": null},
+    {"key": "appearance", "label": "...", "hint": "...", "filled": false, "count": null, "target": null},
+    {"key": "signature",  "label": "...", "hint": "...", "filled": false, "count": null, "target": null}
+  ]
+}
+```
+
+- `next` is the key of the first unfilled slot (drives the "next — …" steer), or
+  `null` when everything is filled. `count`/`target` are populated for the
+  `memories` slot only (else `null`). `percent`/`ready` math lives in the
+  `tribute_status` SQL view.
+
+Errors:
+
+- `404` — tribute not found / not owned by `person_id`.
+- `422` — `person_id` query param missing.
+
+This is the **meter**, not render state. Video/PDF render status (`status`,
+`video_url`, `pdf_url`, `rendered_at`) is a separate concern Node reads from the
+`tribute_status` view directly (see §7b).
+
+### `GET /tribute-campaigns`
+
+Public campaign list + which campaign is featured today (drives the Father's Day
+skin). Returns `{campaigns: [{slug, display_name, featured, is_active,
+active_start, active_end}], active_featured_slug}`.
+
+---
+
+## 7c. Storybooks — collection books (Python render)
+
+Six fixed collections, each rendered by the agent's `storybook_render` worker
+as a **cover + 7 page PNGs + a PDF** and uploaded via Node-minted presigned
+URLs. Postgres is authoritative; the SQS message is a trigger. Completion is a
+transactional `NOTIFY storybook_render_complete`; Node writes `pdf_url` /
+`page_urls` / cover `image_url`/`thumbnail_url` (see NODE_INTEGRATION.md §7c).
+
+### `GET /storybook-collections`
+
+The fixed registry driving the chooser and the presigned-URL mint counts.
+
+```json
+[{"slug": "childhood", "display_name": "Childhood Memories",
+  "layout": "grid", "page_count": 7}, ...]
+```
+
+Slugs: `childhood`, `interesting`, `nostalgia`, `festivals`, `adventurous`
+(grid — 3 comic panels/page) and `wisdom` (chapter — one illustration/page).
+
+**Optional `?person_id=<uuid>`** (design 2026-07-06) adds per-collection
+eligibility so the chooser can render locked "3/5 stories" cards:
+
+```json
+[{"slug": "childhood", "display_name": "Childhood Memories",
+  "layout": "grid", "page_count": 7,
+  "tagged_count": 5, "eligible": true}, ...]
+```
+
+`tagged_count` is the number of qualifying moments the collection can draw on
+(moments tagged to a grid slug in `moments.storybook_collections`; the whole
+qualifying pool for `wisdom`). `eligible` is `tagged_count >= floor` — floor 5
+for grid collections, 3 for `wisdom`. Without `person_id` both fields are
+absent (bare registry, unchanged).
+
+### `POST /storybooks/preview`
+
+Preview for the pick-your-moments flow (spec 2026-07-05; tag-scoped
+2026-07-06). **Read-only** — nothing is minted or enqueued; confirm via
+`POST /storybooks` with `moment_ids`.
+
+```json
+{ "person_id": "uuid", "collection": "childhood" }
+```
+
+**Response 200**
+```json
+{
+  "collection": "childhood",
+  "bounds": {"min_select": 5, "max_select": 25},
+  "moments": [
+    {
+      "id": "uuid",
+      "title": "The monsoon cycle ride",
+      "snippet": "first ~200 chars of the narrative…",
+      "life_period": "childhood",
+      "picked": true,
+      "collections": ["childhood", "adventurous"],
+      "suggested_collection": "adventurous",
+      "used_in": ["festivals"]
+    }
+  ]
+}
+```
+
+**Two-tier pool** (design 2026-07-06): `picked: true` are the collection's
+tagged moments (for the 5 grid collections, moments tagged to it in
+`moments.storybook_collections`; for `wisdom`, the whole pool). They come
+first and are deterministic — no LLM curation call, so previews are instant
+(the tagged pool, chronological, moments already used in a completed book
+demoted, capped at 25). **After the picked block, the rest of the person's
+whole qualifying pool is listed with `picked: false`** so the family can *add*
+a moment the tagger didn't put in this collection (explicit curation). Each
+moment carries `collections` (its full tag list — render as chips so the user
+sees an added moment belongs elsewhere) and the deprecated
+`suggested_collection` (first tag other than the previewed collection).
+`used_in` lists collections of this person's **complete** storybooks already
+using the moment — an "also appears in X" chip, never blocking.
+`bounds.min_select` is 5 for grid, relaxed to 3 for `wisdom` on a thin pool.
+
+The **create gate is still tag-based**: preview `409`s (below) only when the
+collection lacks enough *tagged* moments to be offered — the addable remainder
+does not count toward eligibility.
+
+- `400` — unknown collection. `404` — person not found.
+- `409` — too few *tagged* qualifying moments for this collection (grid floor
+  5, wisdom floor 3; same floor as create).
+
+### `POST /storybooks`
+
+```json
+{
+  "storybook_id": "uuid",              // CALLER-SUPPLIED (Node generates it)
+  "person_id": "uuid",
+  "collection": "childhood",
+  "pdf_put_url": "https://…",          // PUT, application/pdf
+  "cover_put_url": "https://…",        // PUT, image/png
+  "page_put_urls": ["https://…", …],   // exactly page_count PUTs, image/png
+  "anchor_photo_get_url": "https://…", // optional GET — see below
+  "moment_ids": ["uuid", …]            // optional — confirmed selection
+}
+```
+
+`moment_ids` (optional, ≤64 entries, deduped) is the user-confirmed
+selection from the preview. Every id must be a qualifying moment for the
+person — validated against the **whole qualifying pool**, not just the
+collection's tagged slice (else `400`), so the family may add a moment the
+tagger didn't put in this collection. The collection must still be *eligible*
+to be created at all (≥ its floor of **tagged** moments, else `409` before any
+selection is considered). After dedupe the count must satisfy the preview's
+`bounds` (grid min 5; wisdom min 3 when its pool is under 5; max 25, else
+`409`). When present the worker renders from exactly this slice;
+regenerate/edit preserve it. **Absent = auto-select** the collection's tagged
+pool deterministically (design 2026-07-06 retired the render-time curation LLM
+— the route resolves the definitive slice and writes it to `scene_moment_ids`
+before enqueuing, so an *auto* book can never be rendered from moments that
+don't fit it).
+
+`storybook_id` is generated by Node (like session ids): the row doesn't exist
+when Node mints the PUT URLs, and Node's completion listener re-derives the
+S3 keys from the id with no persistence — so Node embeds this id in the keys
+it signs and the agent creates the row with exactly this id.
+
+`anchor_photo_get_url` anchors the subject's illustrated likeness to their
+real photo. Mint it from `persons.latest_generation_context` **only when its
+`mode` is `with_reference`** (sign that `reference_s3_key`); omit for
+`no_reference` — the latest profile-picture generation context is the source
+of truth.
+
+Returns `{job_id, storybook_id, person_id, collection, status:"generating",
+source:"manual", moments_count, enqueued}`.
+
+- `400` — unknown collection, `page_put_urls` length ≠ `page_count`, or
+  `moment_ids` containing unknown / non-qualifying ids.
+- `404` — person not found.
+- `409` — too few qualifying moments for this collection (grid floor 5,
+  wisdom floor 3; detail is user-facing: "Not enough stories yet — keep
+  sharing memories of {name} …"), a `moment_ids` selection outside the
+  min/max bounds, or the supplied `storybook_id` already exists (mint a fresh
+  id + fresh URLs and retry).
+
+### `POST /storybooks/{id}/regenerate`
+
+Same body minus `collection` (read from the row). Redraws every illustration
+with the **stored script** (text kept). `404` on missing/unowned id.
+
+### `POST /storybooks/{id}/edit`
+
+Regenerate body + `instructions` (newest edit, ≤500 chars) +
+`prior_instructions[]` (the cumulative history Node keeps, mirroring artifact
+edits). Re-assembles the whole book honouring every instruction, then
+re-renders.
+
+---
+
+## 7d. Questions — browsable feed
+
+### `GET /questions/feed`
+
+A ranked, browsable list of the producer-bank questions the agent is
+holding for a person, for the scrolling feed. Tapping one starts a
+session seeded on it (pass its id as `session_metadata.question_id` on
+`POST /session/start`).
+
+**Query params**
+- `person_id` (uuid, required)
+- `limit` (int, optional, default `25`, clamped to `1..50`)
+
+**Response 200**
+```jsonc
+{
+  "questions": [
+    {
+      "question_id": "uuid",
+      "text": "string",
+      "source": "dropped_reference | underdeveloped_entity | thread_deepen | life_period_gap | universal_dimension",
+      "themes": ["family"],
+      "created_at": "iso-8601"
+    }
+  ]
+}
+```
+
+Semantics:
+- **Producer-bank sources only** (the five above). Coverage-tap and
+  archetype/unlock questions keep their own surfaces and never appear.
+- Ordered by the same `combined_score` the bot uses to decide what to ask
+  next (source priority + recency + defer boost), so the top item matches
+  the bot's instinct.
+- `question_decisions` are honored: `skip` and `suppress` are excluded,
+  `defer` is boosted.
+- `universal_dimension` questions are spread so a window of five never
+  holds more than one (invariant #10); best-effort when they dominate.
+- Empty list for a fresh legacy with no bank yet — this is a `200`, not an
+  error.
+
+**Errors**
+- `422` — malformed `person_id` / out-of-range `limit`
+
+---
+
 ## 8. Admin
 
 ### `POST /admin/reset_phase`
@@ -1090,7 +1511,10 @@ By design — Node reads these directly from Postgres:
 - `GET /traits`, `GET /persons/{id}/traits`
 - `GET /persons/{id}` (profile / display name / coverage_state)
 - `GET /profile_facts?person_id=...`
-- `GET /questions/...`
+- `GET /questions/...` raw list reads — a plain `active_questions`
+  filter. **Exception:** the *ranked* browsable feed is agent-served at
+  `GET /questions/feed` (§7d) because it needs agent-side ranking +
+  decision-filtering; Node renders it, it does not re-derive it.
 - Any DynamoDB transcript reads (Node-owned)
 - Any S3 / artifact URL reads (Node-owned, Node writes the URL columns)
 

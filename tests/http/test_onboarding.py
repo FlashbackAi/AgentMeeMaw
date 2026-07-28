@@ -39,6 +39,24 @@ def person_payload(**overrides):
     return payload
 
 
+def _skip_all_answers() -> list[dict]:
+    return [
+        {"question_id": qid, "skipped": True}
+        for qid in [
+            "friend_meet",
+            "friend_shared_place",
+            "friend_usual_activity",
+            "friend_kind",
+            "friend_first_memory",
+            "universal_what_you_call_them",
+            "universal_their_work",
+            "universal_their_place",
+            "gt_region",
+            "gt_birth_era",
+        ]
+    ]
+
+
 async def _create_friend_person(client_with_db) -> str:
     person_resp = await client_with_db.post(
         "/persons",
@@ -69,13 +87,21 @@ class TestArchetypeQuestions:
         body = resp.json()
         assert body["relationship"] == "friend"
         assert body["archetype"] == "friend"
-        assert 3 <= len(body["questions"]) <= 5
-        assert [q["id"] for q in body["questions"][:3]] == [
+        # 5 relationship + 3 universal + 2 appended ground-truth questions.
+        ids = [q["id"] for q in body["questions"]]
+        assert len(ids) == 10
+        assert ids[:3] == [
             "friend_meet",
             "friend_shared_place",
             "friend_usual_activity",
         ]
+        assert "gt_region" in ids and "gt_birth_era" in ids
         assert "implies" not in body["questions"][0]["options"][0]
+        # Multi-select contract: everything except the ground-truth pair.
+        flags = {q["id"]: q["allow_multiple"] for q in body["questions"]}
+        assert flags["friend_meet"] is True
+        assert flags["gt_region"] is False
+        assert flags["gt_birth_era"] is False
 
 
 class TestArchetypeAnswers:
@@ -98,6 +124,13 @@ class TestArchetypeAnswers:
                     {"question_id": "friend_usual_activity", "skipped": True},
                     {"question_id": "friend_kind", "skipped": True},
                     {"question_id": "friend_first_memory", "skipped": True},
+                    # Universal questions must be present (route enforces every
+                    # question exactly once); skip them so coverage is unchanged.
+                    {"question_id": "universal_what_you_call_them", "skipped": True},
+                    {"question_id": "universal_their_work", "skipped": True},
+                    {"question_id": "universal_their_place", "skipped": True},
+                    {"question_id": "gt_region", "option_id": "another_state"},
+                    {"question_id": "gt_birth_era", "option_id": "era_50s_60s"},
                 ],
             },
         )
@@ -144,17 +177,161 @@ class TestArchetypeAnswers:
         assert coverage_row is not None
         coverage = coverage_row[0]
         # Coverage counters can climb past 1 when multiple archetype answers
-        # cover the same dimension (here "Through school" + "On calls" both
-        # cover relation). Only >= 1 is meaningful (CLAUDE.md §6).
+        # cover the same dimension (here "Through school" + "On calls or
+        # messages" both imply relation). Only >= 1 is meaningful
+        # (CLAUDE.md §6).
         assert coverage["place"] >= 1
         assert coverage["era"] >= 1
         assert coverage["relation"] >= 1
         assert coverage["voice"] >= 1
 
+        # Ground-truth onboarding answers land in persons.ground_truth
+        # with provenance='onboarding' (invariant #26).
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT ground_truth FROM persons WHERE id = %s",
+                    (person_id,),
+                )
+                gt_row = await cur.fetchone()
+        ground_truth = gt_row[0]
+        assert ground_truth["region"]["value"] == "Another part of the country"
+        assert ground_truth["region"]["provenance"] == "onboarding"
+        assert ground_truth["birth_era"]["value"] == "1950s or 60s"
+
         assert entity_rows
         assert entity_rows[0][0] == "place"
         assert entity_rows[0][1] == "school"
         assert entity_rows[0][2]["source"] == "archetype_onboarding"
+
+    async def test_full_ten_question_submission_succeeds(
+        self, client_with_db, async_db_pool
+    ) -> None:
+        # Production answers EVERY returned question (5 base + 3 universal + 2
+        # ground-truth = 10). The request cap used to be 8, which 422'd every
+        # full submission; it must accept the full set.
+        person_id = await _create_friend_person(client_with_db)
+        resp = await client_with_db.post(
+            "/api/v1/onboarding/archetype-answers",
+            headers=auth_headers(),
+            json={
+                "person_id": person_id,
+                "answers": [
+                    {"question_id": "friend_meet", "option_id": "school"},
+                    {"question_id": "friend_shared_place", "option_id": "calls"},
+                    {"question_id": "friend_usual_activity", "option_id": "talk"},
+                    {"question_id": "friend_kind", "option_id": "funny"},
+                    {"question_id": "friend_first_memory", "option_id": "laughed"},
+                    {"question_id": "universal_what_you_call_them", "option_id": "by_name"},
+                    {"question_id": "universal_their_work", "option_id": "trade"},
+                    {"question_id": "universal_their_place", "option_id": "role_model"},
+                    {"question_id": "gt_region", "option_id": "another_state"},
+                    {"question_id": "gt_birth_era", "option_id": "era_50s_60s"},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        UUID(resp.json()["session_id"])
+
+    async def test_multi_select_answers_merge_implies(
+        self, client_with_db, async_db_pool
+    ) -> None:
+        person_id = await _create_friend_person(client_with_db)
+
+        resp = await client_with_db.post(
+            "/api/v1/onboarding/archetype-answers",
+            headers=auth_headers(),
+            json={
+                "person_id": person_id,
+                "answers": [
+                    # "Through school" + "Through work": coverage unions to
+                    # place/era/relation; conflicting life periods (school vs
+                    # working years) are dropped; both entities persist.
+                    {"question_id": "friend_meet", "option_ids": ["school", "work"]},
+                    {"question_id": "friend_shared_place", "skipped": True},
+                    {"question_id": "friend_usual_activity", "option_ids": ["talk", "eat"]},
+                    {"question_id": "friend_kind", "skipped": True},
+                    {"question_id": "friend_first_memory", "skipped": True},
+                    {"question_id": "universal_what_you_call_them", "skipped": True},
+                    {"question_id": "universal_their_work", "skipped": True},
+                    {"question_id": "universal_their_place", "skipped": True},
+                    # Legacy single shape still accepted on the GT pair.
+                    {"question_id": "gt_region", "option_id": "another_state"},
+                    {"question_id": "gt_birth_era", "skipped": True},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT archetype_answers, coverage_state FROM persons WHERE id = %s",
+                    (person_id,),
+                )
+                row = await cur.fetchone()
+                await cur.execute(
+                    "SELECT kind, name FROM entities WHERE person_id = %s ORDER BY name",
+                    (person_id,),
+                )
+                entity_rows = await cur.fetchall()
+
+        answers, coverage = row
+        first = answers[0]
+        assert first["option_ids"] == ["school", "work"]
+        assert first["labels"] == ["Through school", "Through work"]
+        # Legacy mirrors point at the first selection.
+        assert first["option_id"] == "school"
+        assert first["label"] == "Through school"
+
+        # friend_meet merged block counts each dim once despite both chips
+        # implying relation; friend_usual_activity adds voice+sensory+relation.
+        assert coverage["place"] == 1
+        assert coverage["era"] == 1
+        assert coverage["relation"] == 2
+        assert coverage["voice"] == 1
+        assert coverage["sensory"] == 1
+
+        names = {(kind, name) for kind, name in entity_rows}
+        assert ("place", "school") in names
+        assert ("organization", "workplace") in names
+
+    async def test_multi_select_rejected_on_ground_truth_question(
+        self, client_with_db, async_db_pool
+    ) -> None:
+        person_id = await _create_friend_person(client_with_db)
+        answers = _skip_all_answers()
+        answers[-2] = {
+            "question_id": "gt_region",
+            "option_ids": ["same_place", "abroad"],
+        }
+        resp = await client_with_db.post(
+            "/api/v1/onboarding/archetype-answers",
+            headers=auth_headers(),
+            json={"person_id": person_id, "answers": answers},
+        )
+        assert resp.status_code == 422
+        assert "single option" in resp.text
+
+    async def test_skipped_answer_with_options_rejected(
+        self, client_with_db, async_db_pool
+    ) -> None:
+        person_id = await _create_friend_person(client_with_db)
+        answers = _skip_all_answers()
+        answers[0] = {
+            "question_id": "friend_meet",
+            "option_ids": ["school"],
+            "skipped": True,
+        }
+        resp = await client_with_db.post(
+            "/api/v1/onboarding/archetype-answers",
+            headers=auth_headers(),
+            json={"person_id": person_id, "answers": answers},
+        )
+        assert resp.status_code == 422
+        assert "skipped answer cannot" in resp.text
 
     async def test_complete_person_returns_409(
         self, client_with_db, async_db_pool

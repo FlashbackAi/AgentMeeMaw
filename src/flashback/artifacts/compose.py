@@ -23,6 +23,18 @@ SCENE_NEGATIVE_PROMPT = (
     "signature, blurry, low quality, distorted, uncanny"
 )
 
+# Cover-only negative for the tribute prime-years portrait. The contributor
+# uploads a photo of the consented subject and asks us to stylize it, so the
+# no-likeness / no-visible-faces bans are intentionally DROPPED here -- a scoped
+# exception to CLAUDE.md §1/§3, cover only. Page/scene art keeps the full
+# SCENE_NEGATIVE_PROMPT (likeness ban intact).
+COVER_PORTRAIT_NEGATIVE_PROMPT = (
+    "flat cartoon shading, cel-shaded anime, Pixar 3D look, exaggerated "
+    "cartoon proportions, plastic surfaces, hyperrealistic photograph, harsh "
+    "digital sharpening, text, watermark, signature, blurry, low quality, "
+    "distorted, uncanny"
+)
+
 
 def compose_scene_prompt(
     *,
@@ -30,6 +42,8 @@ def compose_scene_prompt(
     prior_instructions: list[str] | None = None,
     instructions: str | list[str] | None = None,
     preset: str | None = None,
+    ground_truth_context: str | None = None,
+    people_context: str | None = None,
 ) -> str:
     """Compose a scene prompt for moment / entity / thread artifact regen + edit.
 
@@ -50,6 +64,15 @@ def compose_scene_prompt(
         parts.append(fragment)
     for fragment in _normalize_instructions(instructions):
         parts.append(fragment)
+    if ground_truth_context and ground_truth_context.strip():
+        # Subject-world grounding (region/era/setting), read at compose
+        # time — grounds even old generic base prompts on regenerate.
+        parts.append(ground_truth_context.strip())
+    if people_context and people_context.strip():
+        # Gender-correct depiction of the subject / contributor figures, read
+        # at compose time so a regenerate after gender is captured fixes a
+        # mis-gendered scene without re-emitting the base prompt.
+        parts.append(people_context.strip())
     composed = ", ".join(parts)
     return apply_preset(composed, preset)
 

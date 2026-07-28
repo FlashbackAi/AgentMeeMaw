@@ -97,6 +97,20 @@ class WorkingMemoryState(BaseModel):
     # greeting") gets classified as story / deepen, not switch.
     signal_pending_tap_question: str = ""
 
+    # ---- Ground-truth capture (design 2026-06-11) -----------------------
+    # Count of GT taps emitted this session (cap = 1).
+    gt_taps_emitted_this_session: int = 0
+    # JSON payload of the pending GT tap: {"kind","field","question_text"}.
+    # Empty when none pending. The /turn sidecar handler reads it to know
+    # what the answer refers to, then clears it.
+    signal_pending_gt_tap: str = ""
+    # Fields the user skipped this session — never re-asked this session.
+    gt_declined_fields: list[str] = Field(default_factory=list)
+    # Pending segment time-anchor answer for the OPEN segment. Carried
+    # into the extraction payload at boundary/wrap, then cleared.
+    segment_anchor_question: str = ""
+    segment_anchor_answer: str = ""
+
     # ---- Voice mode -----------------------------------------------------
     # ``mode`` is set on /session/start and read by /turn so the response
     # generator can swap to the voice prompt variant. Sticky for the life
@@ -112,6 +126,27 @@ class WorkingMemoryState(BaseModel):
     current_theme_id: str = ""
     current_theme_slug: str = ""
     current_theme_display_name: str = ""
+
+    # ---- Tribute capture (design 2026-06-14) ----------------------------
+    # Active tribute output id for this session (set when a session starts
+    # on a tribute-kind theme). Empty when not in a tribute flow.
+    current_tribute_id: str = ""
+    # JSON payload of the pending message-invitation tap, if any. Read by
+    # persist_message_answer on the next /turn so the sidecar answer is
+    # routed to the tribute row. Empty when no message tap is pending.
+    signal_pending_message: str = ""
+    # The message invitation is a one-time ask per session.
+    message_invitation_asked: bool = False
+    # Active campaign skin slug for this tribute session (e.g.
+    # 'fathers_day_2026'). Empty = neutral default. Read by
+    # select_message_invitation for copy.
+    current_tribute_campaign: str = ""
+    # JSON list of ranked conversation LEADS derived from the theme's
+    # archetype answers (design 2026-06-19). Each lead is pursued at most
+    # once per session; build_turn_context surfaces the next un-pursued
+    # one as a soft steer when the memories slot is the open gap. The
+    # answers are never written to the graph -- they only steer.
+    tribute_leads: str = ""
 
     # ---- Collaborator onboarding nudge ------------------------------------
     # Set to True the first time the onboarding tap is emitted within a
@@ -135,6 +170,7 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "segments_pushed_this_session",
         "taps_emitted_this_session",
         "user_turns_since_last_tap",
+        "gt_taps_emitted_this_session",
     }
 )
 
@@ -143,6 +179,7 @@ _INT_FIELDS: frozenset[str] = frozenset(
 _BOOL_FIELDS: frozenset[str] = frozenset(
     {
         "collaborator_onboarding_tap_emitted",
+        "message_invitation_asked",
     }
 )
 
@@ -169,7 +206,7 @@ def parse_state_hash(raw: dict[str, str | bytes]) -> WorkingMemoryState:
             parsed[key] = int(value)
         elif key in _BOOL_FIELDS:
             parsed[key] = value.lower() in ("true", "1", "yes")
-        elif key == "emitted_tap_question_ids":
+        elif key in ("emitted_tap_question_ids", "gt_declined_fields"):
             parsed[key] = json.loads(value) if value else []
         else:
             parsed[key] = value
@@ -202,9 +239,19 @@ def serialise_state_for_init(state: WorkingMemoryState) -> dict[str, str]:
         "emitted_tap_question_ids": json.dumps(state.emitted_tap_question_ids),
         "user_turns_since_last_tap": str(state.user_turns_since_last_tap),
         "signal_pending_tap_question": state.signal_pending_tap_question,
+        "gt_taps_emitted_this_session": str(state.gt_taps_emitted_this_session),
+        "signal_pending_gt_tap": state.signal_pending_gt_tap,
+        "gt_declined_fields": json.dumps(state.gt_declined_fields),
+        "segment_anchor_question": state.segment_anchor_question,
+        "segment_anchor_answer": state.segment_anchor_answer,
         "current_theme_id": state.current_theme_id,
         "current_theme_slug": state.current_theme_slug,
         "current_theme_display_name": state.current_theme_display_name,
+        "current_tribute_id": state.current_tribute_id,
+        "signal_pending_message": state.signal_pending_message,
+        "message_invitation_asked": str(state.message_invitation_asked),
+        "current_tribute_campaign": state.current_tribute_campaign,
+        "tribute_leads": state.tribute_leads,
         "mode": state.mode,
         "collaborator_onboarding_tap_emitted": str(state.collaborator_onboarding_tap_emitted),
     }

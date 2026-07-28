@@ -16,6 +16,7 @@ gains a new entity kind, that test fails until this file is updated.
 
 from __future__ import annotations
 
+from flashback.ground_truth.registry import INFERRABLE_KEYS
 from flashback.llm.tool_spec import ToolSpec
 from flashback.workers.producers.prompts import SCOPE_RUBRIC
 
@@ -88,6 +89,22 @@ EXTRACTION_TOOL = ToolSpec(
                                 "the catalog slugs fit the moment, "
                                 "return an empty array. Do not invent "
                                 "slugs not in the catalog."
+                            ),
+                            "items": {"type": "string"},
+                        },
+                        "collections": {
+                            "type": "array",
+                            "description": (
+                                "Storybook collection slugs this moment "
+                                "genuinely fits. Pick ANY that apply from "
+                                "the <collection_catalog> in the user "
+                                "message. Multi-label is expected — a "
+                                "Diwali-in-childhood memory is BOTH "
+                                "'festivals' AND 'childhood'. Tag ONLY "
+                                "genuine fits; if none fit, return an "
+                                "empty array — never stretch a memory to "
+                                "fill a collection. Do not invent slugs "
+                                "not in the catalog."
                             ),
                             "items": {"type": "string"},
                         },
@@ -187,6 +204,31 @@ EXTRACTION_TOOL = ToolSpec(
                         "themes",
                         "scope",
                     ],
+                    "additionalProperties": False,
+                },
+            },
+            "ground_truth_observations": {
+                "type": "array",
+                "description": (
+                    "Stable facts about the SUBJECT this segment reveals "
+                    "(where their life happened, rough birth decade, what "
+                    "they wore, physical features, cultural background, "
+                    "languages). Emit ONLY what the segment clearly "
+                    "supports — confidence 'high' means you would not ask "
+                    "the contributor to confirm. 0-3 typical."
+                ),
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string", "enum": list(INFERRABLE_KEYS)},
+                        "value": {"type": "string"},
+                        "confidence": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                    },
+                    "required": ["field", "value", "confidence"],
                     "additionalProperties": False,
                 },
             },
@@ -328,6 +370,29 @@ both 'family' AND 'milestones'; a story about a friend's funeral is \
 return an empty themes array — do NOT force a tag. Do NOT invent slugs that \
 are not in the catalog; unknown slugs are dropped silently.
 
+5b. STORYBOOK COLLECTION TAGS — for each moment, also pick the storybook \
+collection slugs it genuinely belongs in. The available collections are \
+listed in <collection_catalog> in the user message; each entry has a slug \
+and a description of what belongs in that book. These gate which keepsake \
+storybooks a family can make, so ACCURACY MATTERS: tag a collection only \
+when the moment truly fits its description. Multi-label is expected — a \
+Diwali memory from someone's childhood is BOTH 'festivals' AND 'childhood'. \
+But do NOT stretch: a quiet dinner is not an 'adventure', and an ordinary \
+errand is not an 'interesting' story. If a moment fits no collection, return \
+an empty collections array — that is the correct answer for most everyday \
+moments. Do NOT invent slugs not in the catalog; unknown slugs are dropped \
+silently. This is separate from theme tags above.
+
+6. GROUND TRUTH OBSERVATIONS — stable facts about the SUBJECT (not about \
+one moment): region where their life happened, approximate birth decade, \
+usual attire, distinctive physical features, build, cultural background, \
+languages. If <subject_ground_truth> is present in the user message, those \
+fields are ALREADY KNOWN — re-emit one only to refine it with strictly more \
+specific information (e.g. known "India" → observed "Karimnagar, Telangana, \
+India"). Mark confidence honestly; only 'high' is persisted. A mention of \
+Hyderabad means region is 'Hyderabad, Telangana, India' at high confidence; \
+a guess from a name alone is never high confidence.
+
 CRITICAL RULES:
 - UNDER-EXTRACT. If uncertain whether something is a moment, drop it. Better \
 to miss material than to pollute the graph.
@@ -371,14 +436,27 @@ the `voice` dimension when these attributes exist.
 - Time anchors: be conservative. If the contributor said "the summer of '76" \
 set year=1976. If they said "the 80s" set decade="1980s". If unclear, leave \
 time_anchor blank.
+- If `<subject_ground_truth>` is present, treat it as established context \
+about the subject's world (region, era, setting). Ground every \
+`generation_prompt` in it — a kitchen in 1960s rural Telangana, not a \
+generic western kitchen.
+- If `<segment_time_anchor>` is present, it is the contributor's tapped \
+answer anchoring the story of THIS segment in time. Treat it as \
+authoritative time evidence: set `time_anchor` / `life_period_estimate` \
+on the moment(s) of the story it refers to.
 
 For `generation_prompt` fields: produce a one-sentence visual description in \
-present tense. Cinematic painterly realism in the style of Red Dead \
-Redemption 2 environment art — naturalistic lighting, rich earthen color \
-palette, soft volumetric atmosphere, oil-painted brushwork that keeps \
-physical detail. Avoid flat cartoon shading and avoid Pixar/Ghibli look. \
-Avoid full photorealism. No people's faces. Focus on mood, color, light \
-direction, time of day, and composition. The worker code appends style \
+present tense. Hand-painted oil illustration leaning well away from \
+photography, in the style of Red Dead Redemption 2 environment art — \
+naturalistic lighting, rich earthen color palette, soft volumetric \
+atmosphere, prominent visible oil-painted brushwork with softer, looser, \
+suggestive detail rather than crisp physical detail. It should clearly read \
+as a painting, not a photo. Avoid flat cartoon shading and avoid Pixar/Ghibli \
+look. Stay well short of photorealism. No people's faces — but when a memory includes \
+people, depict them as figures (turned away or at a distance) with the gender \
+presentation given in `<people_in_scenes>`, using a matching noun ("a man", "a \
+woman", "a young boy") rather than a neutral "figure". Focus on mood, color, \
+light direction, time of day, and composition. The worker code appends style \
 guidance after.
 
 Examples of good generation_prompts:

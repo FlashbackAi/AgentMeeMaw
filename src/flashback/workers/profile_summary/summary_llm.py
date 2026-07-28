@@ -60,6 +60,7 @@ def generate_summary(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="profile_summary",
         )
     )
     stripped = (text or "").strip()

@@ -127,6 +127,7 @@ async def parse_free_text_answer(
         max_tokens=max_tokens,
         timeout=timeout,
         settings=settings,
+        feature="onboarding_parse",
     )
     implies = sanitize_implies(args)
     log.info(

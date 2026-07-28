@@ -97,6 +97,7 @@ class P3LifePeriodGap:
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="producer",
         )
         allowed = {gap.label for gap in gaps}
         questions: list[GeneratedQuestion] = []

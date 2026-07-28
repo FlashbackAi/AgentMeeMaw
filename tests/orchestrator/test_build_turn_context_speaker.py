@@ -57,6 +57,7 @@ async def test_build_turn_context_propagates_user_id(monkeypatch):
         relationship="mother",
         phase="starter",
         gender="she",
+        ground_truth={},
     )
 
     # Monkeypatch fetch_person in the module it is imported from inside

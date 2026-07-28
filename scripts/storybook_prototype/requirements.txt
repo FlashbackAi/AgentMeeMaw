@@ -1,0 +1,8 @@
+# Ad-hoc storybook prototype deps (NOT part of the service's pyproject.toml).
+# The script also imports `flashback.*`, so run it in the same environment
+# where the agent service is installed.
+google-genai>=1.0
+python-dotenv>=1.0
+Pillow>=10.0
+imageio>=2.34
+imageio-ffmpeg>=0.5

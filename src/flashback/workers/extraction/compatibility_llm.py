@@ -67,6 +67,7 @@ def judge_compatibility(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="extraction_compat",
         )
     )
     try:

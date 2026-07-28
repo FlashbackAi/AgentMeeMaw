@@ -34,6 +34,7 @@ import structlog
 from psycopg.types.json import Json
 
 from flashback.db.edges import validate_edge
+from flashback.storybook.collections import TAGGABLE_SLUGS
 from flashback.moment_links import (
     insert_contradiction,
     insert_same_event_link,
@@ -44,6 +45,10 @@ from flashback.questions.scope import normalize_scope
 from .schema import ExtractedEntity, ExtractedMoment, ExtractionResult
 
 log = structlog.get_logger("flashback.workers.extraction.persistence")
+
+# Frozen set of grid-collection slugs the extraction tagger may assign; used to
+# drop unknown/invented slugs before they hit the moments column.
+_TAGGABLE_SLUG_SET: frozenset[str] = frozenset(TAGGABLE_SLUGS)
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,9 @@ class PersonRow:
     id: str
     name: str
     aliases: list[str]
+    gender: str | None = None
+    relationship: str | None = None
+    contributor_gender: str | None = None
 
 
 @dataclass
@@ -759,6 +767,23 @@ def _insert_traits(
     return ids
 
 
+def _validate_collection_tags(raw: list[str]) -> list[str]:
+    """Filter LLM-emitted collection slugs to the taggable grid registry.
+
+    Unknown slugs are dropped silently (invariant #6); order preserved and
+    deduped. Returns ``[]`` when nothing valid remains — never NULL, so a
+    freshly-extracted moment is always distinguishable from a never-tagged
+    (backfill-pending) one at the column level (design 2026-07-06)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for slug in raw or ():
+        s = (slug or "").strip()
+        if s in _TAGGABLE_SLUG_SET and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def _insert_moment(
     cursor,
     *,
@@ -780,11 +805,13 @@ def _insert_moment(
               (person_id, title, narrative, time_anchor,
                life_period_estimate, sensory_details, emotional_tone,
                contributor_perspective, generation_prompt,
+               storybook_collections,
                llm_provider, llm_model, prompt_version,
                told_by_user_id, told_by_display_name)
         VALUES (%s,        %s,    %s,        %s,
                 %s,                  %s,              %s,
                 %s,                       %s,
+                %s,
                 %s,           %s,        %s,
                 %s,              %s)
         RETURNING id::text
@@ -799,6 +826,7 @@ def _insert_moment(
             moment.emotional_tone,
             moment.contributor_perspective,
             moment.generation_prompt,
+            _validate_collection_tags(moment.collections),
             llm_provenance.provider if llm_provenance else None,
             llm_provenance.model if llm_provenance else None,
             llm_provenance.prompt_version if llm_provenance else None,
@@ -1209,7 +1237,8 @@ def fetch_person(cursor, person_id: str) -> PersonRow:
     """Look up the legacy subject for the subject guard."""
     cursor.execute(
         """
-        SELECT id::text, name, COALESCE(NULL::text[], ARRAY[]::text[])
+        SELECT id::text, name, COALESCE(NULL::text[], ARRAY[]::text[]),
+               gender, relationship, contributor_gender
           FROM persons
          WHERE id = %s
         """,
@@ -1218,11 +1247,18 @@ def fetch_person(cursor, person_id: str) -> PersonRow:
     row = cursor.fetchone()
     if row is None:
         raise ValueError(f"person {person_id!r} not found")
-    pid, name, _aliases = row
+    pid, name, _aliases, gender, relationship, contributor_gender = row
     # ``persons`` does not currently carry an aliases column; we expose
     # an empty list and let future schema additions plug into the same
     # entry point without churning the call sites.
-    return PersonRow(id=pid, name=name, aliases=[])
+    return PersonRow(
+        id=pid,
+        name=name,
+        aliases=[],
+        gender=gender,
+        relationship=relationship,
+        contributor_gender=contributor_gender,
+    )
 
 
 def fetch_active_entities_for_catalog(

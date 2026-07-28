@@ -28,6 +28,7 @@ class ExtractionQueueProducer:
         contributor_display_name: str = "",
         told_by_user_id: str | None = None,
         is_final: bool = False,
+        segment_anchor: dict | None = None,
     ) -> str:
         """Push an extraction job and return the SQS MessageId."""
 
@@ -48,5 +49,6 @@ class ExtractionQueueProducer:
             "contributor_display_name": contributor_display_name or "",
             "told_by_user_id": told_by_user_id or None,
             "is_final": is_final,
+            "segment_anchor": segment_anchor,
         }
         return await self._sqs.send_message(self._url, payload)

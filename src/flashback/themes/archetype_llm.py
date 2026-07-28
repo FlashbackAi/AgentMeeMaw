@@ -137,8 +137,10 @@ class ArchetypeQuestion:
     """One generated archetype question as persisted on the theme row.
 
     ``question_id`` is a stable slug (``q1``, ``q2``, ...) used by the
-    UI to key answers; ``allow_skip`` / ``allow_free_text`` are always
-    True for theme-archetype questions (mirrors onboarding).
+    UI to key answers; ``allow_skip`` / ``allow_free_text`` /
+    ``allow_multiple`` are always True for theme-archetype questions
+    (mirrors onboarding, where only the ground-truth pair stays
+    single-choice).
     """
 
     question_id: str
@@ -146,6 +148,7 @@ class ArchetypeQuestion:
     options: list[dict[str, str]]
     allow_skip: bool = True
     allow_free_text: bool = True
+    allow_multiple: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -154,6 +157,7 @@ class ArchetypeQuestion:
             "options": list(self.options),
             "allow_skip": self.allow_skip,
             "allow_free_text": self.allow_free_text,
+            "allow_multiple": self.allow_multiple,
         }
 
 
@@ -163,15 +167,20 @@ async def generate_archetype_questions(
     theme_slug: str,
     theme_display_name: str,
     theme_description: str,
-    theme_kind: str,  # 'universal' | 'emergent'
+    theme_kind: str,  # 'universal' | 'emergent' | 'tribute'
     subject_name: str,
     subject_relationship: str | None = None,
     context_moments: list[ArchetypeContextMoment] | None = None,
+    min_questions: int = 3,
+    max_questions: int = 4,
 ) -> list[ArchetypeQuestion]:
     """Best-effort LLM-driven archetype generation.
 
     Returns ``[]`` on any failure. Callers should fall back to a
     free-text-only unlock UX when the list is empty.
+
+    ``min_questions`` / ``max_questions`` default to the universal 3-4
+    range; the tribute theme passes a wider band (6-8).
     """
     if settings is None or not theme_slug or not subject_name:
         return []
@@ -186,16 +195,42 @@ async def generate_archetype_questions(
         context_moments=context_moments or [],
     )
 
+    # The base prompt/tool hard-code the universal 3-4 band. Override the
+    # count for callers (the tribute theme) that want a wider range, leaving
+    # universals untouched at the defaults.
+    count_directive = (
+        f"Write between {min_questions} and {max_questions} short "
+        "multiple-choice questions (inclusive). This overrides any other "
+        "count mentioned below."
+    )
+    system_prompt = f"{count_directive}\n\n{_ARCHETYPE_SYSTEM_PROMPT}"
+    tool = ToolSpec(
+        name=_ARCHETYPE_TOOL.name,
+        description=_ARCHETYPE_TOOL.description,
+        input_schema={
+            **_ARCHETYPE_TOOL.input_schema,
+            "properties": {
+                **_ARCHETYPE_TOOL.input_schema["properties"],
+                "questions": {
+                    **_ARCHETYPE_TOOL.input_schema["properties"]["questions"],
+                    "minItems": min_questions,
+                    "maxItems": max_questions,
+                },
+            },
+        },
+    )
+
     try:
         args = await call_with_tool(
             provider=settings.llm_small_provider,
             model=settings.llm_intent_model,
-            system_prompt=_ARCHETYPE_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_message=user_message,
-            tool=_ARCHETYPE_TOOL,
+            tool=tool,
             max_tokens=1200,
             timeout=20.0,
             settings=settings,
+            feature="theme_archetype",
         )
     except LLMError as exc:
         log.warning(
@@ -262,6 +297,8 @@ def generate_archetype_questions_sync(
     subject_name: str,
     subject_relationship: str | None = None,
     context_moments: list[ArchetypeContextMoment] | None = None,
+    min_questions: int = 3,
+    max_questions: int = 4,
 ) -> list[ArchetypeQuestion]:
     """Sync wrapper for callers in the Thread Detector worker."""
     return asyncio.run(
@@ -274,6 +311,8 @@ def generate_archetype_questions_sync(
             subject_name=subject_name,
             subject_relationship=subject_relationship,
             context_moments=context_moments,
+            min_questions=min_questions,
+            max_questions=max_questions,
         )
     )
 

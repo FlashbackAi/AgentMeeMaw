@@ -318,12 +318,16 @@ legacy creation flow:
    `persons` row. Do not collect DOB / DOD; lifespan emerges from
    stories and time anchors later.
 3. Call `GET /api/v1/onboarding/archetype-questions?person_id=...` and
-   show the returned 2-3 tappable questions. The response does not
-   expose server-side `implies` blocks.
+   show the returned tappable questions. The response does not
+   expose server-side `implies` blocks. Questions with
+   `allow_multiple: true` (all except the two ground-truth questions)
+   render toggleable chips — the user can pick several.
 4. Call `POST /api/v1/onboarding/archetype-answers` with `person_id`
-   and one answer
-   per returned question. Each answer chooses exactly one of
-   `option_id`, `free_text`, or `skipped`.
+   and one answer per returned question. Chips go in `option_ids`
+   (any number) and may combine with `free_text` on the same answer;
+   the legacy single `option_id` is still accepted. `skipped: true`
+   stands alone. Questions with `allow_multiple: false` keep the old
+   exactly-one-of rule.
 5. Use the returned `session_id` for the immediate `/session/start`
    call. The agent stores `persons.archetype_answers` and uses it for
    the first opener without requiring Node to maintain a role table.
@@ -529,10 +533,19 @@ Mixing rows across models gives garbage.
 | Entity pages | `active_entities`, `active_edges` |
 | Threads | `active_threads`, `active_edges` (for moments in thread) |
 | Traits | `active_traits` |
-| Open questions / "ask next" | `active_questions` (filtered by status / answered_by edges) |
+| Open questions / "ask next" (raw) | `active_questions` (filtered by status / answered_by edges) |
+| Question **feed** (ranked browse surface) | `GET /questions/feed?person_id=...` — agent-ranked; do **not** re-derive from the view |
 | Identity merge review | `identity_merge_suggestions` (the GET endpoint is more convenient) |
 | Same-event links (toast + unlink) | `moment_same_event_links` — read via `GET /event_links` |
 | Contradiction review queue | `moment_contradictions` — read via `GET /contradictions` |
+
+**Question feed → tap to start.** For the scrolling feed, call
+`GET /questions/feed?person_id=...` (ranked, producer-bank only,
+`skip`/`suppress` filtered, `universal_dimension` spread) and render the
+`questions[]`. When the contributor taps one, start a session with that
+question's `question_id` in `session_metadata.question_id` on
+`POST /session/start` — the agent's opener anchors on it. No new write
+surface: this is a read + an existing metadata field.
 
 ### 6.5 Columns Node writes
 
@@ -544,9 +557,12 @@ Strictly limited:
 | `moments` | `video_url`, `thumbnail_url` |
 | `entities` | `image_url`, `thumbnail_url` |
 | `threads` | `image_url`, `thumbnail_url` |
+| `tributes` | `video_url`, `pdf_url`, `image_url`, `thumbnail_url` |
 
 These are the artifact URL columns. Node writes them after the
-artifact-generation worker uploads to S3. **Nothing else.**
+artifact-generation worker uploads to S3 — and, for `tributes`, after the
+agent's `tribute_render` worker PUTs the MP4/PDF to your presigned URLs and
+fires `tribute_render_complete` (§7b). **Nothing else.**
 
 In particular, **do not** write `generation_prompt` (we write it),
 `status`, `superseded_by`, `merged_into`, embedding columns, or any
@@ -607,6 +623,199 @@ edited.
 
 Use SQS DLQ for persistent failures. The agent does not poll the DLQ;
 surface DLQ depth in your own monitoring.
+
+### Father's Day storybook cover (reference image + de-age)
+
+For the Father's Day skin (`campaign = "fathers_day_2026"`), the
+storybook `latest_generation_context.storybook.cover` may now carry
+`reference_s3_key` (a contributor-uploaded photo of the subject),
+`hero_line` (optional secondary cover text), and a **relaxed**
+`negative` (`COVER_PORTRAIT_NEGATIVE_PROMPT` — the no-likeness ban is
+dropped **for the cover only**; page art keeps the full ban). When
+`reference_s3_key` is present, render the cover **image-to-image** from
+that photo; when absent, the existing establishing-scene cover behavior
+applies. Pass the photo to the agent via the new optional
+`prime_photo_s3_key` field on `POST /tributes/{id}/generate`. Full
+contract: **`docs/STORYBOOK_FD_COVER_NODE_PROMPT.md`**.
+
+---
+
+## 7b. Tribute video — now rendered by the agent (NOT via artifact_generation)
+
+The tribute output moved off Node's renderer. A tribute now produces a **video**
+(shown in-app) + a **PDF** (print on request), rendered by the agent's
+`tribute_render` worker. The standalone tribute **storybook** artifact is
+retired: `POST /tributes/{id}/generate` with `artifact_kind='storybook'` returns
+**410**. (The separate `/storybooks` keepsake-book feature is unaffected.)
+
+### What Node STOPS doing
+
+- **Do not** consume `artifact_generation` messages with `record_type='tribute'`
+  — the agent no longer pushes them. Keep consuming `moment` / `entity` /
+  `thread` / `person` (unchanged, §7).
+- Retire the tribute storybook renderer (templates / compositor / image model)
+  for tributes.
+
+### The new handshake — Node mints presigned URLs; the agent renders
+
+1. When the meter hits **100%** (`tribute_status.percent = 100`), call
+   `POST /tributes/{id}/generate` with `artifact_kind='tribute_video'` and:
+   - `video_put_url` — presigned **PUT** for the MP4 (`video/mp4`)
+   - `pdf_put_url` — presigned **PUT** for the PDF (`application/pdf`)
+   - `poster_put_url` — presigned **PUT** for the cover poster (`image/jpeg`)
+     (optional but recommended; when present the worker PUTs the opener page —
+     the cover: portrait + title — as a JPEG, and you write `thumbnail_url` from
+     the key on completion so the tribute card/thumbnail shows the cover, not a
+     stray video frame)
+   - `prime_photo_get_url` — presigned **GET** for the contributor's prime photo
+     (optional; when present the opener becomes a painterly portrait of the
+     subject, image-to-image, likeness kept)
+
+   Expiry must cover queue latency + render — **≥ 24h** recommended. Below 100%
+   → **409**; missing PUT URLs → **400**. Sign the PUTs for the content-types
+   above (or sign without enforcing content-type).
+2. The agent assembles the FD-flow story, stores it + your URLs on the row,
+   flips `status='generating'`, and enqueues the render. Response is the usual
+   `{job_id, percent, ready, enqueued, ...}`.
+3. The agent's worker downloads the photo (your GET URL), renders the MP4 + PDF,
+   and **PUTs** them to your URLs. **No AWS credentials live in the agent** — it
+   only uses the URLs you sign, and it never writes the URL columns.
+
+### Completion — listen, don't poll (mirrors `extraction_complete`, §8.3)
+
+- The worker fires a **transactional** `NOTIFY` on channel
+  **`tribute_render_complete`** on success:
+  ```json
+  {"event":"tribute_render_complete","tribute_id":"…","person_id":"…",
+   "status":"complete","video_present":true,"pdf_present":true,
+   "poster_present":true}
+  ```
+- On that signal, **Node writes `tributes.video_url` + `tributes.pdf_url`** from
+  the keys it minted (you signed the PUTs, so you know the object keys), then
+  shows the video; "Print" → `pdf_url`. When `poster_present` is true and you
+  minted a `poster_put_url`, also write `tributes.thumbnail_url` from the poster
+  key so the tribute card/thumbnail shows the cover (the opener page) rather
+  than a stray video frame.
+- The `tributes` row + the `tribute_status` view are authoritative. `status`
+  goes `generating → complete`, or `failed` if the render exhausts SQS retries —
+  the DLQ path emits **no** NOTIFY, so fall back to a timeout (same as
+  extraction). `tribute_status` now also exposes `pdf_url` + `rendered_at`.
+
+**Why presigned (not agent-side S3):** S3 + URL-column ownership stay with Node
+(CLAUDE.md §3). The agent renders the bytes; Node owns storage.
+
+### 7b.1 The completion meter (decorated) — `GET /tributes/{id}/progress`
+
+The meter that gates the 100% → `/generate` step is the **decorated** progress
+(per-slot label/hint, campaign `title`, `next` steer) — the same block `/turn`
+emits as `tribute_progress`. It's now also a **standalone read** so the UI can
+refresh the meter without a chat turn (after an upload, on modal open, light
+polling). Add a Node route that proxies
+`GET /tributes/{id}/progress?person_id=<uuid>&campaign=<slug?>` (derive
+`person_id` server-side; forward `campaign` when skinned) and pass the body
+through. Full Node-side spec: `docs/TRIBUTE_PROGRESS_ENDPOINT_NODE_PROMPT.md`;
+shape: `API.md` §7b. This is the **meter only** — render status (`video_url` /
+`pdf_url` / `rendered_at`) stays on the `tribute_status` view you read directly.
+
+---
+
+## 7c. Storybooks — now rendered by the agent (NOT via artifact_generation)
+
+The standalone `/storybooks` keepsake feature moved off Node's renderer onto
+the same Python-render pattern as tributes (spec
+`docs/superpowers/specs/2026-06-29-storybooks-python-render-design.md`). A
+storybook is now one of **six fixed collections** rendered as a
+**cover + 7 page PNGs + a PDF**. Node-side work order:
+**`docs/STORYBOOK_PYTHON_NODE_PROMPT.md`**.
+
+### What Node STOPS doing
+
+- **Do not** consume `artifact_generation` messages for storybooks — the agent
+  no longer pushes them from `/storybooks` (moment / entity / thread / person
+  jobs are unchanged, §7).
+- Retire the Node storybook renderer (templates / compositor / image calls)
+  and the emotional-tag → template mapping (`storybooks.tags` is dormant).
+
+### The new handshake — Node mints presigned URLs; the agent renders
+
+1. `GET /storybook-collections` returns the fixed registry:
+   `[{slug, display_name, layout, page_count}]` (page_count is 7 for all six).
+   Drive the chooser from it and mint URLs per its counts. **Pass
+   `?person_id=<uuid>`** (design 2026-07-06) to also get `tagged_count` +
+   `eligible` per collection — render locked cards with a "3/5 stories" badge
+   and only enable a collection when `eligible` is true. Eligibility is a
+   deterministic count of qualifying moments tagged to the collection (grid
+   floor 5; `wisdom` counts the whole pool, floor 3), so no LLM runs.
+1b. **Optional pick-your-moments preview** (spec 2026-07-05; tag-scoped
+   2026-07-06). Before minting anything, `POST /storybooks/preview` with
+   `{person_id, collection}` returns
+   `{collection, bounds:{min_select,max_select}, moments:[{id, title,
+   snippet, life_period, picked, collections, suggested_collection,
+   used_in}]}`. **Two-tier:** `picked: true` are the collection's tagged
+   moments (for `wisdom`, the whole pool), first and deterministic — no LLM
+   curation, so the preview is **instant**. After them the rest of the
+   person's whole qualifying pool is listed `picked: false` so the family can
+   *add* a moment the tagger didn't put in this collection. Render as a
+   checklist with `picked` pre-selected; show each moment's `collections`
+   chips so an added out-of-collection moment is visible as such
+   (`suggested_collection` is the deprecated single-hint form). `used_in` is
+   an "also appears in X" chip — informational, never blocking. Enforce
+   `bounds` client-side (disable confirm outside min/max). The call is
+   **stateless and read-only**: nothing persists until create. Errors: 400
+   unknown collection, 404 person, 409 too few *tagged* moments (the addable
+   remainder doesn't count toward eligibility). Skipping this step keeps the
+   auto-select flow.
+2. `POST /storybooks` with `{person_id, collection, pdf_put_url,
+   cover_put_url, page_put_urls[7], anchor_photo_get_url?, moment_ids?}`:
+   - `moment_ids` — the confirmed selection from step 1b (≤64, deduped;
+     ids must be qualifying moments for the person — validated against the
+     **whole** qualifying pool, not just the collection's tagged slice, so
+     adds of out-of-collection moments are allowed — else **400**; count
+     within `bounds` else **409**; the collection must still be eligible by
+     tag count or create **409**s before selection is considered). Omit it to
+     auto-select the collection's tagged pool deterministically. When present
+     the worker renders from exactly this slice and regenerate/edit preserve it.
+   - `pdf_put_url` — presigned **PUT** (`application/pdf`)
+   - `cover_put_url` — presigned **PUT** (`image/png`)
+   - `page_put_urls` — exactly **7** presigned **PUT**s (`image/png`), in page
+     order
+   - `anchor_photo_get_url` — presigned **GET** for the subject's real photo.
+     **Mint it from `persons.latest_generation_context` when its `mode` is
+     `with_reference`** (sign that context's `reference_s3_key`); omit when
+     `no_reference`. The latest generation context is the source of truth — a
+     deliberate regenerate without a photo means "don't use the old photo".
+   Expiry ≥ 24h. Unknown collection / wrong URL count → **400**; person not
+   found → **404**; too few qualifying moments → **409** with a user-facing
+   "keep sharing memories" detail (show it as the empty-state prompt).
+3. The agent stores the render context on the row (`status='generating'`,
+   `collection` set) and enqueues `storybook_render`
+   (env: `STORYBOOK_RENDER_QUEUE_URL`). Response:
+   `{job_id, storybook_id, person_id, collection, status, source,
+   moments_count, enqueued}`.
+4. The worker curates + writes the book (Sonnet), renders illustrations
+   (Gemini, one consistent age-controlled subject; lettering verified), PUTs
+   the PDF + cover + 7 pages to your URLs, and writes `title` + `script` on
+   the row. **No AWS credentials live in the agent.**
+5. `POST /storybooks/{id}/regenerate` (same URL bundle) redraws the art with
+   the stored script; `POST /storybooks/{id}/edit` adds
+   `{instructions, prior_instructions[]}` (you keep the cumulative history,
+   as with artifact edits) and re-assembles the text.
+
+### Completion — listen, don't poll (mirrors `tribute_render_complete`)
+
+- Transactional `NOTIFY` on channel **`storybook_render_complete`**:
+  ```json
+  {"event":"storybook_render_complete","storybook_id":"…","person_id":"…",
+   "collection":"childhood","status":"complete","pdf_present":true,
+   "pages_present":7,"cover_present":true}
+  ```
+- On that signal, **Node writes** `storybooks.pdf_url`, `storybooks.page_urls`
+  (ordered JSONB array of the `pages_present` page keys you minted) and — when
+  `cover_present` — `image_url`/`thumbnail_url` from the cover key. The
+  `active_storybooks` view now exposes `collection`, `pdf_url`, `page_urls`,
+  `rendered_at` for the gallery + flip-through.
+- `status` goes `generating → complete`, or `failed` (+`render_error`) when
+  retries exhaust — the DLQ path emits **no** NOTIFY; fall back to a timeout.
 
 ---
 
@@ -865,6 +1074,41 @@ Removal is agent-owned and **reversible** (a `status` flip, never a delete):
   agent call; the old removed content stays hidden).
 - Node never writes `status` directly. Do **not** issue a removal while the
   contributor has a live session — Node owns session lifecycle.
+
+---
+
+## 11b. Ground-truth taps — the third tap kind (agent invariant #26)
+
+The agent now captures stable subject facts (region, birth decade,
+attire, physical features) via the existing tap-card surface, plus a
+"when did this happen?" anchor card. What changes for Node:
+
+- **Tap shape.** `metadata.taps[]` entries gained `kind`
+  (`coverage | ground_truth | segment_anchor`) and `field` (registry
+  key, null for coverage). `question_id` is **null** for the two new
+  kinds. Render all three with the same card (question + 4 chips +
+  free text + Skip); do **not** post `question_decision` for
+  null-`question_id` taps.
+- **Answer channel.** When the user taps/types/skips on a
+  `ground_truth` or `segment_anchor` card, send the result on the next
+  `POST /turn` (or `/turn/stream`) as the optional
+  `ground_truth_answer` field:
+  `{kind, field, option_label?, free_text?, skipped}`. Do not echo the
+  answer into `message` — the sidecar is the only channel, which is
+  what keeps demographic Q&A out of the transcript and extraction.
+  An answer with no pending tap is silently ignored (replay-safe).
+- **Onboarding.** `GET /api/v1/onboarding/archetype-questions` now
+  appends two questions (`gt_region`, `gt_birth_era`) to every set;
+  the answers array on `archetype-answers` must include them
+  (3-8 answers accepted). No other onboarding changes.
+- **Reading it.** `persons.ground_truth` JSONB is readable directly
+  (one key per field, `{value, provenance, confidence, updated_at}`).
+  Read-only for Node — a `POST /ground_truth/upsert` user-edit surface
+  is a v2 hook (`provenance='user_edit'` is reserved for it).
+- **Artifacts.** Nothing auto-regenerates when ground truth lands. The
+  agent injects ground truth into prompt composition at compose time,
+  so a manual portrait/scene **regenerate** after a few sessions is
+  the recovery path for the wrong-face / wrong-era artifacts.
 
 ---
 

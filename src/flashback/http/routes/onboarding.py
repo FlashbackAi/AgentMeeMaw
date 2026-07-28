@@ -25,13 +25,16 @@ from flashback.http.models import (
 )
 from flashback.llm.interface import Provider
 from flashback.onboarding import parse_free_text_answer
+from flashback.ground_truth.store import upsert_ground_truth_field
 from flashback.onboarding.archetypes import (
+    allows_multiple,
     answer_with_label,
     expected_question_ids,
+    ground_truth_writes_from_answers,
+    merge_implies,
     public_questions_for_relationship,
     render_pronouns,
-    resolve_answer,
-    sanitize_implies,
+    resolve_options,
 )
 from flashback.onboarding.persistence import (
     PersonOnboardingRow,
@@ -124,6 +127,17 @@ async def archetype_answers(
                     answers=answers,
                     implies_blocks=implies_blocks,
                 )
+                for gt_field, gt_value in ground_truth_writes_from_answers(
+                    answers
+                ):
+                    await upsert_ground_truth_field(
+                        cur,
+                        body.person_id,
+                        field=gt_field,
+                        value=gt_value,
+                        provenance="onboarding",
+                        confidence="high",
+                    )
 
     await _push_entity_embeddings(
         sqs=sqs,
@@ -194,24 +208,34 @@ async def _resolve_answers(
     for raw in answers:
         question_id = str(raw.get("question_id") or "")
         skipped = bool(raw.get("skipped", False))
-        option_id = raw.get("option_id")
+        option_ids = [
+            str(o).strip()
+            for o in (raw.get("option_ids") or [])
+            if str(o or "").strip()
+        ]
+        if not option_ids and raw.get("option_id"):
+            option_ids = [str(raw["option_id"]).strip()]
         free_text = str(raw.get("free_text") or "").strip()
 
-        selected_count = int(bool(skipped)) + int(bool(option_id)) + int(bool(free_text))
-        if selected_count != 1:
+        if skipped and (option_ids or free_text):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="a skipped answer cannot also carry options or free_text",
+            )
+        if not skipped and not option_ids and not free_text:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    "each answer must choose exactly one of option_id, "
-                    "free_text, or skipped"
+                    "each answer must select at least one option, provide "
+                    "free_text, or be skipped"
                 ),
             )
 
         try:
-            question, option = resolve_answer(
+            question, options = resolve_options(
                 relationship=person.relationship,
                 question_id=question_id,
-                option_id=str(option_id) if option_id else None,
+                option_ids=option_ids,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -219,36 +243,51 @@ async def _resolve_answers(
                 detail=str(exc),
             ) from exc
 
+        # Single-choice questions (the ground-truth pair) keep the
+        # exactly-one rule: one chip OR free text, never both.
+        if not allows_multiple(question) and options and free_text:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"question_id {question_id!r} accepts exactly one of "
+                    "an option or free_text"
+                ),
+            )
+
         if skipped:
             saved_answers.append(answer_with_label(question_id=question_id, skipped=True))
             implies_blocks.append({"coverage": [], "entities": []})
             continue
 
-        if option is not None:
-            saved_answers.append(
-                answer_with_label(
-                    question_id=question_id,
-                    option_id=str(option_id),
-                    label=render_pronouns(str(option["label"]), person.gender),
+        raw_blocks: list[dict[str, Any]] = [
+            option.get("implies") or {} for option in options
+        ]
+        if free_text:
+            raw_blocks.append(
+                await parse_free_text_answer(
+                    settings=cfg,
+                    provider=cast(Provider, cfg.llm_onboarding_parse_provider),
+                    model=cfg.llm_onboarding_parse_model,
+                    timeout=cfg.llm_onboarding_parse_timeout_seconds,
+                    max_tokens=cfg.llm_onboarding_parse_max_tokens,
+                    relationship=person.relationship,
+                    question_text=str(question["text"]),
+                    free_text=free_text,
                 )
             )
-            implies_blocks.append(sanitize_implies(option.get("implies")))
-            continue
 
-        implies = await parse_free_text_answer(
-            settings=cfg,
-            provider=cast(Provider, cfg.llm_onboarding_parse_provider),
-            model=cfg.llm_onboarding_parse_model,
-            timeout=cfg.llm_onboarding_parse_timeout_seconds,
-            max_tokens=cfg.llm_onboarding_parse_max_tokens,
-            relationship=person.relationship,
-            question_text=str(question["text"]),
-            free_text=free_text,
-        )
         saved_answers.append(
-            answer_with_label(question_id=question_id, free_text=free_text)
+            answer_with_label(
+                question_id=question_id,
+                option_ids=[str(option["id"]) for option in options],
+                labels=[
+                    render_pronouns(str(option["label"]), person.gender)
+                    for option in options
+                ],
+                free_text=free_text or None,
+            )
         )
-        implies_blocks.append(implies)
+        implies_blocks.append(merge_implies(raw_blocks))
 
     return saved_answers, implies_blocks
 

@@ -73,6 +73,14 @@ class ExtractedMoment(BaseModel):
     carry both 'family' and 'milestones'. Unknown slugs are dropped at
     persistence time."""
 
+    collections: list[str] = Field(default_factory=list)
+    """Storybook grid-collection slugs this moment genuinely fits — drawn
+    from the fixed ``<collection_catalog>`` in the extraction prompt (the
+    grid slugs only; ``wisdom`` is never tagged). Multi-label and expected:
+    a Diwali-in-childhood memory is both 'festivals' AND 'childhood'. Empty
+    is fine (fits no collection). Gates per-collection storybook eligibility
+    (design 2026-07-06). Unknown slugs are dropped at persistence time."""
+
 
 class ExtractedEntity(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -103,6 +111,18 @@ class DroppedReference(BaseModel):
     scope: Literal["public", "personal", "private"] = "personal"
 
 
+class GroundTruthObservation(BaseModel):
+    """A stable subject fact the LLM observed in this segment (design
+    2026-06-11 §3a). Only high-confidence observations are persisted —
+    provenance 'inferred', never overwriting explicit answers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    value: str
+    confidence: Literal["low", "medium", "high"]
+
+
 class ExtractionResult(BaseModel):
     """
     Parsed ``extract_segment`` tool arguments.
@@ -120,6 +140,9 @@ class ExtractionResult(BaseModel):
     traits: list[ExtractedTrait] = Field(default_factory=list)
     dropped_references: list[DroppedReference] = Field(
         default_factory=list, max_length=3
+    )
+    ground_truth_observations: list[GroundTruthObservation] = Field(
+        default_factory=list, max_length=6
     )
     extraction_notes: str = ""
     contributor_relationship: str | None = None
@@ -249,6 +272,17 @@ class SegmentTurn(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class SegmentAnchor(BaseModel):
+    """A tapped time-anchor answer for the live story in this segment
+    (design 2026-06-11 §4). Authoritative time evidence for the
+    moment(s) of the story the question referenced."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    question_text: str = ""
+    answer: str = ""
+
+
 class ExtractionMessage(BaseModel):
     """
     Parsed ``extraction`` queue body.
@@ -272,3 +306,5 @@ class ExtractionMessage(BaseModel):
     is_final: bool = False
     """True only for the wrap-forced tail segment of a session (invariant #12).
     Drives the completion signal's session-complete flag."""
+
+    segment_anchor: SegmentAnchor | None = None

@@ -99,6 +99,7 @@ def merge_entity_description(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="entity_merge",
         )
     )
     try:

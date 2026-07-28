@@ -169,7 +169,7 @@ def test_moment_insert_stamps_null_when_absent():
     # Both values should be None
     assert params[-2] is None  # told_by_user_id position
     assert params[-1] is None  # told_by_display_name position
-    assert len(params) == 14  # moments INSERT arity; guards positional told_by asserts above
+    assert len(params) == 15  # moments INSERT arity; guards positional told_by asserts above
 
 
 def test_moment_insert_empty_display_name_coerces_to_null():

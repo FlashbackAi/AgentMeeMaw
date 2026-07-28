@@ -35,8 +35,8 @@ INTENTS - definitions and selection rules:
 
 - `deepen`: The user has expressed something with high emotional
   weight - grief, anger, regret, profound love, protectiveness, or
-  tenderness. The right response is to give space, not to probe with a
-  follow-up question.
+  tenderness. The right response is a plain acknowledgment followed by
+  one gentle, easy factual question - never probing the emotion itself.
   Example: "I never got to say goodbye."
 
 - `story`: The user is in narrative mode, telling a story or
@@ -74,8 +74,9 @@ Your classification routes the next assistant turn. Consider not just
   to surface previously-shared material from the graph, then anchors
   its reply in what was already captured. Use when the user is
   genuinely referencing existing memory.
-- `deepen` → assistant acknowledges and makes space. No follow-up
-  question, no retrieval. Reserve for high emotional weight.
+- `deepen` → assistant acknowledges plainly, then asks one gentle,
+  easy factual question (never probing the emotion itself). No
+  retrieval. Reserve for high emotional weight.
 - `story` → assistant lets the user continue narrating with minimal
   interjection. No retrieval. Use when they are in flow.
 - `switch` → assistant offers 2-3 directions from the entity/thread

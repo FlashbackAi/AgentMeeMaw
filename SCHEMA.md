@@ -42,6 +42,7 @@ The subject of a legacy. One row per legacy.
 | `coverage_state` | JSONB NOT NULL DEFAULT `{sensory:0,voice:0,place:0,relation:0,era:0}` | 5 anchor dims |
 | `phase_locked_at` | TIMESTAMPTZ | Set when Handover Check fires |
 | `moments_at_last_thread_run` | INT NOT NULL DEFAULT 0 | Drives Thread Detector cadence |
+| `ground_truth` | JSONB NOT NULL DEFAULT `'{}'` | Ground-truth layer (migration 0026, CLAUDE.md invariant 26). One key per registry field (region, birth_era, setting_type, attire, distinctive_features, build, cultural_context, era_span, languages); each value is `{value, provenance, confidence, updated_at}` with provenance in (`onboarding`, `inferred`, `tap`, `user_edit`). Agent-written only (precedence-aware upsert); Node reads |
 | `image_url` | TEXT | Written by Node consumer of the artifact queue |
 | `thumbnail_url` | TEXT | Written by Node consumer |
 | `generation_prompt` | TEXT | Written by **agent**, consumed by Node |
@@ -81,12 +82,14 @@ Discrete recalled episodes. The most numerous and most edited table.
 | `video_url` | TEXT | Stylized video, written by Node |
 | `thumbnail_url` | TEXT | |
 | `generation_prompt` | TEXT | Written by agent |
+| `storybook_collections` | TEXT[] NULL | Grid-collection slugs this moment fits (migration 0036). Written by the Extraction Worker; gates per-collection storybook eligibility. `NULL` = never tagged (backfill pending), `'{}'` = tagged/fits none. `wisdom` is never tagged. |
 | `created_at`, `updated_at` | TIMESTAMPTZ | |
 
 **Indexes:**
 - `(person_id, status)`
 - `(person_id, created_at DESC)` partial WHERE active
 - HNSW on `narrative_embedding` partial WHERE active
+- GIN on `storybook_collections` (collection eligibility counts)
 - `moments_person_told_by_active_idx ON moments (person_id, told_by_user_id) WHERE status = 'active'` — speaker-first retrieval and per-contributor removal (sub-projects 2/6)
 
 ### 2.3 `entities`
@@ -257,7 +260,7 @@ the cap.
 
 ### 2.8 Provenance (collaborator Phase 1)
 
-Migration `0026_contributor_provenance` added `told_by_user_id UUID NULL`
+Migration `C001_contributor_provenance` added `told_by_user_id UUID NULL`
 to `moments`, `entities`, `traits`, `questions`, `profile_facts`, and
 `processed_extractions`. `moments` also gains `told_by_display_name TEXT NULL`.
 

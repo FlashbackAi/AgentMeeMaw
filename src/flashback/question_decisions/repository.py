@@ -1,7 +1,13 @@
 """Async repository over the question_decisions table.
 
 One active row per (person_id, question_id). Recording a new decision
-supersedes the prior active row in the same statement.
+supersedes the prior active row first, then inserts the new one — as
+two statements inside one transaction. They must NOT share a single
+statement (the original used a data-modifying CTE): sub-statements in
+a WITH run against the same snapshot, so the partial unique index
+`idx_question_decisions_active` still saw the old active row when the
+INSERT was checked, and the second decision on the same question blew
+up with UniqueViolation.
 """
 
 from __future__ import annotations
@@ -12,19 +18,27 @@ from psycopg_pool import AsyncConnectionPool
 
 from flashback.question_decisions.schema import Action, QuestionDecision
 
-_INSERT_AND_SUPERSEDE = """
-WITH supersede AS (
-    UPDATE question_decisions
-       SET status        = 'superseded',
-           superseded_by = %(new_id)s
-     WHERE person_id   = %(person_id)s
-       AND question_id = %(question_id)s
-       AND status      = 'active'
-    RETURNING id
-)
+_SUPERSEDE = """
+UPDATE question_decisions
+   SET status = 'superseded'
+ WHERE person_id   = %(person_id)s
+   AND question_id = %(question_id)s
+   AND status      = 'active'
+RETURNING id
+"""
+
+_INSERT = """
 INSERT INTO question_decisions (id, question_id, person_id, action)
 VALUES (%(new_id)s, %(question_id)s, %(person_id)s, %(action)s)
 RETURNING id, question_id, person_id, action, decided_at, status
+"""
+
+# superseded_by is stamped AFTER the insert — the FK requires the new
+# row to exist before anything can reference it.
+_STAMP_SUPERSEDED_BY = """
+UPDATE question_decisions
+   SET superseded_by = %(new_id)s
+ WHERE id = ANY(%(old_ids)s)
 """
 
 _LIST_ACTIVE = """
@@ -54,18 +68,24 @@ class QuestionDecisionRepository:
         action: Action,
     ) -> QuestionDecision:
         new_id = uuid4()
+        params = {
+            "new_id": new_id,
+            "person_id": person_id,
+            "question_id": question_id,
+            "action": action,
+        }
         async with self._pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    _INSERT_AND_SUPERSEDE,
-                    {
-                        "new_id": new_id,
-                        "person_id": person_id,
-                        "question_id": question_id,
-                        "action": action,
-                    },
-                )
-                row = await cur.fetchone()
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(_SUPERSEDE, params)
+                    old_ids = [r[0] for r in await cur.fetchall()]
+                    await cur.execute(_INSERT, params)
+                    row = await cur.fetchone()
+                    if old_ids:
+                        await cur.execute(
+                            _STAMP_SUPERSEDED_BY,
+                            {"new_id": new_id, "old_ids": old_ids},
+                        )
         return _row_to_model(row)
 
     async def list_active(self, person_id: UUID) -> list[QuestionDecision]:

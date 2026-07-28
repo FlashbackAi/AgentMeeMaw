@@ -48,6 +48,14 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
 
     wm_state = await deps.working_memory.get_state(str(state.session_id))
     cadence = getattr(deps.settings, "segment_detector_user_turn_cadence", 1)
+    # Tribute flow: switch topics aggressively to gather a lot of material, so
+    # close segments on a much tighter cadence (default 2 user turns vs 6).
+    if getattr(wm_state, "current_tribute_id", None):
+        cadence = getattr(
+            deps.settings,
+            "tribute_segment_detector_user_turn_cadence",
+            cadence,
+        )
     user_turns_since_check = wm_state.signal_user_turns_since_segment_check
     is_switch_turn = state.effective_intent == "switch"
     if user_turns_since_check < cadence and not is_switch_turn:
@@ -112,6 +120,7 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
             contributor_display_name=wm_state.contributor_display_name or "",
             told_by_user_id=wm_state.user_id or None,
             is_final=False,
+            segment_anchor=_segment_anchor_payload(wm_state),
         )
     except Exception as exc:
         log.warning(
@@ -128,6 +137,8 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
     await deps.working_memory.reset_segment(str(state.session_id))
     await deps.working_memory.set_seeded_question(str(state.session_id), None)
     await deps.working_memory.increment_segments_pushed(str(state.session_id))
+    if _segment_anchor_payload(wm_state) is not None:
+        await deps.working_memory.clear_segment_anchor(str(state.session_id))
 
     state.segment_boundary_detected = True
 
@@ -141,6 +152,18 @@ async def detect_segment(state: TurnState, deps: OrchestratorDeps) -> None:
         sqs_message_id=message_id,
         seeded_question_id=str(seeded_question_id) if seeded_question_id else None,
     )
+
+
+def _segment_anchor_payload(wm_state) -> dict | None:
+    """Tapped time-anchor answer for the open segment, if any.
+    getattr-tolerant: WM state fakes in tests may predate the fields."""
+    answer = getattr(wm_state, "segment_anchor_answer", "") or ""
+    if not answer:
+        return None
+    return {
+        "question_text": getattr(wm_state, "segment_anchor_question", "") or "",
+        "answer": answer,
+    }
 
 
 def _answered_question_candidates(segment_turns) -> list[UUID]:

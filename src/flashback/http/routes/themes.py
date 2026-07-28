@@ -21,6 +21,8 @@ flow.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
@@ -42,6 +44,12 @@ from flashback.themes.repository import (
     upsert_archetype_draft_async,
 )
 from flashback.themes.universal import get_universal_theme
+from flashback.tribute.campaigns import active_featured_campaign
+from flashback.tribute.theme import (
+    TRIBUTE_ARCHETYPE_MAX,
+    TRIBUTE_ARCHETYPE_MIN,
+    build_fathers_day_archetype_questions,
+)
 
 router = APIRouter(prefix="/themes", dependencies=[Depends(require_service_token)])
 log = structlog.get_logger("flashback.http.themes")
@@ -69,6 +77,7 @@ class ArchetypeQuestionPayload(BaseModel):
     options: list[ArchetypeOption]
     allow_skip: bool = True
     allow_free_text: bool = True
+    allow_multiple: bool = True
 
 
 class UnlockPrepareResponse(BaseModel):
@@ -101,6 +110,10 @@ class ArchetypeAnswerInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_id: str
+    # Multi-select shape; legacy single option_id/option_label stays
+    # accepted. Chips and free_text may combine on one answer.
+    option_ids: list[str] | None = None
+    option_labels: list[str] | None = None
     option_id: str | None = None
     option_label: str | None = None
     free_text: str | None = None
@@ -179,25 +192,41 @@ async def unlock_prepare(
     if theme.archetype_questions:
         questions = _rehydrate_archetype_questions(theme.archetype_questions)
     else:
-        description = theme.description
-        if not description and theme.kind == "universal":
-            universal = get_universal_theme(theme.slug)
-            description = (
-                universal.description if universal is not None else theme.display_name
-            )
-        if not description:
-            description = theme.display_name
+        # Father's Day skin: serve the fixed authored bank (no LLM) during the
+        # campaign window. Ephemeral priors only (invariant #22).
+        fd_campaign = active_featured_campaign(datetime.now(timezone.utc).date())
+        if theme.kind == "tribute" and fd_campaign and fd_campaign.confession_voice:
+            questions = build_fathers_day_archetype_questions()
+        else:
+            description = theme.description
+            if not description and theme.kind == "universal":
+                universal = get_universal_theme(theme.slug)
+                description = (
+                    universal.description
+                    if universal is not None
+                    else theme.display_name
+                )
+            if not description:
+                description = theme.display_name
 
-        questions = await generate_archetype_questions(
-            settings=cfg,
-            theme_slug=theme.slug,
-            theme_display_name=theme.display_name,
-            theme_description=description,
-            theme_kind=theme.kind,
-            subject_name=subject_name,
-            subject_relationship=None,
-            context_moments=None,
-        )
+            # The tribute theme collects more upfront than universals (spec §5).
+            if theme.kind == "tribute":
+                q_min, q_max = TRIBUTE_ARCHETYPE_MIN, TRIBUTE_ARCHETYPE_MAX
+            else:
+                q_min, q_max = 3, 4
+
+            questions = await generate_archetype_questions(
+                settings=cfg,
+                theme_slug=theme.slug,
+                theme_display_name=theme.display_name,
+                theme_description=description,
+                theme_kind=theme.kind,
+                subject_name=subject_name,
+                subject_relationship=None,
+                context_moments=None,
+                min_questions=q_min,
+                max_questions=q_max,
+            )
         if questions:
             payload = [q.to_payload() for q in questions]
             async with db_pool.connection() as conn:
@@ -239,6 +268,7 @@ async def unlock_prepare(
                 ],
                 allow_skip=q.allow_skip,
                 allow_free_text=q.allow_free_text,
+                allow_multiple=q.allow_multiple,
             )
             for q in questions
         ],
@@ -310,7 +340,10 @@ async def archetype_progress(
     answered = sum(
         1
         for a in answers_payload
-        if a.get("option_id") or a.get("free_text") or a.get("skipped")
+        if a.get("option_ids")
+        or a.get("option_id")
+        or a.get("free_text")
+        or a.get("skipped")
     )
 
     log.info(
@@ -389,6 +422,7 @@ def _rehydrate_archetype_questions(
                 ],
                 allow_skip=bool(q.get("allow_skip", True)),
                 allow_free_text=bool(q.get("allow_free_text", True)),
+                allow_multiple=bool(q.get("allow_multiple", True)),
             )
         )
     return out

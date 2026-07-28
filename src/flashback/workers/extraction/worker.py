@@ -42,6 +42,12 @@ import structlog
 from pydantic import ValidationError
 
 from flashback.db.edges import EdgeValidationError
+from flashback.ground_truth.render import render_ground_truth_block
+from flashback.ground_truth.store import (
+    apply_observations_sync,
+    fetch_ground_truth_sync,
+    recompute_era_span_sync,
+)
 from flashback.http.logging import configure_logging
 from flashback.llm.errors import LLMError, LLMTimeout
 
@@ -51,11 +57,13 @@ from .compatibility_llm import (
 )
 from .extraction_llm import (
     EXTRACTION_PROMPT_VERSION,
+    CollectionCatalogEntry,
     EntityCatalogEntry,
     ExtractionLLMConfig,
     ThemeCatalogEntry,
     run_extraction,
 )
+from flashback.storybook.collections import grid_tag_catalog
 from flashback.themes.repository import (
     auto_unlock_rich_themes_sync,
     fetch_active_themes_for_person_sync,
@@ -100,6 +108,13 @@ from flashback.workers.thread_detector.sqs_client import ThreadDetectorJobSender
 from uuid import UUID as _UUID
 
 log = structlog.get_logger("flashback.workers.extraction")
+
+# The storybook-collection catalog is a fixed registry (grid slugs only), so
+# build it once at import rather than per message.
+_COLLECTION_CATALOG: list[CollectionCatalogEntry] = [
+    CollectionCatalogEntry(slug=row["slug"], description=row["tag_description"])
+    for row in grid_tag_catalog()
+]
 
 
 def apply_collaborator_onboarding_extraction(
@@ -332,6 +347,9 @@ class ExtractionWorker:
                 entity_rows = fetch_active_entities_for_catalog(
                     cur, person_id=str(payload.person_id)
                 )
+                ground_truth = fetch_ground_truth_sync(
+                    cur, str(payload.person_id)
+                )
 
         theme_catalog = _build_theme_catalog(theme_rows)
         entity_catalog = [
@@ -346,7 +364,9 @@ class ExtractionWorker:
             cfg=self.extraction_cfg,
             settings=self.settings,
             subject_name=person.name,
-            subject_relationship=None,
+            subject_relationship=person.relationship,
+            subject_gender=person.gender,
+            contributor_gender=person.contributor_gender,
             prior_rolling_summary=payload.prior_rolling_summary,
             segment_turns=payload.segment_turns,
             contributor_display_name=payload.contributor_display_name or "",
@@ -354,7 +374,12 @@ class ExtractionWorker:
                 str(question_id) for question_id in payload.candidate_question_ids
             ],
             theme_catalog=theme_catalog,
+            collection_catalog=_COLLECTION_CATALOG,
             entity_catalog=entity_catalog,
+            ground_truth_block=render_ground_truth_block(
+                ground_truth, "extraction"
+            ),
+            segment_anchor=payload.segment_anchor,
         )
 
         # 2b. Invariant #18: drop orphan traits with no exemplifying moment
@@ -445,6 +470,12 @@ class ExtractionWorker:
                     auto_unlocked_themes = auto_unlock_rich_themes_sync(
                         cur, person_id=str(payload.person_id)
                     )
+                    gt_written = apply_observations_sync(
+                        cur,
+                        str(payload.person_id),
+                        extraction.ground_truth_observations,
+                    )
+                    recompute_era_span_sync(cur, str(payload.person_id))
                     mark_processed(
                         cur,
                         message_id=message_id,
@@ -507,6 +538,7 @@ class ExtractionWorker:
             subject_guard_dropped=persistence_result.dropped_entities_count,
             outbox_jobs=outbox_jobs,
             auto_unlocked_themes=len(auto_unlocked_themes),
+            ground_truth_written=gt_written,
         )
         if auto_unlocked_themes:
             log.info(

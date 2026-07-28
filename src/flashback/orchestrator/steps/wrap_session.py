@@ -12,6 +12,7 @@ from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.errors import WorkingMemoryNotFound
 from flashback.orchestrator.failure_policy import SESSION_WRAP_POLICIES, execute
 from flashback.orchestrator.state import SessionWrapState
+from flashback.orchestrator.steps.detect_segment import _segment_anchor_payload
 from flashback.orchestrator.steps.starter_opener import PersonRow, fetch_person
 from flashback.queues.client import QueueSendError
 from flashback.session_summary.schema import SessionSummaryContext
@@ -135,6 +136,7 @@ async def _force_close_segment(
             contributor_display_name=wm_state.contributor_display_name or "",
             told_by_user_id=wm_state.user_id or None,
             is_final=True,
+            segment_anchor=_segment_anchor_payload(wm_state),
         )
     except Exception as exc:
         log.warning(
@@ -151,6 +153,8 @@ async def _force_close_segment(
     await deps.working_memory.reset_segment(str(state.session_id))
     await deps.working_memory.set_seeded_question(str(state.session_id), None)
     await deps.working_memory.increment_segments_pushed(str(state.session_id))
+    if _segment_anchor_payload(wm_state) is not None:
+        await deps.working_memory.clear_segment_anchor(str(state.session_id))
     state.final_segment_pushed = True
 
 

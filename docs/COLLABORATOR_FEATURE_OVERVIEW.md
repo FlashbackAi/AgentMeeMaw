@@ -68,7 +68,7 @@ endpoints; Node calls them and decides who sees what. (Full Node to-do:
 
 ## 4. The six sub-projects
 
-### SP1 — Provenance foundation *(migration 0026/0027)*
+### SP1 — Provenance foundation *(migration C001/C002)*
 
 **Problem:** the graph didn't record who authored anything. A leftover `role_id`
 field flowed around meaning nothing.
@@ -171,7 +171,7 @@ merging.)*
 
 ---
 
-### SP5 — Same-event linking + contradiction review *(migration 0033)*
+### SP5 — Same-event linking + contradiction review *(migration C008)*
 
 **Problem:** two contributors inevitably describe the *same* event. Sometimes
 complementary ("both at the wedding"), sometimes conflicting ("he was 60" /
@@ -218,7 +218,7 @@ nothing about the clash.
 
 ---
 
-### SP6a — Collaborator removal (reversible hide) *(migration 0034)*
+### SP6a — Collaborator removal (reversible hide) *(migration C009)*
 
 **Problem:** a contributor leaves, is removed by the owner, or asks for their
 data to be taken down. What happens to their content — and to others' content
@@ -264,7 +264,7 @@ and re-attributes on restore.
 
 ---
 
-### SP6b — Cross-contributor identity merges *(migration 0035)*
+### SP6b — Cross-contributor identity merges *(migration C010)*
 
 **Problem:** the merge machinery already collapses duplicate entities (two
 "Amma" cards) across contributors — but it was *provenance-blind* (the survivor

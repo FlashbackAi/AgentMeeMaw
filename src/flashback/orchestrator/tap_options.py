@@ -140,6 +140,7 @@ async def generate_tap_options(
     person_name: str,
     person_relationship: str | None,
     dimension: str,
+    ground_truth_context: str = "",
     person_gender: str | None = None,
 ) -> list[str]:
     """Best-effort LLM-driven option chips. Returns ``[]`` on any failure.
@@ -159,6 +160,13 @@ async def generate_tap_options(
         f"<dimension>{xml_text(dimension) if dimension else 'general'}</dimension>\n"
         f"<question>{xml_text(question_text)}</question>"
     )
+    if ground_truth_context.strip():
+        # Known subject ground truth (region/era/attire) so chips fit the
+        # subject's world — saree types, not blazers.
+        user_block += (
+            f"\n<subject_ground_truth>{xml_text(ground_truth_context)}"
+            "</subject_ground_truth>"
+        )
 
     try:
         args = await call_with_tool(
@@ -170,6 +178,7 @@ async def generate_tap_options(
             max_tokens=200,
             timeout=10.0,
             settings=settings,
+            feature="tap_options",
         )
     except LLMError as exc:
         log.warning("tap_options.llm_failed", error=str(exc))

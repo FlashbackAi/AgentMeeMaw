@@ -44,6 +44,7 @@ class TestCreateHappyPath:
             "name",
             "relationship",
             "gender",
+            "contributor_gender",
             "phase",
             "created_at",
         }
@@ -113,6 +114,33 @@ class TestCreateHappyPath:
         body = resp.json()
         assert body["name"] == "Robert Smith"
         assert body["relationship"] == "father"
+
+    async def test_persists_subject_and_contributor_gender(
+        self, client_with_db, async_db_pool
+    ):
+        # The contributor is depicted alongside the subject in some moment
+        # scenes, so both genders persist on the persons row and round-trip
+        # through the create response.
+        resp = await client_with_db.post(
+            "/persons",
+            headers=auth_headers(),
+            json=person_payload(
+                name="Anil Rao", gender="he", contributor_gender="she"
+            ),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["gender"] == "he"
+        assert body["contributor_gender"] == "she"
+
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT gender, contributor_gender FROM persons WHERE id = %s",
+                    (body["person_id"],),
+                )
+                row = await cur.fetchone()
+        assert row == ("he", "she")
 
     async def test_enqueues_profile_picture_job_on_create(
         self, client_with_db, fake_profile_picture_queue: FakeProfilePictureQueue

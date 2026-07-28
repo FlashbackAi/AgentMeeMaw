@@ -61,6 +61,54 @@ def seed_universal_themes_sync(cur, *, person_id: UUID | str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# On-demand tribute theme seeding
+# ---------------------------------------------------------------------------
+
+
+_ENSURE_TRIBUTE_THEME_SQL = """
+INSERT INTO themes (person_id, kind, slug, display_name, description, state)
+VALUES (%(person_id)s, 'tribute', %(slug)s, %(display_name)s,
+        %(description)s, 'locked')
+ON CONFLICT (person_id, slug) WHERE status = 'active' DO NOTHING
+"""
+
+_SELECT_TRIBUTE_THEME_ID_SQL = """
+SELECT id::text FROM active_themes
+ WHERE person_id = %(person_id)s AND slug = %(slug)s
+ LIMIT 1
+"""
+
+
+async def ensure_tribute_theme_async(
+    cur,
+    *,
+    person_id: UUID | str,
+    slug: str,
+    display_name: str,
+    description: str | None,
+) -> str:
+    """Ensure the on-demand tribute theme exists; return its id.
+
+    Idempotent via the active-slug partial unique index. Unlike universals,
+    the tribute theme is seeded on demand (when the contributor enters the
+    flow), not at person creation -- so normal legacies stay clean.
+    """
+    pid = str(person_id)
+    await cur.execute(
+        _ENSURE_TRIBUTE_THEME_SQL,
+        {
+            "person_id": pid,
+            "slug": slug,
+            "display_name": display_name,
+            "description": description,
+        },
+    )
+    await cur.execute(_SELECT_TRIBUTE_THEME_ID_SQL, {"person_id": pid, "slug": slug})
+    (theme_id,) = await cur.fetchone()
+    return theme_id
+
+
+# ---------------------------------------------------------------------------
 # Theme lookups
 # ---------------------------------------------------------------------------
 

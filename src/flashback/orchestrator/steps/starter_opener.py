@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
 import psycopg
 import structlog
 
+from flashback.ground_truth.render import render_ground_truth_block
 from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.errors import PersonNotFound
 from flashback.orchestrator.instrumentation import timed_step
@@ -34,6 +35,7 @@ class PersonRow:
     phase: str
     gender: str | None = None
     profile_summary: str | None = None
+    ground_truth: dict = field(default_factory=dict)
 
 
 async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
@@ -41,7 +43,8 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT name, relationship, phase, gender, profile_summary
+                SELECT name, relationship, phase, gender, profile_summary,
+                       ground_truth
                 FROM persons
                 WHERE id = %s
                 """,
@@ -54,14 +57,19 @@ async def fetch_person(deps: OrchestratorDeps, person_id) -> PersonRow:
         name, relationship, phase = row
         gender = None
         profile_summary = None
-    else:
+        ground_truth: Any = {}
+    elif len(row) == 5:
         name, relationship, phase, gender, profile_summary = row
+        ground_truth = {}
+    else:
+        name, relationship, phase, gender, profile_summary, ground_truth = row
     return PersonRow(
         name=name,
         relationship=relationship,
         phase=phase,
         gender=gender,
         profile_summary=profile_summary,
+        ground_truth=ground_truth if isinstance(ground_truth, dict) else {},
     )
 
 
@@ -72,6 +80,7 @@ async def load_person(state: SessionStartState, deps: OrchestratorDeps) -> None:
         state.person_relationship = person.relationship
         state.person_phase = person.phase
         state.person_gender = person.gender or "they"
+        state.person_ground_truth = person.ground_truth
         # The profile summary is a person-level aggregate across ALL
         # contributors, so seeding it into the opener for a specific
         # contributor (a collaborator) would leak another contributor's
@@ -161,10 +170,36 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
     anchor_text: str | None = None
     if state.selection and state.selection.question_text:
         anchor_text = state.selection.question_text
+    # An explicit feed pick is one where the caller passed question_id and
+    # apply_picked_question resolved it onto state.selection. Contrast with
+    # an auto-selected starter question, which the opener may bridge into
+    # more loosely.
+    picked_id = _string_or_none(state.session_metadata.get("question_id"))
+    anchor_is_explicit_pick = bool(
+        picked_id
+        and state.selection is not None
+        and state.selection.question_id is not None
+        and str(state.selection.question_id) == picked_id
+    )
+    # When the contributor explicitly picked a feed question, the opener must
+    # anchor on THAT question — not the previous session's salient memory. The
+    # picked question is (by construction) from an earlier session, so feeding
+    # prior-session continuity into the opener drags it back toward whatever
+    # was most vivid last time (invariant #15's cross-session recall) and the
+    # picked topic loses. Suppress continuity in the OPENER context only; it is
+    # still seeded into Working Memory (init_working_memory) for later turns.
+    prior_summary = (
+        None
+        if anchor_is_explicit_pick
+        else _string_or_none(state.session_metadata.get("prior_session_summary"))
+    )
     return StarterContext(
         person_name=state.person_name,
         person_relationship=state.person_relationship,
         person_gender=state.person_gender,
+        ground_truth_block=render_ground_truth_block(
+            state.person_ground_truth, "responder"
+        ),
         contributor_display_name=_string_or_none(
             state.session_metadata.get("contributor_display_name")
         ),
@@ -177,9 +212,8 @@ def build_starter_context(state: SessionStartState) -> StarterContext:
         ),
         anchor_question_text=anchor_text,
         anchor_dimension=None,
-        prior_session_summary=_string_or_none(
-            state.session_metadata.get("prior_session_summary")
-        ),
+        anchor_is_explicit_pick=anchor_is_explicit_pick,
+        prior_session_summary=prior_summary,
         current_theme_display_name=_string_or_none(
             state.session_metadata.get("current_theme_display_name")
         ),
@@ -281,6 +315,15 @@ async def init_working_memory(
             current_theme_display_name=str(
                 state.session_metadata.get("current_theme_display_name") or ""
             ),
+            current_tribute_id=str(
+                state.session_metadata.get("current_tribute_id") or ""
+            ),
+            current_tribute_campaign=str(
+                state.session_metadata.get("current_tribute_campaign") or ""
+            ),
+            tribute_leads=str(
+                state.session_metadata.get("tribute_leads") or ""
+            ),
             mode=state.mode,
         )
 
@@ -365,7 +408,7 @@ async def _build_continuity_summary(
     (the creator's own content). A contributor with no own rows yields an
     empty summary, so the opener falls back to a fresh opening.
 
-    Scoped to MOMENTS only — and deliberately so. Per invariant #26,
+    Scoped to MOMENTS only — and deliberately so. Per invariant #27,
     ``moments.told_by_user_id`` is the only provenance column that reliably
     means "this contributor shared this". ``entities`` / ``profile_facts``
     carry "first-authored-by" / "whose-session-produced" provenance: the

@@ -27,6 +27,8 @@ from flashback.themes.repository import (
     fetch_theme_by_id_async,
     unlock_theme_async,
 )
+from flashback.tribute.leads import build_leads, leads_to_json
+from flashback.tribute.repository import ensure_open_tribute_async
 
 log = structlog.get_logger("flashback.orchestrator.apply_theme_unlock")
 
@@ -45,6 +47,7 @@ async def apply_theme_unlock(
         raw_answers = state.session_metadata.get("archetype_answers") or []
         archetype_answers = [a for a in raw_answers if isinstance(a, dict)]
         promoted_draft = False
+        tribute_id: str | None = None
 
         async with deps.db_pool.connection() as conn:
             async with conn.transaction():
@@ -83,6 +86,13 @@ async def apply_theme_unlock(
                             answer_count=len(archetype_answers),
                             promoted_draft=promoted_draft,
                         )
+                    # Tribute flow: ensure an open tribute output row exists
+                    # for this (person, theme) so the message-capture lane
+                    # has somewhere to write. Idempotent within a session.
+                    if theme.kind == "tribute":
+                        tribute_id = await ensure_open_tribute_async(
+                            cur, person_id=person_id, theme_id=theme_id
+                        )
 
         # Propagate theme context downstream via session_metadata so the
         # opener / WM init / response generator can read it without
@@ -93,3 +103,14 @@ async def apply_theme_unlock(
         state.session_metadata["current_theme_kind"] = theme.kind
         if archetype_answers:
             state.session_metadata["theme_archetype_answers"] = archetype_answers
+        if theme.kind == "tribute" and tribute_id is not None:
+            state.session_metadata["current_tribute_id"] = tribute_id
+            campaign = state.session_metadata.get("campaign")
+            if campaign:
+                state.session_metadata["current_tribute_campaign"] = str(campaign)
+            # Derive in-session steering leads from the archetype answers
+            # (design 2026-06-19). They steer the interview; they are never
+            # written to the graph (invariant #22).
+            leads = build_leads(archetype_answers)
+            if leads:
+                state.session_metadata["tribute_leads"] = leads_to_json(leads)

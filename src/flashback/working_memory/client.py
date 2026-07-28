@@ -95,6 +95,9 @@ class WorkingMemory:
         current_theme_id: str = "",
         current_theme_slug: str = "",
         current_theme_display_name: str = "",
+        current_tribute_id: str = "",
+        current_tribute_campaign: str = "",
+        tribute_leads: str = "",
         mode: str = "text",
     ) -> None:
         """
@@ -140,6 +143,9 @@ class WorkingMemory:
             current_theme_id=current_theme_id,
             current_theme_slug=current_theme_slug,
             current_theme_display_name=current_theme_display_name,
+            current_tribute_id=current_tribute_id,
+            current_tribute_campaign=current_tribute_campaign,
+            tribute_leads=tribute_leads,
             mode=validated_mode,
         )
         mapping = serialise_state_for_init(state)
@@ -396,6 +402,105 @@ class WorkingMemory:
             p.hset(s_key, "emitted_tap_question_ids", json.dumps(emitted))
             p.hset(s_key, "user_turns_since_last_tap", "0")
             p.hset(s_key, "signal_pending_tap_question", question_text)
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def record_gt_tap_emitted(
+        self,
+        *,
+        session_id: str,
+        payload_json: str,
+        question_text: str,
+    ) -> None:
+        """Mark a ground-truth tap as pending. Bumps the session GT cap
+        counter, resets the shared tap cooldown so a coverage tap can't
+        fire on the immediately-next turn, and seeds the classifier's
+        pending-tap signal so a terse chip reply classifies as story."""
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hincrby(s_key, "gt_taps_emitted_this_session", 1)
+            p.hset(s_key, "signal_pending_gt_tap", payload_json)
+            p.hset(s_key, "signal_pending_tap_question", question_text)
+            p.hset(s_key, "user_turns_since_last_tap", "0")
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def record_message_invitation_emitted(
+        self, session_id: str, payload_json: str
+    ) -> None:
+        """Mark the one-time tribute message invitation as emitted.
+
+        Stashes the pending payload (read by persist_message_answer next
+        turn), flips ``message_invitation_asked``, and resets the shared
+        tap cooldown so the card doesn't stack on another tap.
+        """
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "signal_pending_message", payload_json)
+            p.hset(s_key, "message_invitation_asked", "True")
+            p.hset(s_key, "user_turns_since_last_tap", "0")
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def clear_pending_message(self, session_id: str) -> None:
+        """Clear the pending message payload after the sidecar is consumed."""
+        await self.update_signals(session_id, signal_pending_message="")
+
+    async def mark_tribute_lead_pursued(
+        self, session_id: str, label: str
+    ) -> None:
+        """Flip a tribute lead to pursued so it isn't surfaced again this
+        session. Reads-modifies-writes the ``tribute_leads`` JSON list."""
+        from flashback.tribute.leads import mark_pursued
+
+        s_key = state_key(session_id)
+        raw = await self._redis.hget(s_key, "tribute_leads")
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        updated = mark_pursued(raw, label)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "tribute_leads", updated)
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def clear_pending_gt_tap(self, session_id: str) -> None:
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "signal_pending_gt_tap", "")
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def add_gt_declined_field(self, session_id: str, field: str) -> None:
+        """Mark a registry field as declined for this session."""
+        s_key = state_key(session_id)
+        raw = await self._redis.hget(s_key, "gt_declined_fields")
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        declined = json.loads(raw) if raw else []
+        if field not in declined:
+            declined.append(field)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "gt_declined_fields", json.dumps(declined))
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def set_segment_anchor(
+        self, session_id: str, *, question_text: str, answer: str
+    ) -> None:
+        """Stash a tapped time-anchor answer for the OPEN segment. It is
+        carried into the extraction payload at the next boundary/wrap."""
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "segment_anchor_question", question_text)
+            p.hset(s_key, "segment_anchor_answer", answer)
+            p.expire(s_key, self._ttl)
+            await p.execute()
+
+    async def clear_segment_anchor(self, session_id: str) -> None:
+        s_key = state_key(session_id)
+        async with self._redis.pipeline(transaction=True) as p:
+            p.hset(s_key, "segment_anchor_question", "")
+            p.hset(s_key, "segment_anchor_answer", "")
             p.expire(s_key, self._ttl)
             await p.execute()
 

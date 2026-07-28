@@ -95,6 +95,8 @@ class TestTurn:
                 "text": "What was her work like?",
                 "dimension": "era",
                 "options": [],
+                "kind": "coverage",
+                "field": None,
             }
         ]
 

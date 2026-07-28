@@ -42,10 +42,14 @@ from flashback.http.routes.persons import router as persons_router
 from flashback.http.routes.artifacts import router as artifacts_router
 from flashback.http.routes.profile_picture import router as profile_picture_router
 from flashback.http.routes.profile_facts import router as profile_facts_router
+from flashback.http.routes.questions import router as questions_router
 from flashback.http.routes.session import router as session_router
+from flashback.http.routes.storybooks import router as storybooks_router
 from flashback.http.routes.stream import router as stream_router
 from flashback.http.routes.themes import router as themes_router
+from flashback.http.routes.tributes import router as tributes_router
 from flashback.http.routes.turn import router as turn_router
+from flashback.http.routes.usage import router as usage_router
 from flashback.identity_merges import IdentityMergeVerifier
 from flashback.intent_classifier import IntentClassifier
 from flashback.llm.interface import Provider
@@ -53,6 +57,8 @@ from flashback.orchestrator import Orchestrator, OrchestratorDeps
 from flashback.phase_gate import PhaseGate, SteadySelector
 from flashback.queues import (
     ArtifactGenerationQueueProducer,
+    StorybookRenderQueueProducer,
+    TributeRenderQueueProducer,
     AsyncSQSClient,
     ExtractionQueueProducer,
     ProducersPerSessionQueueProducer,
@@ -177,6 +183,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             queue_url=cfg.artifact_queue_url,
         )
         app.state.artifact_generation_queue = artifact_generation_queue
+        tribute_render_queue = TributeRenderQueueProducer(
+            sqs_client=sqs_client,
+            queue_url=cfg.tribute_render_queue_url,
+        )
+        app.state.tribute_render_queue = tribute_render_queue
+        storybook_render_queue = StorybookRenderQueueProducer(
+            sqs_client=sqs_client,
+            queue_url=cfg.storybook_render_queue_url,
+        )
+        app.state.storybook_render_queue = storybook_render_queue
         session_summary_generator = SessionSummaryGenerator(settings=cfg)
         phase_gate = PhaseGate(
             db_pool=db_pool,
@@ -195,6 +211,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             trait_synthesizer_queue=trait_synthesizer_queue,
             profile_summary_queue=profile_summary_queue,
             producers_per_session_queue=producers_per_session_queue,
+            artifact_generation_queue=artifact_generation_queue,
             entity_name_cache=entity_name_cache,
             settings=cfg,
         )
@@ -247,6 +264,7 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(session_router)
+    app.include_router(questions_router)
     app.include_router(turn_router)
     app.include_router(stream_router)
     app.include_router(admin_router)
@@ -261,6 +279,9 @@ def create_app(http_config: HttpConfig | None = None) -> FastAPI:
     app.include_router(artifacts_router)
     app.include_router(onboarding_router)
     app.include_router(themes_router)
+    app.include_router(tributes_router)
+    app.include_router(storybooks_router)
+    app.include_router(usage_router)
 
     return app
 

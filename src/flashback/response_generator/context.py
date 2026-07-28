@@ -14,6 +14,11 @@ from flashback.response_generator.schema import (
 def render_turn_context(ctx: TurnContext) -> str:
     sections: list[str] = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
 
+    if ctx.ground_truth_block.strip():
+        sections.append(
+            _block("subject_ground_truth", xml_text(ctx.ground_truth_block.strip()))
+        )
+
     if ctx.prior_session_summary.strip():
         sections.append(
             _block("prior_session_summary", xml_text(ctx.prior_session_summary.strip()))
@@ -127,6 +132,14 @@ def render_turn_context(ctx: TurnContext) -> str:
         body = xml_text(ctx.tap_question_text or "")
         sections.append(f"<tap_pending{dim_attr}>{body}</tap_pending>")
 
+    if ctx.tribute_gap_hint:
+        sections.append(
+            f"<tribute_gap_hint>{xml_text(ctx.tribute_gap_hint)}</tribute_gap_hint>"
+        )
+
+    if ctx.tribute_active:
+        sections.append("<tribute_pace>active</tribute_pace>")
+
     if ctx.current_theme_display_name:
         sections.append(
             _block(
@@ -140,6 +153,10 @@ def render_turn_context(ctx: TurnContext) -> str:
 
 def render_starter_context(ctx: StarterContext) -> str:
     sections = [_render_subject(ctx.person_name, ctx.person_relationship, ctx.person_gender)]
+    if ctx.ground_truth_block.strip():
+        sections.append(
+            _block("subject_ground_truth", xml_text(ctx.ground_truth_block.strip()))
+        )
     if ctx.contributor_display_name:
         sections.append(_block("contributor_name", xml_text(ctx.contributor_display_name)))
     if ctx.contributor_voice_anchor:
@@ -170,6 +187,16 @@ def render_starter_context(ctx: StarterContext) -> str:
                 ]
             )
         )
+    elif ctx.anchor_question_text and ctx.anchor_is_explicit_pick:
+        sections.append(
+            "\n".join(
+                [
+                    '<seeded_question source="explicit_pick">',
+                    xml_text(ctx.anchor_question_text),
+                    "</seeded_question>",
+                ]
+            )
+        )
     elif ctx.anchor_question_text:
         sections.append(_block("seeded_question", xml_text(ctx.anchor_question_text)))
     if ctx.prior_session_summary and ctx.prior_session_summary.strip():
@@ -182,23 +209,34 @@ def render_starter_context(ctx: StarterContext) -> str:
 def _format_theme_archetype_answer(answer: dict) -> str:
     """Render a single archetype answer row as a short readable line.
 
-    Expected shape: ``{'question_id', 'question_text'?, 'option_id'?,
-    'option_label'?, 'free_text'?}``. Node decides what to pack; we
-    accept several layouts gracefully.
+    Expected shape: ``{'question_id', 'question_text'?, 'option_ids'?,
+    'option_labels'?, 'option_id'?, 'option_label'?, 'free_text'?}``.
+    Node decides what to pack; we accept several layouts gracefully.
+    Multi-select answers carry several labels and may combine free text.
     """
     question = (
         answer.get("question_text") or answer.get("text") or answer.get("question") or ""
     )
-    chosen = (
-        answer.get("option_label")
-        or answer.get("label")
-        or answer.get("free_text")
-        or answer.get("answer")
-        or ""
-    )
+    raw_labels = answer.get("option_labels") or answer.get("labels")
+    if isinstance(raw_labels, list):
+        labels = [str(label).strip() for label in raw_labels if str(label or "").strip()]
+    else:
+        labels = []
+    if not labels:
+        single = str(answer.get("option_label") or answer.get("label") or "").strip()
+        if single:
+            labels = [single]
+    free_text = str(answer.get("free_text") or answer.get("answer") or "").strip()
+
+    if labels and free_text:
+        chosen = f'{", ".join(labels)} — in their own words: "{free_text}"'
+    elif labels:
+        chosen = ", ".join(labels)
+    else:
+        chosen = free_text
     if question and chosen:
-        return f"{question.strip()} — {chosen.strip()}"
-    return chosen.strip() or question.strip()
+        return f"{question.strip()} — {chosen}"
+    return chosen or question.strip()
 
 
 def render_first_time_opener_context(ctx: FirstTimeOpenerContext) -> str:

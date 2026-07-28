@@ -44,6 +44,8 @@ from flashback.http.deps import (
     get_redis,
     get_working_memory,
 )
+from flashback.http.ground_truth_answer import persist_ground_truth_answer
+from flashback.tribute.message_capture import persist_message_answer
 from flashback.http.models import SessionStartRequest, TurnRequest
 from flashback.orchestrator import OrchestratorProtocol
 from flashback.orchestrator.errors import WorkingMemoryNotFound
@@ -119,6 +121,28 @@ async def turn_stream(
             "question_decision.recorded",
             question_id=str(body.question_decision.question_id),
             action=body.question_decision.action,
+        )
+
+    if body.ground_truth_answer is not None:
+        # Persist before the pipeline runs (mirrors question_decision).
+        await persist_ground_truth_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.ground_truth_answer,
+            wm=wm,
+            db_pool=db_pool,
+        )
+
+    if body.message_answer is not None:
+        # Persist before the pipeline (mirrors ground_truth_answer): the
+        # message is polished into the tribute row, never the transcript.
+        await persist_message_answer(
+            session_id=body.session_id,
+            person_id=body.person_id,
+            answer=body.message_answer,
+            wm=wm,
+            db_pool=db_pool,
+            settings=cfg,
         )
 
     async def event_stream() -> AsyncIterator[str]:

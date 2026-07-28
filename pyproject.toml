@@ -31,6 +31,13 @@ dependencies = [
     "structlog>=24.4.0,<25.0",
     "numpy>=1.26.0,<3.0",
     "hdbscan>=0.8.40,<0.9",
+    # Tribute video/PDF render (flashback.tribute_video + tribute_render worker).
+    "Pillow>=10.0,<13.0",
+    "google-genai>=1.0,<3.0",
+    "imageio>=2.34,<3.0",
+    "imageio-ffmpeg>=0.5,<1.0",
+    # Storybook render (flashback.storybook compositor: green-zone detection).
+    "scipy>=1.11,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -58,3 +65,5 @@ filterwarnings = [
 
 [tool.setuptools.package-data]
 flashback = ["py.typed"]
+"flashback.tribute_video" = ["assets/*.jpg", "assets/fonts/*.ttf", "assets/audio/*.mp3"]
+"flashback.storybook" = ["assets/*/*.png"]

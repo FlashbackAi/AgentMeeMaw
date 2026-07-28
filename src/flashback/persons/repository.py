@@ -16,16 +16,24 @@ from uuid import UUID
 
 from psycopg_pool import AsyncConnectionPool
 
-from flashback.themes.repository import seed_universal_themes_async
+from flashback.themes.repository import (
+    ensure_tribute_theme_async,
+    seed_universal_themes_async,
+)
+from flashback.tribute.theme import (
+    TRIBUTE_DESCRIPTION,
+    TRIBUTE_DISPLAY_NAME,
+    TRIBUTE_SLUG,
+)
 
 _INSERT_PERSON = """
-INSERT INTO persons (name, relationship, gender)
-VALUES (%(name)s, %(relationship)s, %(gender)s)
-RETURNING id, name, relationship, gender, phase, created_at
+INSERT INTO persons (name, relationship, gender, contributor_gender)
+VALUES (%(name)s, %(relationship)s, %(gender)s, %(contributor_gender)s)
+RETURNING id, name, relationship, gender, contributor_gender, phase, created_at
 """
 
 _SELECT_PERSON_BY_ID = """
-SELECT id, name, relationship, gender, phase
+SELECT id, name, relationship, gender, contributor_gender, phase
 FROM persons
 WHERE id = %s
 """
@@ -37,6 +45,7 @@ class PersonProfile:
     name: str
     relationship: str
     gender: str | None
+    contributor_gender: str | None
     phase: str
 
 
@@ -46,6 +55,7 @@ class CreatedPerson:
     name: str
     relationship: str
     gender: str | None
+    contributor_gender: str | None
     phase: str
     created_at: datetime
 
@@ -56,29 +66,54 @@ async def insert_person(
     name: str,
     relationship: str,
     gender: str | None = None,
+    contributor_gender: str | None = None,
 ) -> CreatedPerson:
     """Insert one ``persons`` row and return the persisted shape.
 
-    The 5 universal themes are seeded in the same transaction so a
-    legacy is never observably created without its theme grid.
+    The 5 universal themes + the on-demand-style tribute theme are seeded
+    in the same transaction so a legacy is never observably created
+    without its theme grid, and the tribute theme is discoverable via the
+    standard unlock sequence (active_themes_with_tier -> unlock_prepare ->
+    session/start) with no special endpoint.
     """
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
                 await cur.execute(
                     _INSERT_PERSON,
-                    {"name": name, "relationship": relationship, "gender": gender},
+                    {
+                        "name": name,
+                        "relationship": relationship,
+                        "gender": gender,
+                        "contributor_gender": contributor_gender,
+                    },
                 )
                 row = await cur.fetchone()
                 assert row is not None  # INSERT ... RETURNING always yields a row
                 await seed_universal_themes_async(cur, person_id=row[0])
+                await ensure_tribute_theme_async(
+                    cur,
+                    person_id=row[0],
+                    slug=TRIBUTE_SLUG,
+                    display_name=TRIBUTE_DISPLAY_NAME,
+                    description=TRIBUTE_DESCRIPTION,
+                )
 
-    person_id, returned_name, returned_relationship, returned_gender, phase, created_at = row
+    (
+        person_id,
+        returned_name,
+        returned_relationship,
+        returned_gender,
+        returned_contributor_gender,
+        phase,
+        created_at,
+    ) = row
     return CreatedPerson(
         person_id=person_id,
         name=returned_name,
         relationship=returned_relationship,
         gender=returned_gender,
+        contributor_gender=returned_contributor_gender,
         phase=phase,
         created_at=created_at,
     )
@@ -96,11 +131,12 @@ async def get_person_by_id(
             row = await cur.fetchone()
     if row is None:
         return None
-    pid, name, relationship, gender, phase = row
+    pid, name, relationship, gender, contributor_gender, phase = row
     return PersonProfile(
         person_id=pid,
         name=name,
         relationship=relationship,
         gender=gender,
+        contributor_gender=contributor_gender,
         phase=phase,
     )

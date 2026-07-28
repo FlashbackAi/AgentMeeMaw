@@ -291,6 +291,9 @@ class HttpConfig:
     llm_segment_detector_timeout_seconds: float = 10.0
     llm_segment_detector_max_tokens: int = 1000
     segment_detector_user_turn_cadence: int = 6
+    # Tribute sessions churn topics fast to maximize coverage before the
+    # deadline, so the Segment Detector runs far more often than the default.
+    tribute_segment_detector_user_turn_cadence: int = 2
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
@@ -301,6 +304,8 @@ class HttpConfig:
     producers_per_session_queue_url: str = ""
     embedding_queue_url: str = ""
     artifact_queue_url: str = ""
+    tribute_render_queue_url: str = ""
+    storybook_render_queue_url: str = ""
     profile_picture_queue_url: str = ""
     llm_node_edit_provider: str = "anthropic"
     llm_node_edit_model: str = "claude-sonnet-4-6"
@@ -403,6 +408,9 @@ class HttpConfig:
             segment_detector_user_turn_cadence=int(
                 os.environ.get("SEGMENT_DETECTOR_USER_TURN_CADENCE", "6")
             ),
+            tribute_segment_detector_user_turn_cadence=int(
+                os.environ.get("TRIBUTE_SEGMENT_DETECTOR_USER_TURN_CADENCE", "2")
+            ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),
             llm_response_timeout_seconds=float(
@@ -419,6 +427,10 @@ class HttpConfig:
             ),
             embedding_queue_url=_required("EMBEDDING_QUEUE_URL"),
             artifact_queue_url=os.environ.get("ARTIFACT_QUEUE_URL", ""),
+            tribute_render_queue_url=os.environ.get("TRIBUTE_RENDER_QUEUE_URL", ""),
+            storybook_render_queue_url=os.environ.get(
+                "STORYBOOK_RENDER_QUEUE_URL", ""
+            ),
             profile_picture_queue_url=os.environ.get("PROFILE_PICTURE_QUEUE_URL", ""),
             llm_node_edit_provider=os.environ.get(
                 "LLM_NODE_EDIT_PROVIDER",
@@ -724,6 +736,138 @@ class ProfileSummaryConfig:
             sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
             db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
             db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "4")),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class TributeRenderConfig:
+    """Configuration for the ``tribute_render`` worker (Python-owned video).
+
+    Drains the ``tribute_render`` SQS queue (one message per tribute; producer
+    is ``POST /tributes/{id}/generate``) and renders the MP4 + PDF with Gemini
+    illustrations. ``run-once --tribute-id <uuid>`` uses the same logic without
+    the queue (queue URL may be empty for that path). No S3 creds: the worker
+    transfers via Node-minted presigned URLs stored on the row.
+    """
+
+    database_url: str = field(repr=False)
+    aws_region: str
+    tribute_render_queue_url: str
+    gemini_api_key: str = field(repr=False)
+    # Big-LLM (Book assembly) -- the worker assembles the storybook script at
+    # render time so /generate returns immediately. These mirror HttpConfig's
+    # llm_big_* / anthropic_api_key and feed flashback.llm.interface.
+    anthropic_api_key: str = field(default="", repr=False)
+    llm_big_provider: str = "anthropic"
+    llm_big_model: str = "claude-sonnet-4-6"
+    gemini_image_model: str = "gemini-3.1-flash-image"
+    sqs_max_messages: int = 1            # one heavy render at a time
+    sqs_wait_seconds: int = 20
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 2
+    render_fps: int = 30
+    render_transition: str = "bleed"
+    render_blend: str = "cream"
+    # Concurrent Gemini image-gen calls per render. Pages are independent, so
+    # this turns ~18 serial calls into a few parallel batches (no quality
+    # change). Keep modest to stay under image-model rate limits.
+    render_concurrency: int = 4
+    # Mirror the queue's redrive maxReceiveCount. On the final attempt the
+    # worker writes status='failed' + render_error instead of silently
+    # dropping to the DLQ (which would strand the row in 'generating').
+    max_render_attempts: int = 3
+
+    @classmethod
+    def from_env(cls, *, queue_required: bool = True) -> "TributeRenderConfig":
+        queue_url = (
+            _required("TRIBUTE_RENDER_QUEUE_URL")
+            if queue_required
+            else os.environ.get("TRIBUTE_RENDER_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            tribute_render_queue_url=queue_url,
+            gemini_api_key=_required("GEMINI_API_KEY"),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            llm_big_model=os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6"),
+            gemini_image_model=os.environ.get(
+                "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
+            ),
+            sqs_max_messages=int(os.environ.get("SQS_MAX_MESSAGES", "1")),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "2")),
+            render_fps=int(os.environ.get("RENDER_FPS", "30")),
+            render_transition=os.environ.get("RENDER_TRANSITION", "bleed"),
+            render_blend=os.environ.get("RENDER_BLEND", "cream"),
+            render_concurrency=int(os.environ.get("RENDER_CONCURRENCY", "4")),
+            max_render_attempts=int(os.environ.get("MAX_RENDER_ATTEMPTS", "3")),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class StorybookRenderConfig:
+    """Configuration for the ``storybook_render`` worker (Python-owned books).
+
+    Drains the ``storybook_render`` SQS queue (one message per storybook;
+    producer is ``POST /storybooks`` + regenerate/edit) and renders the PDF +
+    page PNGs with Gemini illustrations. ``run-once --storybook-id <uuid>``
+    uses the same logic without the queue (queue URL may be empty for that
+    path). No S3 creds: the worker transfers via Node-minted presigned URLs
+    stored on the row. OpenAI is required for the gpt-5.1 lettering verifier.
+    """
+
+    database_url: str = field(repr=False)
+    aws_region: str
+    storybook_render_queue_url: str
+    gemini_api_key: str = field(repr=False)
+    # Big-LLM (curation + script assembly) at render time -- the route returns
+    # immediately; the heavy work is fully async (the tribute pattern).
+    anthropic_api_key: str = field(default="", repr=False)
+    llm_big_provider: str = "anthropic"
+    llm_big_model: str = "claude-sonnet-4-6"
+    gemini_image_model: str = "gemini-3.1-flash-image"
+    # gpt-5.1 vision lettering verifier (scenes.lettering_ok).
+    openai_api_key: str = field(default="", repr=False)
+    lettering_verifier_model: str = "gpt-5.1"
+    sqs_max_messages: int = 1            # one heavy render at a time
+    sqs_wait_seconds: int = 20
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 2
+    # Mirror the queue's redrive maxReceiveCount. On the final attempt the
+    # worker writes status='failed' + render_error instead of silently
+    # dropping to the DLQ (which would strand the row in 'generating').
+    max_render_attempts: int = 3
+
+    @classmethod
+    def from_env(cls, *, queue_required: bool = True) -> "StorybookRenderConfig":
+        queue_url = (
+            _required("STORYBOOK_RENDER_QUEUE_URL")
+            if queue_required
+            else os.environ.get("STORYBOOK_RENDER_QUEUE_URL", "")
+        )
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            storybook_render_queue_url=queue_url,
+            gemini_api_key=_required("GEMINI_API_KEY"),
+            anthropic_api_key=_required("ANTHROPIC_API_KEY"),
+            openai_api_key=_required("OPENAI_API_KEY"),
+            llm_big_provider=os.environ.get("LLM_BIG_PROVIDER", "anthropic"),
+            llm_big_model=os.environ.get("LLM_BIG_MODEL", "claude-sonnet-4-6"),
+            gemini_image_model=os.environ.get(
+                "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
+            ),
+            lettering_verifier_model=os.environ.get(
+                "LETTERING_VERIFIER_MODEL", "gpt-5.1"
+            ),
+            sqs_max_messages=int(os.environ.get("SQS_MAX_MESSAGES", "1")),
+            sqs_wait_seconds=int(os.environ.get("SQS_WAIT_SECONDS", "20")),
+            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
+            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "2")),
+            max_render_attempts=int(os.environ.get("MAX_RENDER_ATTEMPTS", "3")),
         )
 
 

@@ -129,7 +129,9 @@ def _patch_all(
     async def _fake_increment_taps_emitted(conn, *, person_id, user_id):
         pass
 
-    async def _fake_generate_onboarding_tap(*, settings, person_name, relationship):
+    async def _fake_generate_onboarding_tap(
+        *, settings, person_name, relationship, **kwargs
+    ):
         return (tap_text, tap_options or [])
 
     async def _fake_read_name(deps, person_id):

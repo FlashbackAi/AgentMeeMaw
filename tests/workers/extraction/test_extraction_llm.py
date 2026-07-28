@@ -141,6 +141,56 @@ def test_contributor_display_name_empty_renders_empty_tag(
     assert "<contributor_display_name></contributor_display_name>" in user_message
 
 
+def test_people_in_scenes_block_carries_both_genders(
+    monkeypatch, stub_extraction_cfg, stub_settings
+) -> None:
+    payload = sample_extractions.empty_extraction()
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return payload
+
+    monkeypatch.setattr(ext_llm_mod, "call_with_tool", _impl)
+    run_extraction(
+        cfg=stub_extraction_cfg,
+        settings=stub_settings,
+        subject_name="Dad",
+        subject_relationship="father",
+        subject_gender="he",
+        contributor_gender="she",
+        prior_rolling_summary="",
+        segment_turns=SEGMENT_TURNS,
+        contributor_display_name="Sarah",
+    )
+    user_message = captured["user_message"]
+    assert "<people_in_scenes>" in user_message
+    assert "The subject (Dad" in user_message and "is a man" in user_message
+    assert "Sarah" in user_message and "is a woman" in user_message
+
+
+def test_people_in_scenes_block_omitted_when_no_gender(
+    monkeypatch, stub_extraction_cfg, stub_settings
+) -> None:
+    payload = sample_extractions.empty_extraction()
+    captured: dict = {}
+
+    async def _impl(**kwargs):
+        captured.update(kwargs)
+        return payload
+
+    monkeypatch.setattr(ext_llm_mod, "call_with_tool", _impl)
+    run_extraction(
+        cfg=stub_extraction_cfg,
+        settings=stub_settings,
+        subject_name="Dad",
+        subject_relationship="father",
+        prior_rolling_summary="",
+        segment_turns=SEGMENT_TURNS,
+    )
+    assert "<people_in_scenes>" not in captured["user_message"]
+
+
 def test_validation_error_on_missing_themes(
     monkeypatch, stub_extraction_cfg, stub_settings
 ) -> None:

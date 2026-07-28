@@ -7,6 +7,8 @@ from uuid import UUID
 
 import structlog
 
+from flashback.ground_truth.render import render_ground_truth_block
+from flashback.ground_truth.store import fetch_ground_truth
 from flashback.orchestrator.deps import OrchestratorDeps
 from flashback.orchestrator.instrumentation import timed_step
 from flashback.orchestrator.protocol import Tap
@@ -107,12 +109,16 @@ async def select_coverage_tap(state: TurnState, deps: OrchestratorDeps) -> None:
         name, gender = await _read_name_and_gender(deps, state.person_id)
         rendered_text = render_question_text(text, name, gender)
         relationship = state.person_relationship or await _read_relationship(deps, state.person_id)
+        ground_truth = await fetch_ground_truth(deps.db_pool, state.person_id)
         options = await generate_tap_options(
             settings=deps.settings,
             question_text=rendered_text,
             person_name=name,
             person_relationship=relationship,
             dimension=dimension,
+            ground_truth_context=render_ground_truth_block(
+                ground_truth, "responder"
+            ),
             person_gender=gender,
         )
         tap = Tap(

@@ -44,6 +44,11 @@ class StarterContext(BaseModel):
     contributor_voice_anchor: str | None = None
     anchor_question_text: str | None = None
     anchor_dimension: AnchorDimension | None = None
+    # True when anchor_question_text came from an explicit feed pick
+    # (the contributor tapped this question), as opposed to an
+    # auto-selected starter question. An explicit pick must lead the
+    # opener and be asked faithfully, not buried behind continuity.
+    anchor_is_explicit_pick: bool = False
     prior_session_summary: str | None = None
 
     # Theme deepen context (optional). When set, the opener should
@@ -52,6 +57,9 @@ class StarterContext(BaseModel):
     current_theme_display_name: str | None = None
     current_theme_kind: str | None = None  # 'universal' | 'emergent'
     theme_archetype_answers: list[dict] = Field(default_factory=list)
+
+    # Rendered ground-truth block (audience='responder'); empty = unknown.
+    ground_truth_block: str = ""
 
     mode: Mode = "text"
 
@@ -112,6 +120,18 @@ class TurnContext(BaseModel):
     # Active deepen-session theme, if any. Soft bias: the agent should
     # tilt toward this theme but follow the user when conversation drifts.
     current_theme_display_name: str | None = None
+
+    # Soft tribute steering: the hint for the first unfilled checklist slot,
+    # or None. The agent should gently lean toward it when natural -- never
+    # as a survey, never a hard filter.
+    tribute_gap_hint: str | None = None
+
+    # True while the session is actively building a tribute. Switches on the
+    # <tribute_pace> directive: cover breadth fast, don't dwell on one topic.
+    tribute_active: bool = False
+
+    # Rendered ground-truth block (audience='responder'); empty = unknown.
+    ground_truth_block: str = ""
 
     mode: Mode = "text"
 

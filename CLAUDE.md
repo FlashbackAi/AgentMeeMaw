@@ -24,10 +24,14 @@ rules flow from that:
   interviewer/archivist, not an impersonator.
 - We do **not** clone voices or generate photoreal video of the subject
   in v1.
-- We **do** generate painterly-realism artifacts in the visual register of
-  Red Dead Redemption 2 — naturalistic features and lighting with painterly
-  brushwork, sitting between full photorealism and cartoon (images for
-  persons / threads / entities, short videos for moments) for visual texture.
+- We **do** generate hand-painted-illustration artifacts in the visual
+  register of Red Dead Redemption 2 — naturalistic features and lighting with
+  prominent painterly brushwork and softer, suggestive detail, sitting
+  clearly on the painting side (well short of photorealism, but not cartoon —
+  the art should read as a painting, not a photo). This deliberately leans
+  away from photorealism so viewers don't scrutinize literal detail accuracy
+  (images for persons / threads / entities, short videos for moments) for
+  visual texture.
   Deepfake likeness of real specific living people remains negative-prompted.
 - The agent must never feel like a survey. Cold openers, dropped
   references, and emotional pacing all matter.
@@ -81,8 +85,8 @@ External dependencies we **call** but do not own: the Node Backend
 - **All writes** to Postgres canonical graph (persons, moments,
   entities, threads, traits, questions, edges, history tables).
 - **Working Memory** in Valkey (per-session ephemeral state).
-- **Pushing jobs** onto all three SQS queues (extraction, embedding,
-  artifact_generation).
+- **Pushing jobs** onto the SQS queues (extraction, embedding,
+  artifact_generation, tribute_render, storybook_render).
 - The **embedding worker** that drains the embedding queue and writes
   vector columns back to Postgres.
 
@@ -95,13 +99,58 @@ External dependencies we **call** but do not own: the Node Backend
 - **Consuming** the `artifact_generation` queue: calling the
   image/video generation model, uploading to S3, writing the URL
   columns (`image_url`, `video_url`, `thumbnail_url`) back to Postgres.
+  **Exception — tributes:** the agent renders the tribute video + PDF
+  (see Hard rules below). Node does **not** render tributes off
+  `artifact_generation`; it mints presigned URLs and writes
+  `tributes.video_url` / `pdf_url` (and `thumbnail_url` from the cover
+  poster) on the `tribute_render_complete` NOTIFY.
 
 ### Hard rules
 
 - **We never touch DynamoDB.** Session/turn metadata we need is passed
   in by Node on the request, or fetched from a Node API.
-- **We never touch S3 or the URL columns.** We only write the
-  `generation_prompt` column and push onto `artifact_generation`.
+- **We never touch S3 or the URL columns** — with one scoped exception,
+  the tribute video render (next bullet). For canonical-graph artifacts
+  we only write the `generation_prompt` column and push onto
+  `artifact_generation`.
+- **The tribute video + PDF are rendered by the agent**
+  (`flashback.workers.tribute_render`), not Node. The agent reaches S3
+  **only via Node-minted presigned URLs** (GET the prime photo, PUT the
+  MP4 + PDF + an optional cover poster JPEG) — it holds **no** S3
+  credentials and still **never writes the URL columns**; Node writes
+  `tributes.video_url` / `pdf_url` (and `thumbnail_url` from the poster,
+  when the NOTIFY carries `poster_present`) on the transactional
+  `tribute_render_complete` NOTIFY (a sibling of invariant #25). The
+  poster is the opener page (the cover: portrait + title, the video's
+  first frame); writing it as the thumbnail keeps the tribute card from
+  showing a stray mid-video text frame. The tribute *storybook* artifact is retired (video + PDF only);
+  the standalone `/storybooks` feature is separate. Spec:
+  `docs/superpowers/specs/2026-06-20-tribute-video-pipeline-design.md`.
+- **Storybooks are rendered by the agent too**
+  (`flashback.workers.storybook_render`), the tribute's sibling. Six
+  fixed collections (5 curated grid + the `wisdom` chapter lens), each a
+  cover + 7 page PNGs + a PDF composited into the collection's template
+  with one consistent, age-controlled subject likeness (anchored to the
+  user's uploaded photo when the person's latest profile-picture
+  generation context is `with_reference` — Node mints the GET URL).
+  Same presigned-URL rules as tributes: no S3 creds, never the URL
+  columns; Node LISTENs `storybook_render_complete` and writes
+  `storybooks.pdf_url` / `page_urls` / cover `image_url`+`thumbnail_url`.
+  `/storybooks` no longer pushes `artifact_generation`. Spec:
+  `docs/superpowers/specs/2026-06-29-storybooks-python-render-design.md`.
+  **Per-collection eligibility is tag-gated (design 2026-07-06).** The
+  Extraction Worker tags each moment with the grid collections it fits
+  (`moments.storybook_collections TEXT[]`, migration 0036, riding the
+  existing extraction LLM call — `wisdom` is never tagged, it lenses the
+  whole pool). A grid collection needs ≥5 qualifying tagged moments to be
+  minted (`wisdom` keeps the whole-pool floor of 3); below that, preview /
+  create **409** and nothing is enqueued. The render-time curation LLM is
+  **retired**: the route resolves the definitive slice from tags (chrono,
+  used-in-a-completed-book demoted, capped 25) and writes it to
+  `scene_moment_ids` before enqueuing, so a collection can never be rendered
+  from moments that don't fit it. Backfill existing legacies with
+  `scripts/backfill_storybook_collections.py`. Spec:
+  `docs/superpowers/specs/2026-07-06-storybook-collection-eligibility-design.md`.
 - **We never write to Node-owned tables** (users, future
   `person_roles`, etc.). In v1 onboarding state is stored on the
   agent-owned `persons` row because there is only one contributor per
@@ -125,7 +174,7 @@ External dependencies we **call** but do not own: the Node Backend
 
 ---
 
-## 4. The 18 invariants
+## 4. The 30 invariants
 
 Every piece of code touching the graph or queues must respect these.
 
@@ -239,17 +288,17 @@ Every piece of code touching the graph or queues must respect these.
     standalone entity** with its edges moved back. Auto-merges surface
     via `GET /identity_merges/auto_merged` (toast feed) and are cleared
     with `POST /identity_merges/{id}/acknowledge`.
-    **Cross-contributor merges (SP6b, migration 0035).** A merge collapses two
+    **Cross-contributor merges (SP6b, migration C010).** A merge collapses two
     identities, so the survivor carries the **earliest introducer's**
     `told_by_user_id` (older `created_at`; tie → survivor keeps its own;
     creator-era NULL is valid) — merge-specific, distinct from the reuse-fold
-    no-restamp rule (#26); `_supersede`-style. `_merge_entity_rows` snapshots the
+    no-restamp rule (#27); `_supersede`-style. `_merge_entity_rows` snapshots the
     source's + the survivor's prior `told_by` so `unmerge` restores both exactly.
     Both originals are captured on the suggestion row
     (`source_told_by_user_id`/`target_told_by_user_id`) at creation; the
     suggestion + auto-merge feeds expose `cross_contributor` (`IS DISTINCT
     FROM`) + both introducers' `told_by_display_name` resolved live via
-    `collaborator_onboarding` (#20/#26 guard). Detection is unchanged
+    `collaborator_onboarding` (#20/#27 guard). Detection is unchanged
     (name/alias). These feeds are per-legacy + audience-agnostic — Node picks
     who sees them.
 18. **Traits are anchored, deduped, and behavior-described.** Three
@@ -323,13 +372,13 @@ Every piece of code touching the graph or queues must respect these.
     **Cross-contributor recognition (lite):** `get_entities_by_ids`
     `LEFT JOIN`s `collaborator_onboarding` on the entity's
     `told_by_user_id` (the first introducer — never restamped on reuse,
-    #26) to resolve `told_by_display_name` + `told_by_relationship`. The
+    #27) to resolve `told_by_display_name` + `told_by_relationship`. The
     `<mentioned_entities>` render adds a `told_by="…" relationship="…"`
     attribution when a *different* contributor first introduced the entity
     (same guard as moment attribution); the base prompt lets the agent
     credit the source ("the one Ravi mentioned"). Recognition-only — no
     merge (SP6), no scope gate (entities stay open; only questions are
-    gated, #27). Creator-era / unresolvable names render un-attributed.
+    gated, #28). Creator-era / unresolvable names render un-attributed.
 
 21. **Starter-question dedup uses the WM `asked` register, not just
     `answered_by` edges.** The graph-anchored dedup
@@ -488,7 +537,38 @@ Every piece of code touching the graph or queues must respect these.
     boundary already grants Node read access to. The DLQ path emits
     nothing; Node falls back to a wrap timeout.
 
-26. **Contributor provenance is stamped, never inferred.** Every
+26. **Ground truth is captured structured, never mined.** Stable subject
+    facts (the 9-field registry in `flashback/ground_truth/registry.py`:
+    region, birth_era, setting_type, attire, distinctive_features,
+    build, cultural_context, era_span, languages) live in
+    `persons.ground_truth` JSONB, each value carrying
+    `{value, provenance, confidence, updated_at}` with precedence
+    `user_edit > tap > onboarding > inferred` — inference never
+    overwrites an explicit answer. Complexion/ethnicity is **not** a
+    field and is never asked; prompts derive it from region + era +
+    cultural context. DOB is still never stored — `birth_era` is a
+    decade estimate. Capture paths: (a) the Extraction Worker emits
+    `ground_truth_observations` as a byproduct (high-confidence only,
+    `provenance='inferred'`); (b) contextual tap cards on
+    `story`/`deepen` intents only (never `switch` — that surface
+    belongs to the question bank), capped per session
+    (`GT_TAPS_PER_SESSION_CAP`, currently 9) with a 2-user-turn
+    cooldown so cards never land back-to-back, gated on emotional
+    temperature, ≥9 user turns into the session, and a small-LLM
+    skip-gate that never asks what the conversation already revealed;
+    (c) two onboarding
+    questions (region, birth decade). Answers return as the structured
+    `ground_truth_answer` sidecar on `/turn` — never as chat text, so
+    extraction never mines demographic Q&A. Segment-anchor taps
+    ("about when was that?") write to Working Memory and ride the
+    extraction payload as `<segment_time_anchor>`; the worker treats
+    them as authoritative time evidence for that segment's moments.
+    Consumption is read-at-compose-time only (extraction prompt,
+    portrait/scene composers, responder context) — nothing
+    auto-regenerates when ground truth changes; manual regenerate is
+    the recovery path.
+
+27. **Contributor provenance is stamped, never inferred.** Every
     contributor-authored row carries `told_by_user_id` (the Node
     `user_id` that authored it); NULL = creator era (pre-collaborator
     rows, seeded questions, cadence producer runs). Exception:
@@ -505,7 +585,7 @@ Every piece of code touching the graph or queues must respect these.
     provenance. `user_id` is the sole identity; `role_id` is retired
     (tolerated-and-ignored on requests until Node drops it).
 
-27. **Question eligibility is provenance + scope gated.** Every produced
+28. **Question eligibility is provenance + scope gated.** Every produced
     question carries `attributes.scope ∈ {public, personal, private}`
     (LLM-labelled, code-normalized via `flashback.questions.scope.normalize_scope`;
     missing/unknown → `personal`). The steady/coverage-tap selector admits a
@@ -516,7 +596,7 @@ Every piece of code touching the graph or queues must respect these.
     `public`. Relationship-based `personal` (close family of the subject) is
     deferred to a later sub-project.
 
-28. **Same-event linking + contradiction review are detected live, recorded,
+29. **Same-event linking + contradiction review are detected live, recorded,
     and provenance-resolved at read time.** The compatibility LLM gains a 4th
     verdict `same_event` alongside `refinement`/`contradiction`/`independent`,
     on the per-new-moment refinement search (`worker.py` candidate loop). The
@@ -532,9 +612,9 @@ Every piece of code touching the graph or queues must respect these.
     / pending contradictions from the old id to the new id and re-canonicalizes
     A/B order (extends #5); a repoint that would self-pair collapses the row
     (`unlinked`/`dismissed`). Same-event links feed `recall` retrieval into a
-    `<linked_accounts>` block (cross-contributor framing via the #20/#26
+    `<linked_accounts>` block (cross-contributor framing via the #20/#27
     attribution guard); contradictions never reach the agent. Module
-    `flashback.moment_links`; migration 0033. Endpoints: `GET /event_links`,
+    `flashback.moment_links`; migration C008. Endpoints: `GET /event_links`,
     `POST /event_links/{id}/acknowledge|unlink`, `GET /contradictions`,
     `POST /contradictions/{id}/dismiss`.
     **Cross-contributor refinement guard:** a `refinement` verdict supersedes
@@ -554,7 +634,7 @@ Every piece of code touching the graph or queues must respect these.
     widens what's *considered*, never auto-links). Tunable via
     `EXTRACTION_REFINEMENT_TIGHT_DISTANCE_THRESHOLD`.
 
-29. **Collaborator removal is a reversible hide, never a delete.** `POST
+30. **Collaborator removal is a reversible hide, never a delete.** `POST
     /collaborators/remove` flips `status → 'removed'` on the contributor's
     `collaborator_onboarding` row, their `moments` (`told_by_user_id`), and the
     `entities` they introduced that **no surviving active moment references**
@@ -572,7 +652,7 @@ Every piece of code touching the graph or queues must respect these.
     surviving ancestor resurrected 2+ hops behind the departing voice is
     re-superseded on restore (not just direct predecessors). Re-invite is either
     restore (same `user_id`) or fresh-start (Node issues a new `user_id`; no
-    agent work). Idempotent. Module `flashback.collaborators`; migration 0034.
+    agent work). Idempotent. Module `flashback.collaborators`; migration C009.
     Side effect: a *surviving* shared entity first introduced by the removed
     contributor stays active but renders **un-attributed** while they're removed
     (the `collaborator_onboarding` name JOIN is `status='active'`-gated);
@@ -594,7 +674,7 @@ Every piece of code touching the graph or queues must respect these.
   goes through it.
 - **Supersession via `status`** (`active` | `superseded` | `merged`),
   not deletion. Moments/entities also carry a `'removed'` status (migration
-  0034, SP6a) for reversible collaborator removal (#29) — distinct from
+  C009, SP6a) for reversible collaborator removal (#30) — distinct from
   supersession/merge so restore is unambiguous.
 - **Embeddings:** `vector(1024)` columns with `embedding_model` and
   `embedding_model_version` alongside, on every embedded row.
@@ -606,13 +686,13 @@ Every piece of code touching the graph or queues must respect these.
 - **Identity merge suggestions** live in `identity_merge_suggestions`.
   They are pending review records, not graph mutations. Extraction can
   propose source→target; only approval performs the merge.
-- **Same-event links + contradiction review items** (migration 0033) live in
+- **Same-event links + contradiction review items** (migration C008) live in
   their own tables `moment_same_event_links` (`status active|unlinked`) and
   `moment_contradictions` (`status pending|dismissed`). Agent-owned; Node reads
   them only via the SP5 endpoints, never writes directly. They store moment ids
-  only — `told_by_*` is resolved live via JOIN to `moments` (#28). A/B order is
+  only — `told_by_*` is resolved live via JOIN to `moments` (#29). A/B order is
   canonicalized (smaller UUID first) with a partial unique index over the live
-  status. See invariant #28.
+  status. See invariant #29.
 - **Questions are first-class nodes.** Their relational data lives in
   `edges` via `motivated_by`, `targets`, `answered_by`. The questions
   `attributes` JSONB only holds non-relational fields:
@@ -647,6 +727,10 @@ Every piece of code touching the graph or queues must respect these.
 - `phase_locked_at TIMESTAMP NULL`
 - `moments_at_last_thread_run INT NOT NULL DEFAULT 0` — used by the
   Thread Detector trigger (every 15 new active moments).
+- `ground_truth JSONB NOT NULL DEFAULT '{}'` — the ground-truth layer
+  (invariant #26, migration 0026). One key per registry field; each
+  value is `{value, provenance, confidence, updated_at}`. Node reads
+  it; all writes go through the agent's precedence-aware upsert.
 
 ### Artifact columns (Node writes URLs, we write prompts)
 
@@ -729,7 +813,7 @@ Counters can climb past 1 — that's diagnostic. Only `≥ 1` matters.
 A lightweight per-`(person_id, user_id)` analog of the creator's 5-anchor
 starter phase. Tracked on the `collaborator_onboarding` table
 (`phase TEXT ∈ {'onboarding','active'}`, `phase_locked_at TIMESTAMP NULL`).
-Added by migration **0032**.
+Added by migration **C007**.
 
 Three things to keep distinct:
 - `collaborator_onboarding.phase` — agent-internal; drives the onboarding
@@ -1020,7 +1104,10 @@ We expose an HTTP service. Node calls us; we never call Node.
   always empty.
   `session_metadata` accepts optional `theme_id` (UUID) and
   `archetype_answers` (list of `{question_id, question_text,
-  option_id?, option_label?, free_text?}`). When `theme_id` is
+  option_ids?, option_labels?, option_id?, option_label?,
+  free_text?}` — chips are multi-select and may combine with free
+  text; the legacy single option_id/option_label shape stays
+  accepted as a one-element list). When `theme_id` is
   present, the `apply_theme_unlock` orchestrator step flips the
   theme `locked → unlocked` atomically and stamps
   `current_theme_*` on Working Memory so the producer ranker can
@@ -1028,10 +1115,27 @@ We expose an HTTP service. Node calls us; we never call Node.
   theme. Answers are ephemeral priors — kept on the theme row's
   `archetype_answers` JSONB, fed into the first-turn opener
   context, but never written as moments/traits/profile_facts.
+  `session_metadata` also accepts optional `question_id` (UUID) — the
+  producer-bank question the contributor tapped in the feed
+  (`GET /questions/feed`). The `apply_picked_question` step (after
+  `select_starter_question`, both phases, both JSON + stream pipelines)
+  loads that active person-scoped question and sets `state.selection` so
+  the opener anchors on it, overriding any auto-selected starter
+  question. An explicit pick is exempt from cooldown/recency dedup; an
+  unknown/foreign/inactive id degrades to the normal opener. Composes
+  with `theme_id`.
 - `POST /turn` — body: `{ session_id, person_id, user_id, message }`.
   (`role_id` is retired — tolerated and ignored during the transition
   window.) Returns the assistant reply + metadata (intent,
   emotional_temperature, taps, etc.). Runs the Turn loop end-to-end.
+  Optional `ground_truth_answer` field (`{kind, field?, option_label?,
+  free_text?, skipped}`) carries a ground-truth / segment-anchor tap
+  answer; it is persisted before the pipeline runs and ignored when no
+  GT tap is pending (invariant #26). `metadata.taps[]` entries carry
+  `kind` (`coverage | ground_truth | segment_anchor`) and `field`;
+  `question_id` is null for non-coverage kinds — Node renders all
+  three with the same card and must not post `question_decision` for
+  null-question_id taps.
 - `POST /turn/stream` and `POST /session/start/stream` — SSE twins of
   the JSON endpoints above. Same request bodies, same pre-stream
   checks (working memory existence, rate limit, optional
@@ -1047,6 +1151,17 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /session/wrap` — body: `{ session_id, person_id }`. Force-
   closes the open segment, generates session summary, kicks off
   post-session sequencing. Returns the session summary.
+- `GET /questions/feed?person_id=...&limit=...` — ranked, browsable
+  feed of the person's producer-bank questions for the scrolling
+  surface. Reuses the SteadySelector fetch + `combined_score` ranking,
+  honors `question_decisions` (`skip`/`suppress` excluded, `defer`
+  boosted), and spreads `universal_dimension` (≤1 per 5, invariant #10).
+  Producer-bank sources only; coverage-tap + archetype excluded. `limit`
+  default 25, clamped 1–50. Read-only, person-scoped; empty list for a
+  fresh legacy. Tapping a result seeds a session via
+  `session_metadata.question_id` on `/session/start`. Ranking is
+  agent-side computation — the one carve-out from "Node reads
+  `active_questions` directly" (API.md §9).
 - `POST /admin/reset_phase` — admin-only escape hatch for Handover
   Check stickiness. Body: `{ person_id }`.
 - `POST /profile_facts/upsert` — Node-driven fact edit. Body:
@@ -1086,12 +1201,22 @@ We expose an HTTP service. Node calls us; we never call Node.
   `/session/start` when `theme_id` is carried in `session_metadata`.
   Repeat calls return cached payload at no LLM cost.
 - `POST /themes/{theme_id}/archetype_progress` — body:
-  `{ person_id, answers: [{question_id, option_id?, option_label?,
-  free_text?, skipped?}] }`. Replaces `archetype_answers_draft` on
+  `{ person_id, answers: [{question_id, option_ids?, option_labels?,
+  option_id?, option_label?, free_text?, skipped?}] }`. Chips are
+  multi-select and may combine with free_text; the legacy single
+  shape stays accepted. Replaces `archetype_answers_draft` on
   the row (last-write-wins) so the user can resume an abandoned
   unlock flow. Returns `{ saved, answered, total }`. 404 if no
   matching active theme for that person; 409 if the theme is
   already unlocked.
+- `POST /storybooks/preview` — body: `{ person_id, collection }`. Returns
+  curation's picked moments (pre-selected, rank order) + the rest of the
+  qualifying pool with `suggested_collection` / `used_in` chip data and
+  the selection bounds (min 5 — relaxed to 3 on pools under 5 — max 25).
+  Read-only; the curation assignment is cached in Valkey per pool
+  fingerprint. Confirm by passing the optional `moment_ids` on
+  `POST /storybooks` (absent = auto-curate as before); the worker then
+  skips curation and regenerate/edit preserve the confirmed slice.
 - `GET /artifact-presets` — returns the public list of artifact style/mood
   presets in display order (default first). Slugs are part of the
   agent ↔ Node contract; labels/descriptions are user-facing.

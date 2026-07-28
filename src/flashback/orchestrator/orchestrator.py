@@ -41,6 +41,7 @@ from flashback.orchestrator.steps import (
     append_assistant,
     append_opener,
     append_user_turn,
+    apply_picked_question,
     apply_collaborator_onboarding,
     apply_theme_unlock,
     classify,
@@ -51,11 +52,14 @@ from flashback.orchestrator.steps import (
     init_working_memory,
     load_continuity_context,
     load_person,
+    load_tribute_progress,
     promote_seeded_to_tap,
     retrieve,
     scan_entity_mentions,
     select_collaborator_onboarding_tap,
     select_coverage_tap,
+    select_ground_truth_tap,
+    select_message_invitation,
     select_question,
     select_starter_question,
 )
@@ -73,6 +77,7 @@ from flashback.queues.trait_synthesizer import TraitSynthesizerQueueProducer
 from flashback.response_generator import ResponseGenerator
 from flashback.response_generator.voice_style import VoiceStyleStreamParser
 from flashback.session_summary import SessionSummaryGenerator
+from flashback.tribute.progress import progress_to_payload
 
 log = structlog.get_logger("flashback.orchestrator")
 
@@ -151,6 +156,12 @@ class Orchestrator:
                     policies=SESSION_START_POLICIES,
                     step_name="select_starter_question",
                     fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="apply_picked_question",
+                    fn=lambda: apply_picked_question(state, self._deps),
                     state=state,
                 )
                 await execute(
@@ -360,6 +371,22 @@ class Orchestrator:
                     fn=lambda: retrieve(state, self._deps),
                     state=state,
                 )
+            if state.effective_intent in {"story", "deepen"}:
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_ground_truth_tap",
+                    fn=lambda: select_ground_truth_tap(state, self._deps),
+                    state=state,
+                )
+                # Tribute message invitation runs after the GT tap; both
+                # bail when state.taps is already set, so at most one tap
+                # fires per turn.
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_message_invitation",
+                    fn=lambda: select_message_invitation(state, self._deps),
+                    state=state,
+                )
             if (
                 state.effective_intent == "switch"
                 and self._deps.response_generator is not None
@@ -382,6 +409,14 @@ class Orchestrator:
                     fn=lambda: promote_seeded_to_tap(state, self._deps),
                     state=state,
                 )
+            # Tribute live meter + gap hint: runs every turn in a tribute
+            # flow (self-gates on current_tribute_id), before the response.
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="load_tribute_progress",
+                fn=lambda: load_tribute_progress(state, self._deps),
+                state=state,
+            )
             await execute(
                 policies=TURN_POLICIES,
                 step_name="generate_response",
@@ -495,6 +530,22 @@ class Orchestrator:
                     fn=lambda: retrieve(state, self._deps),
                     state=state,
                 )
+            if state.effective_intent in {"story", "deepen"}:
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_ground_truth_tap",
+                    fn=lambda: select_ground_truth_tap(state, self._deps),
+                    state=state,
+                )
+                # Tribute message invitation runs after the GT tap; both
+                # bail when state.taps is already set, so at most one tap
+                # fires per turn.
+                await execute(
+                    policies=TURN_POLICIES,
+                    step_name="select_message_invitation",
+                    fn=lambda: select_message_invitation(state, self._deps),
+                    state=state,
+                )
             if (
                 state.effective_intent == "switch"
                 and self._deps.response_generator is not None
@@ -512,6 +563,15 @@ class Orchestrator:
                     fn=lambda: promote_seeded_to_tap(state, self._deps),
                     state=state,
                 )
+
+            # Tribute live meter + gap hint, before the pre-LLM meta event
+            # and build_turn_context (self-gates on current_tribute_id).
+            await execute(
+                policies=TURN_POLICIES,
+                step_name="load_tribute_progress",
+                fn=lambda: load_tribute_progress(state, self._deps),
+                state=state,
+            )
 
             yield StreamEvent(type="meta", data=_turn_meta_payload(state))
 
@@ -604,6 +664,7 @@ class Orchestrator:
                     "reply": state.response.text,
                     "segment_boundary": state.segment_boundary_detected,
                     "voice_style": state.voice_style,
+                    "tribute_progress": _tribute_progress_payload(state),
                 },
             )
         finally:
@@ -664,6 +725,12 @@ class Orchestrator:
                     policies=SESSION_START_POLICIES,
                     step_name="select_starter_question",
                     fn=lambda: select_starter_question(state, self._deps),
+                    state=state,
+                )
+                await execute(
+                    policies=SESSION_START_POLICIES,
+                    step_name="apply_picked_question",
+                    fn=lambda: apply_picked_question(state, self._deps),
                     state=state,
                 )
 
@@ -932,6 +999,14 @@ async def _stream_text_events(
             yield StreamEvent(type="text_delta", data={"text": out})
 
 
+def _tribute_progress_payload(state) -> dict | None:
+    """Serialize the tribute live meter, or None when not in a tribute flow."""
+    p = getattr(state, "tribute_progress", None)
+    if p is None:
+        return None
+    return progress_to_payload(p)
+
+
 def _build_turn_result(state: TurnState) -> TurnResult:
     if state.response is None:
         raise RuntimeError("turn completed without a response")
@@ -945,6 +1020,7 @@ def _build_turn_result(state: TurnState) -> TurnResult:
         taps=state.taps,
         chips=_chips_for_selection(state.selection),
         voice_style=state.response.voice_style,
+        tribute_progress=_tribute_progress_payload(state),
     )
 
 
@@ -969,6 +1045,7 @@ def _turn_meta_payload(state) -> dict:
             if chips
             else None
         ),
+        "tribute_progress": _tribute_progress_payload(state),
     }
 
 

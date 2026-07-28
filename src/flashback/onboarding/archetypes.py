@@ -747,6 +747,163 @@ ARCHETYPES: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# --- Ground-truth onboarding questions (design 2026-06-11 §3d) ------------
+# Appended to EVERY archetype set. `ground_truth_field` is server-only
+# (stripped from the public payload, like `implies`). Answers route to
+# persons.ground_truth with provenance='onboarding'; the implies
+# machinery does not apply to these.
+
+GROUND_TRUTH_QUESTIONS: list[dict[str, Any]] = [
+    {
+        "id": "gt_region",
+        "text": "Where did most of their life happen?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "ground_truth_field": "region",
+        "options": [
+            {"id": "same_place", "label": "Same place as me"},
+            {"id": "another_town", "label": "A town they later left"},
+            {"id": "another_state", "label": "Another part of the country"},
+            {"id": "abroad", "label": "Another country"},
+        ],
+    },
+    {
+        "id": "gt_birth_era",
+        "text": "Roughly when were they born?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "ground_truth_field": "birth_era",
+        "options": [
+            {"id": "era_40s_earlier", "label": "1940s or earlier"},
+            {"id": "era_50s_60s", "label": "1950s or 60s"},
+            {"id": "era_70s_80s", "label": "1970s or 80s"},
+            {"id": "era_90s_later", "label": "1990s or later"},
+        ],
+    },
+]
+
+# --- Universal onboarding questions (asked for every archetype) -----------
+# Appended to EVERY archetype set, BEFORE the demographic ground-truth pair,
+# so onboarding always lands at 10 questions (5 archetype + 3 universal + 2
+# ground truth). Unlike the GT pair these carry `implies` (coverage + optional
+# entities) exactly like the archetype questions -- they are NOT ground truth,
+# so their answers seed coverage_state + the opener, never persons.ground_truth.
+# Phrasing avoids a bare "they + present verb" so render_pronouns stays clean
+# ("their place" -> "his place", "call them" -> "call him").
+
+UNIVERSAL_QUESTIONS: list[dict[str, Any]] = [
+    {
+        "id": "universal_what_you_call_them",
+        "text": "What do you call them?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("by_name", "By their name", coverage=["voice", "relation"]),
+            _option("nickname", "A nickname", coverage=["voice", "relation"]),
+            _option("family_title", "A family title", coverage=["voice", "relation"]),
+            _option("endearment", "A term of endearment", coverage=["voice", "relation"]),
+        ],
+    },
+    {
+        "id": "universal_their_work",
+        "text": "What was their main work or trade?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("trade", "A trade or manual work", coverage=["era"]),
+            _option("salaried", "A salaried job", coverage=["era"]),
+            _option("business", "Their own business", coverage=["era"]),
+            _option("farming", "Farming or land", coverage=["era", "place"]),
+            _option("homemaker", "Homemaker / family", coverage=["relation"]),
+        ],
+    },
+    {
+        "id": "universal_their_place",
+        "text": "What's their place in your life?",
+        "allow_free_text": True,
+        "allow_skip": True,
+        "options": [
+            _option("role_model", "My role model", coverage=["relation"]),
+            _option("advisor", "My advisor or guide", coverage=["relation", "voice"]),
+            _option("safe_place", "My safe place", coverage=["relation"]),
+            _option("measure", "The person I measure things by", coverage=["relation"]),
+            _option("whole_world", "My whole world", coverage=["relation"]),
+        ],
+    },
+]
+
+
+_GT_QUESTION_FIELDS: dict[str, str] = {
+    str(q["id"]): str(q["ground_truth_field"]) for q in GROUND_TRUTH_QUESTIONS
+}
+
+
+def allows_multiple(question: dict[str, Any]) -> bool:
+    """Ground-truth questions stay single-choice (they write ONE value
+    into persons.ground_truth); every other question is multi-select."""
+    return "ground_truth_field" not in question
+
+
+def merge_implies(blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge the implies blocks of several selected options into one.
+
+    Coverage dims are unioned (first-seen order), entities concatenated
+    and deduped by (type, name), and ``life_period_estimate`` survives
+    only when every block that carries one agrees — conflicting
+    estimates ("school years" + "working years") are dropped rather
+    than guessed (invariant #6 spirit).
+    """
+    coverage: list[str] = []
+    entities: list[dict[str, Any]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    life_periods: set[str] = set()
+    for raw in blocks:
+        block = sanitize_implies(raw)
+        for dim in block["coverage"]:
+            if dim not in coverage:
+                coverage.append(dim)
+        for entity in block["entities"]:
+            key = (
+                str(entity.get("type") or "").lower(),
+                str(entity.get("name") or "").lower(),
+            )
+            if key in seen_entities:
+                continue
+            seen_entities.add(key)
+            entities.append(entity)
+        life_period = str(block.get("life_period_estimate") or "").strip()
+        if life_period:
+            life_periods.add(life_period)
+
+    out: dict[str, Any] = {"coverage": coverage, "entities": entities}
+    if len(life_periods) == 1:
+        out["life_period_estimate"] = life_periods.pop()
+        if "era" not in out["coverage"]:
+            out["coverage"].append("era")
+    return out
+
+
+def ground_truth_writes_from_answers(
+    answers: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Extract (field, value) writes from resolved onboarding answers.
+    Free-text wins over chip label when both somehow present; skipped
+    and non-GT answers are ignored."""
+    writes: list[tuple[str, str]] = []
+    for answer in answers:
+        gt_field = _GT_QUESTION_FIELDS.get(str(answer.get("question_id") or ""))
+        if gt_field is None or answer.get("skipped"):
+            continue
+        labels = answer.get("labels")
+        first_label = labels[0] if isinstance(labels, list) and labels else None
+        value = str(
+            answer.get("free_text") or answer.get("label") or first_label or ""
+        ).strip()
+        if value:
+            writes.append((gt_field, value))
+    return writes
+
+
 RELATIONSHIP_ALIASES: dict[str, str] = {
     "friend": "friend",
     "best friend": "friend",
@@ -895,9 +1052,11 @@ def public_questions_for_relationship(
     """Return ``(archetype, questions)`` with server-only implies removed."""
 
     archetype = archetype_for_relationship(relationship)
-    questions = deepcopy(ARCHETYPES[archetype])
+    questions = deepcopy(questions_for_archetype(archetype))
     for question in questions:
         question["text"] = render_pronouns(str(question["text"]), gender)
+        question["allow_multiple"] = allows_multiple(question)
+        question.pop("ground_truth_field", None)
         for option in question.get("options", []):
             option["label"] = render_pronouns(str(option["label"]), gender)
             option.pop("implies", None)
@@ -905,7 +1064,8 @@ def public_questions_for_relationship(
 
 
 def questions_for_archetype(archetype: str) -> list[dict[str, Any]]:
-    return ARCHETYPES.get(archetype, ARCHETYPES["generic"])
+    base = ARCHETYPES.get(archetype, ARCHETYPES["generic"])
+    return [*base, *UNIVERSAL_QUESTIONS, *GROUND_TRUTH_QUESTIONS]
 
 
 def resolve_answer(
@@ -932,6 +1092,43 @@ def resolve_answer(
             f"unknown option_id {option_id!r} for question_id {question_id!r}"
         )
     return question, option
+
+
+def resolve_options(
+    *,
+    relationship: str | None,
+    question_id: str,
+    option_ids: list[str],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Resolve a multi-select answer against server-side config.
+
+    Returns ``(question, options)`` preserving selection order with
+    duplicates dropped. Raises ``ValueError`` on an unknown question or
+    option id, or when several options land on a single-choice question.
+    """
+
+    archetype = archetype_for_relationship(relationship)
+    question = _find_question(questions_for_archetype(archetype), question_id)
+    if question is None:
+        raise ValueError(f"unknown archetype question_id {question_id!r}")
+
+    options: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for option_id in option_ids:
+        if option_id in seen:
+            continue
+        seen.add(option_id)
+        option = _find_option(question, option_id)
+        if option is None:
+            raise ValueError(
+                f"unknown option_id {option_id!r} for question_id {question_id!r}"
+            )
+        options.append(option)
+    if len(options) > 1 and not allows_multiple(question):
+        raise ValueError(
+            f"question_id {question_id!r} accepts a single option"
+        )
+    return question, options
 
 
 def expected_question_ids(relationship: str | None) -> set[str]:
@@ -981,24 +1178,31 @@ def sanitize_implies(value: dict[str, Any] | None) -> dict[str, Any]:
 def answer_with_label(
     *,
     question_id: str,
-    option_id: str | None = None,
-    label: str | None = None,
+    option_ids: list[str] | None = None,
+    labels: list[str] | None = None,
     free_text: str | None = None,
     skipped: bool = False,
 ) -> dict[str, Any]:
+    """Build the stored answer record.
+
+    Chips and free text can now coexist on one answer. ``option_id`` /
+    ``label`` mirror the first selection so readers of the legacy
+    single-choice shape keep working.
+    """
     if skipped:
         return {"question_id": question_id, "skipped": True}
-    if free_text is not None:
-        return {
-            "question_id": question_id,
-            "option_id": None,
-            "free_text": free_text.strip(),
-        }
-    return {
+    option_ids = option_ids or []
+    labels = labels or []
+    answer: dict[str, Any] = {
         "question_id": question_id,
-        "option_id": option_id,
-        "label": label,
+        "option_ids": option_ids,
+        "labels": labels,
+        "option_id": option_ids[0] if option_ids else None,
+        "label": labels[0] if labels else None,
     }
+    if free_text is not None and free_text.strip():
+        answer["free_text"] = free_text.strip()
+    return answer
 
 
 def render_archetype_answers_natural_language(
@@ -1016,21 +1220,29 @@ def render_archetype_answers_natural_language(
         if answer.get("skipped"):
             continue
         question_id = str(answer.get("question_id") or "")
-        try:
-            question, option = resolve_answer(
-                relationship=relationship,
-                question_id=question_id,
-                option_id=answer.get("option_id"),
-            )
+        archetype = archetype_for_relationship(relationship)
+        question = _find_question(questions_for_archetype(archetype), question_id)
+        if question is not None:
             question_text = render_pronouns(str(question["text"]), gender)
-        except ValueError:
-            question_text = "Onboarding detail:"
-            option = None
-        if answer.get("free_text"):
-            value = str(answer["free_text"]).strip()
         else:
-            value = str(answer.get("label") or (option or {}).get("label") or "").strip()
-            value = render_pronouns(value, gender)
+            question_text = "Onboarding detail:"
+
+        raw_labels = answer.get("labels")
+        if not isinstance(raw_labels, list):
+            raw_labels = [answer.get("label")] if answer.get("label") else []
+        labels = [
+            render_pronouns(str(label).strip(), gender)
+            for label in raw_labels
+            if str(label or "").strip()
+        ]
+        free_text = str(answer.get("free_text") or "").strip()
+
+        if labels and free_text:
+            value = f'{", ".join(labels)} — and in their own words: "{free_text}"'
+        elif labels:
+            value = ", ".join(labels)
+        else:
+            value = free_text
         if not value:
             continue
         lines.append(f"- {question_text} {value}.")

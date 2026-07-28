@@ -19,11 +19,12 @@ from typing import Iterable
 
 import structlog
 
+from flashback.artifacts.people import figure_noun
 from flashback.llm.interface import call_with_tool
 from flashback.llm.prompt_safety import tagged, xml_text
 
 from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TOOL
-from .schema import ExtractionResult, SegmentTurn
+from .schema import ExtractionResult, SegmentAnchor, SegmentTurn
 
 log = structlog.get_logger("flashback.workers.extraction.extraction_llm")
 EXTRACTION_PROMPT_VERSION = "extraction.v1"
@@ -43,6 +44,18 @@ class ThemeCatalogEntry:
 
     slug: str
     display_name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class CollectionCatalogEntry:
+    """One row of the storybook-collection catalog passed into the prompt.
+
+    Fixed (grid slugs only) — unlike themes there are no per-person collection
+    rows. ``description`` says what BELONGS in the collection so the tagger
+    fits moments accurately (design 2026-07-06)."""
+
+    slug: str
     description: str
 
 
@@ -68,12 +81,17 @@ def run_extraction(
     settings,
     subject_name: str,
     subject_relationship: str | None,
+    subject_gender: str | None = None,
+    contributor_gender: str | None = None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    collection_catalog: Iterable[CollectionCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
+    ground_truth_block: str = "",
+    segment_anchor: SegmentAnchor | None = None,
 ) -> ExtractionResult:
     """
     Synchronous entry point. Returns a validated :class:`ExtractionResult`.
@@ -84,12 +102,17 @@ def run_extraction(
     user_message = _build_user_message(
         subject_name=subject_name,
         subject_relationship=subject_relationship,
+        subject_gender=subject_gender,
+        contributor_gender=contributor_gender,
         prior_rolling_summary=prior_rolling_summary,
         segment_turns=segment_turns,
         contributor_display_name=contributor_display_name,
         candidate_question_ids=candidate_question_ids,
         theme_catalog=theme_catalog,
+        collection_catalog=collection_catalog,
         entity_catalog=entity_catalog,
+        ground_truth_block=ground_truth_block,
+        segment_anchor=segment_anchor,
     )
 
     args = asyncio.run(
@@ -102,6 +125,7 @@ def run_extraction(
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             settings=settings,
+            feature="extraction",
         )
     )
     result = ExtractionResult.model_validate(args)
@@ -115,16 +139,63 @@ def run_extraction(
     return result
 
 
+def _render_people_in_scenes(
+    *,
+    subject_name: str,
+    subject_relationship: str | None,
+    subject_gender: str | None,
+    contributor_display_name: str,
+    contributor_gender: str | None,
+) -> str:
+    """Tell the LLM how to depict the people who recur in moment scenes.
+
+    The subject and (when they appear in a memory, e.g. "my father and I on
+    a bike") the contributor are rendered with gender-correct figures instead
+    of letting the image model default to one. Faces still stay turned/distant
+    per the no-faces rule in the system prompt; this only fixes presentation.
+    Emits nothing when no gender is known — silence beats a wrong guess.
+    """
+    rows: list[str] = []
+    subject_fig = figure_noun(subject_gender)
+    if subject_fig:
+        rel = f", the contributor's {subject_relationship}" if subject_relationship else ""
+        rows.append(f"- The subject ({subject_name}{rel}) is {subject_fig}.")
+    contributor_fig = figure_noun(contributor_gender)
+    if contributor_fig:
+        who = contributor_display_name or "the contributor"
+        rows.append(
+            f"- The contributor ({who}, the one telling these stories) is "
+            f"{contributor_fig}."
+        )
+    if not rows:
+        return ""
+    return (
+        "<people_in_scenes>\n"
+        "When a generation_prompt depicts human figures, render them with "
+        "the correct gender presentation below. Use a matching noun (\"a "
+        "man\", \"a woman\", \"a young boy\", \"an elderly woman\") rather "
+        "than a neutral \"figure\". Faces stay turned away or distant per "
+        "the no-faces rule.\n"
+        + "\n".join(rows)
+        + "\n</people_in_scenes>"
+    )
+
+
 def _build_user_message(
     *,
     subject_name: str,
     subject_relationship: str | None,
+    subject_gender: str | None = None,
+    contributor_gender: str | None = None,
     prior_rolling_summary: str,
     segment_turns: Iterable[SegmentTurn],
     contributor_display_name: str = "",
     candidate_question_ids: Iterable[str] = (),
     theme_catalog: Iterable[ThemeCatalogEntry] = (),
+    collection_catalog: Iterable[CollectionCatalogEntry] = (),
     entity_catalog: Iterable[EntityCatalogEntry] = (),
+    ground_truth_block: str = "",
+    segment_anchor: SegmentAnchor | None = None,
 ) -> str:
     """
     Render subject / prior summary / segment turns into a single prompt.
@@ -142,6 +213,16 @@ def _build_user_message(
     ]
     contributor_name = (contributor_display_name or "").strip()
     lines.append(tagged("contributor_display_name", contributor_name))
+
+    people_block = _render_people_in_scenes(
+        subject_name=subject_name,
+        subject_relationship=subject_relationship,
+        subject_gender=subject_gender,
+        contributor_display_name=contributor_name,
+        contributor_gender=contributor_gender,
+    )
+    if people_block:
+        lines.extend(["", people_block])
     candidate_ids = [qid for qid in candidate_question_ids if qid]
     if candidate_ids:
         lines.append(tagged("candidate_answered_question_ids", "\n".join(candidate_ids)))
@@ -158,6 +239,17 @@ def _build_user_message(
             )
         lines.append("</theme_catalog>")
 
+    collections = list(collection_catalog)
+    if collections:
+        lines.append("")
+        lines.append("<collection_catalog>")
+        for entry in collections:
+            lines.append(
+                f"- slug: {xml_text(entry.slug)} | "
+                f"belongs: {xml_text(entry.description)}"
+            )
+        lines.append("</collection_catalog>")
+
     entities = list(entity_catalog)
     if entities:
         lines.append("")
@@ -171,6 +263,27 @@ def _build_user_message(
                 f"{alias_part}{desc_part}"
             )
         lines.append("</entity_catalog>")
+
+    if ground_truth_block.strip():
+        lines.extend(
+            [
+                "",
+                "<subject_ground_truth>",
+                xml_text(ground_truth_block),
+                "</subject_ground_truth>",
+            ]
+        )
+
+    if segment_anchor is not None and segment_anchor.answer.strip():
+        lines.extend(
+            [
+                "",
+                "<segment_time_anchor>",
+                f"question: {xml_text(segment_anchor.question_text)}",
+                f"answer: {xml_text(segment_anchor.answer)}",
+                "</segment_time_anchor>",
+            ]
+        )
 
     lines.extend(
         [

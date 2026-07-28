@@ -12,6 +12,7 @@ user instructions plus the active preset.
 
 from flashback.artifacts.compose import SCENE_NEGATIVE_PROMPT, compose_scene_prompt
 from flashback.artifacts.context import build_generation_context
+from flashback.artifacts.people import figure_noun, people_scene_fragment
 from flashback.artifacts.persistence import (
     write_latest_generation_context_async,
     write_latest_generation_context_sync,
@@ -29,7 +30,9 @@ __all__ = [
     "apply_preset",
     "build_generation_context",
     "compose_scene_prompt",
+    "figure_noun",
     "list_presets",
+    "people_scene_fragment",
     "resolve_preset",
     "write_latest_generation_context_async",
     "write_latest_generation_context_sync",
