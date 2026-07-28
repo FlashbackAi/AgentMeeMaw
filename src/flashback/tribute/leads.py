@@ -107,6 +107,25 @@ def build_leads(
     return leads[:_MAX_LEADS]
 
 
+def leads_to_lines(leads: list[Lead]) -> list[str]:
+    """Render leads as the ``<lead>`` lines the tribute-video assembler takes.
+
+    The same answers that steer the interview also tell the story writer what
+    the friendship is ABOUT -- how they met, the running joke, the time the
+    subject showed up. The render used to pass an empty list, so the assembler's
+    LEADS section never saw them and the book was built from extracted moments
+    alone.
+    """
+    out: list[str] = []
+    for lead in leads:
+        answer = (lead.answer or "").strip()
+        if not answer:
+            continue
+        question = (lead.question or "").strip()
+        out.append(f"{question} -> {answer}" if question else answer)
+    return out
+
+
 def leads_to_json(leads: list[Lead]) -> str:
     return json.dumps([asdict(x) for x in leads])
 

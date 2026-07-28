@@ -11,6 +11,7 @@ from flashback.tribute.leads import (
     lead_hint,
     leads_from_json,
     leads_to_json,
+    leads_to_lines,
     mark_pursued,
     pick_next_lead,
 )
@@ -117,6 +118,24 @@ def test_pick_and_mark_tolerate_empty_and_garbage() -> None:
     # marking a label that doesn't exist is a no-op, not a crash.
     raw = leads_to_json(build_leads([_ans("q10", "Sold a home")]))
     assert pick_next_lead(mark_pursued(raw, "nope")).label == "q10"
+
+
+def test_leads_to_lines_pairs_question_with_answer() -> None:
+    """The render's <lead> lines: what was asked and what they said."""
+    leads = build_leads([
+        _ans("q1", label="College"),
+        _ans("q5", free="when i'm low or demotivated"),
+    ])
+    lines = leads_to_lines(leads)
+    assert "Q for q1 -> College" in lines
+    assert "Q for q5 -> when i'm low or demotivated" in lines
+
+
+def test_leads_to_lines_drops_empty_and_survives_missing_question() -> None:
+    lines = leads_to_lines(leads_from_json(
+        '[{"label":"a","question":"","answer":"A nickname","value":2},'
+        ' {"label":"b","question":"Q","answer":"","value":2}]'))
+    assert lines == ["A nickname"]  # bare answer kept, empty answer dropped
 
 
 def test_lead_hint_includes_question_and_answer() -> None:
