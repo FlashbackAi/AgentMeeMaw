@@ -64,9 +64,16 @@ class _Deps:
         self.db_pool = pool
 
 
-async def _seed_tribute(pool, *, with_signature: bool, with_appearance: bool = True) -> str:
-    """A tribute with 3 qualifying memories and, optionally, appearance ground
-    truth and a trait (so the signature slot fills). Message stays empty.
+async def _seed_tribute(
+    pool,
+    *,
+    with_signature: bool,
+    with_appearance: bool = True,
+    moments: int = 3,
+) -> str:
+    """A tribute with ``moments`` qualifying memories (3 = the story floor, so
+    the memories slot reads FILLED) and, optionally, appearance ground truth and
+    a trait (so the signature slot fills). Message stays empty.
 
     Appearance is no longer a scored slot (migration 0050) and no longer gates
     the invitation, so ``with_appearance`` is purely about whether the person
@@ -90,7 +97,7 @@ async def _seed_tribute(pool, *, with_signature: bool, with_appearance: bool = T
                         "UPDATE persons SET ground_truth = %s WHERE id = %s",
                         (gt, person_id),
                     )
-                for i in range(3):
+                for i in range(moments):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
                         "sensory_details) VALUES (%s, %s, %s, %s)",
@@ -126,13 +133,18 @@ async def _seed_tribute(pool, *, with_signature: bool, with_appearance: bool = T
 
 
 # ---------------------------------------------------------------------------
-# Warm-climax path: memories filled (percent 50, above the 40 floor), signature
-# NOT. Appearance no longer participates in the meter or the gate.
+# Warm-climax path: percent >= 65, which on a message-less campaign row is
+# the CEILING of the other two slots (stories 50 + signature 15) -- i.e. the
+# message is asked last, once everything else is done. Appearance
+# participates in neither the meter nor the gate (migration 0050).
 # ---------------------------------------------------------------------------
 
 
 async def test_warm_climax_emits_message_tap(async_pool) -> None:
-    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    # with_signature=True is REQUIRED by the 65 floor: stories max out at 50, so
+    # 65 means stories + signature are both done and the message is all that's
+    # left. See MESSAGE_INVITATION_PERCENT_FLOOR.
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=True)
     deps = _Deps(async_pool)
     state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
@@ -147,7 +159,7 @@ async def test_warm_climax_fires_without_appearance(async_pool) -> None:
     campaign tributes at 50% — a no-appearance legacy could never be prompted
     for its message and so never reached `ready`."""
     person_id, tribute_id = await _seed_tribute(
-        async_pool, with_signature=False, with_appearance=False
+        async_pool, with_signature=True, with_appearance=False
     )
     deps = _Deps(async_pool)
     state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
@@ -238,5 +250,87 @@ async def test_other_tap_pending_no_tap(async_pool) -> None:
 async def test_no_tribute_no_tap(async_pool) -> None:
     deps = _Deps(async_pool)
     state = _TurnState(wm=_WMState(current_tribute_id=""))
+    await select_message_invitation(state, deps)
+    assert state.taps == []
+
+
+async def test_warm_gate_thin_story_pool_no_tap(async_pool) -> None:
+    """The message goes LAST -- after the stories, not alongside the first one.
+
+    Prod 2026-07-28: a campaign legacy sat at exactly 40% with memories_count=1
+    and was eligible for the closing-message card. The old gate was
+    `percent >= 40`, on the reasoning that 40 meant the memories were
+    substantially filled -- but signature alone is worth 15, so 40-45% is
+    reachable with a single qualifying memory. The gate is the memories slot now.
+    """
+    person_id, tribute_id = await _seed_tribute(
+        async_pool, with_signature=True, moments=1
+    )
+    # Give the one memory its depth bonuses (long sensory + a year), which is
+    # what carried the real prod row over 40 on a single story.
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE moments SET sensory_details = %s, time_anchor = %s "
+                "WHERE person_id = %s",
+                (
+                    "diesel smoke off the road, wet earth after the first rain, "
+                    "and the radio playing thin through the workshop wall",
+                    json.dumps({"year": 2009}),
+                    person_id,
+                ),
+            )
+    # The meter really is in the band the old floor would have let through.
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT percent, memories_count, signature_present "
+                "FROM tribute_status WHERE id = %s",
+                (tribute_id,),
+            )
+            percent, memories_count, signature = await cur.fetchone()
+    assert percent >= 40 and memories_count == 1 and signature is True
+
+    deps = _Deps(async_pool)
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
+    await select_message_invitation(state, deps)
+    assert state.taps == []
+    assert deps.working_memory.emitted is False
+
+
+async def test_warm_climax_fires_once_the_stories_are_in(async_pool) -> None:
+    """The same legacy, once it reaches the 3-story floor, does get asked."""
+    person_id, tribute_id = await _seed_tribute(
+        async_pool, with_signature=True, moments=3
+    )
+    deps = _Deps(async_pool)
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
+    await select_message_invitation(state, deps)
+    assert len(state.taps) == 1
+    assert state.taps[0].kind == "message"
+
+
+async def test_warm_gate_no_signature_stays_silent(async_pool) -> None:
+    """The coupling the 65 floor creates, pinned deliberately.
+
+    Stories cap at 50, so a legacy with the stories in but NO extracted trait
+    can never clear a 65 floor and is never invited in chat. That is accepted:
+    the card lane outside chat (POST /tributes/{id}/message) has no gate, so the
+    contributor still finishes. If in-chat message asks ever go missing for a
+    legacy with plenty of stories, look here first.
+    """
+    person_id, tribute_id = await _seed_tribute(async_pool, with_signature=False)
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT percent, memories_count, signature_present "
+                "FROM tribute_status WHERE id = %s",
+                (tribute_id,),
+            )
+            percent, memories_count, signature = await cur.fetchone()
+    assert memories_count >= 3 and signature is False and percent == 50
+
+    deps = _Deps(async_pool)
+    state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
     await select_message_invitation(state, deps)
     assert state.taps == []

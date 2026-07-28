@@ -34,11 +34,21 @@ from flashback.tribute.progress import fetch_tribute_progress_async
 log = structlog.get_logger("flashback.orchestrator")
 
 MESSAGE_TAP_COOLDOWN_USER_TURNS = 2
-# Floor on overall completion before we invite the message. Since appearance
-# was retired as a scored slot (migration 0050), memories + signature alone
-# (no message) top out at 65; requiring 40 means memories are substantially
-# filled before the message lands as the emotional climax.
-MESSAGE_INVITATION_PERCENT_FLOOR = 40
+# Floor on overall completion before the message is invited in chat. On a
+# message-less campaign row this is the CEILING of the other two slots
+# (stories 50 + signature 15), so it means "everything else is done" -- the
+# message, worth 35 and the hard gate for the video, is the last thing asked.
+#
+# It was 40, on the reasoning that 40 meant the memories were substantially
+# filled. It didn't: signature alone is worth 15, so 40-45% is reachable with a
+# single qualifying story (prod 2026-07-28 had a legacy at exactly 40% with
+# memories_count=1, eligible to be asked for its closing message).
+#
+# Note the coupling this creates: a legacy with stories maxed but NO trait tops
+# out at 50 and is never invited in chat. The card lane outside chat has no
+# gate (POST /tributes/{id}/message), so it still finishes -- but if in-chat
+# asks start going missing, this is the reason.
+MESSAGE_INVITATION_PERCENT_FLOOR = 65
 
 
 async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) -> None:
@@ -96,12 +106,11 @@ async def select_message_invitation(state: TurnState, deps: OrchestratorDeps) ->
         # Warm climax (one-time): the ONE in-conversation moment this card
         # fires. The message-only-left fallback lives on the tribute card
         # outside chat now (POST /tributes/{id}/message) — never re-nag here.
-        # NOTE: this used to also require _filled("appearance"), which
-        # deadlocked the meter — a legacy without appearance ground truth could
-        # never be invited for its message and so never reached `ready`.
-        # Appearance is no longer a scored slot (migration 0050), so the gate
-        # is gone; a warm story turn with memories substantially filled is
-        # enough for the message to land.
+        #
+        # The message goes LAST: the floor is the ceiling of the other two slots
+        # (see MESSAGE_INVITATION_PERCENT_FLOOR). It also used to require
+        # _filled("appearance"), which deadlocked the meter outright -- that
+        # slot stopped being scored in migration 0050.
         warm_climax = (
             not wm_state.message_invitation_asked
             and state.intent_result is not None
