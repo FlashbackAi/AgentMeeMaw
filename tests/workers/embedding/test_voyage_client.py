@@ -6,7 +6,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from flashback.workers.embedding.voyage_client import VoyageClient, VoyageError
+from flashback.workers.embedding.voyage_client import (
+    EXPECTED_EMBEDDING_DIM,
+    VoyageClient,
+    VoyageError,
+)
+
+
+def vec(*head: float) -> list[float]:
+    """A full-width vector; the client rejects anything but 1024 dims."""
+    out = [0.0] * EXPECTED_EMBEDDING_DIM
+    out[: len(head)] = head
+    return out
 
 
 @dataclass
@@ -40,15 +51,15 @@ def test_empty_input_skips_api_call() -> None:
 
 
 def test_returns_vectors_in_order() -> None:
-    fake = _FakeVoyage(vectors=[[0.1, 0.2], [0.3, 0.4]])
+    fake = _FakeVoyage(vectors=[vec(0.1, 0.2), vec(0.3, 0.4)])
     client = _client_with(fake)
     out = client.embed_batch(["a", "b"], model="voyage-3-large")
-    assert out == [[0.1, 0.2], [0.3, 0.4]]
+    assert out == [vec(0.1, 0.2), vec(0.3, 0.4)]
     assert fake.calls == [(["a", "b"], "voyage-3-large")]
 
 
 def test_passes_model_through() -> None:
-    fake = _FakeVoyage(vectors=[[0.0]])
+    fake = _FakeVoyage(vectors=[vec()])
     client = _client_with(fake)
     client.embed_batch(["x"], model="voyage-3")
     assert fake.calls[0][1] == "voyage-3"
@@ -63,7 +74,7 @@ def test_sdk_exception_becomes_voyage_error() -> None:
 
 
 def test_count_mismatch_becomes_voyage_error() -> None:
-    fake = _FakeVoyage(vectors=[[0.0]])  # only 1 vector
+    fake = _FakeVoyage(vectors=[vec()])  # only 1 vector
     client = _client_with(fake)
     with pytest.raises(VoyageError):
         client.embed_batch(["a", "b"], model="voyage-3-large")

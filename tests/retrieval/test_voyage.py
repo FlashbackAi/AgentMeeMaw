@@ -3,7 +3,14 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from flashback.retrieval.voyage import VoyageQueryEmbedder
+from flashback.retrieval.voyage import EXPECTED_EMBEDDING_DIM, VoyageQueryEmbedder
+
+
+def vec(*head: float) -> list[float]:
+    """A full-width vector; the embedder rejects anything but 1024 dims."""
+    out = [0.0] * EXPECTED_EMBEDDING_DIM
+    out[: len(head)] = head
+    return out
 
 
 @dataclass
@@ -19,7 +26,7 @@ class _FakeVoyage:
         raise_with: Exception | None = None,
         sleep_for: float = 0.0,
     ) -> None:
-        self.embeddings = embeddings or [[0.1, 0.2]]
+        self.embeddings = embeddings or [vec(0.1, 0.2)]
         self.raise_with = raise_with
         self.sleep_for = sleep_for
         self.calls = []
@@ -34,10 +41,10 @@ class _FakeVoyage:
 
 
 async def test_happy_path_returns_vector() -> None:
-    fake = _FakeVoyage(embeddings=[[0.3, 0.4]])
+    fake = _FakeVoyage(embeddings=[vec(0.3, 0.4)])
     embedder = VoyageQueryEmbedder(fake, model="voyage-3-large", timeout=1)
 
-    assert await embedder.embed("porch") == [0.3, 0.4]
+    assert await embedder.embed("porch") == vec(0.3, 0.4)
     assert fake.calls == [
         {"texts": ["porch"], "model": "voyage-3-large", "input_type": "query"}
     ]

@@ -4,8 +4,12 @@ Structural test: the EMBEDDING_TARGETS registry must match the schema.
 Why this exists: every entry in EMBEDDING_TARGETS encodes a (table,
 vector_column) pair the worker writes to. If a future migration
 renames either, the worker would silently emit "no such column"
-errors at runtime. This test parses 0001_initial_schema.up.sql and
+errors at runtime. This test parses every ``migrations/*.up.sql`` and
 asserts both names exist for every registry entry.
+
+It parses the whole migration set, not just 0001 — tables added later
+(``profile_facts``, migration 0010) are just as much part of the
+registry's contract as the initial ones.
 
 We do *not* validate ``source_column`` for thread/trait because their
 source is a SQL expression, not a single column. We validate the
@@ -22,24 +26,25 @@ import pytest
 from flashback.db.embedding_targets import EMBEDDING_TARGETS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_FILE = REPO_ROOT / "migrations" / "0001_initial_schema.up.sql"
+MIGRATIONS_DIR = REPO_ROOT / "migrations"
 
 
-def _table_columns(sql: str) -> dict[str, set[str]]:
+def _merge_table_columns(sql: str, tables: dict[str, set[str]]) -> None:
     """
-    Naive but adequate parser: pull each ``CREATE TABLE name ( ... )``
-    block and extract the leading identifier on each non-blank,
-    non-constraint line.
+    Naive but adequate parser, folded into ``tables``: pull each
+    ``CREATE TABLE name ( ... )`` block and extract the leading identifier
+    on each non-blank, non-constraint line, then apply any
+    ``ALTER TABLE name ADD COLUMN col`` so columns introduced by a later
+    migration are visible too.
     """
-    tables: dict[str, set[str]] = {}
     pattern = re.compile(
-        r"CREATE\s+TABLE\s+(\w+)\s*\((.*?)\n\)\s*;",
+        r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\n\)\s*;",
         re.DOTALL | re.IGNORECASE,
     )
     for match in pattern.finditer(sql):
         name = match.group(1).lower()
         body = match.group(2)
-        cols: set[str] = set()
+        cols = tables.setdefault(name, set())
         for raw in body.splitlines():
             line = raw.strip().rstrip(",")
             if not line or line.startswith("--"):
@@ -50,19 +55,29 @@ def _table_columns(sql: str) -> dict[str, set[str]]:
             ident = re.match(r"(\w+)", line)
             if ident:
                 cols.add(ident.group(1).lower())
-        tables[name] = cols
-    return tables
+
+    alter = re.compile(
+        r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)\s+"
+        r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)",
+        re.IGNORECASE,
+    )
+    for match in alter.finditer(sql):
+        tables.setdefault(match.group(1).lower(), set()).add(match.group(2).lower())
 
 
 @pytest.fixture(scope="module")
 def schema_columns() -> dict[str, set[str]]:
-    assert SCHEMA_FILE.exists(), f"missing schema file: {SCHEMA_FILE}"
-    return _table_columns(SCHEMA_FILE.read_text(encoding="utf-8"))
+    up_files = sorted(MIGRATIONS_DIR.glob("*.up.sql"))
+    assert up_files, f"no migrations found under {MIGRATIONS_DIR}"
+    tables: dict[str, set[str]] = {}
+    for path in up_files:
+        _merge_table_columns(path.read_text(encoding="utf-8"), tables)
+    return tables
 
 
-def test_registry_covers_five_record_types() -> None:
+def test_registry_covers_expected_record_types() -> None:
     assert set(EMBEDDING_TARGETS) == {
-        "moment", "entity", "thread", "trait", "question",
+        "moment", "entity", "thread", "trait", "question", "profile_fact",
     }
 
 
