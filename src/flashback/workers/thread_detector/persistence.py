@@ -332,8 +332,9 @@ def process_cluster(
             embedding_model_version=embedding_model_version,
         )
         if naming.generation_prompt:
-            from uuid import uuid4
-
+            # NB: no local `from uuid import uuid4` here. A function-local
+            # import would make uuid4 local to all of process_cluster and
+            # break the new-thread path at the top (thread_id preallocation).
             from flashback.artifacts import (
                 build_generation_context,
                 write_latest_generation_context_sync,
