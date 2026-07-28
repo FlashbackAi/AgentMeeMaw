@@ -26,11 +26,45 @@ class TestHealth:
         assert body["checks"]["valkey"] == "ok"
         assert body["checks"]["postgres"].startswith("error:")
 
-    async def test_happy_path_with_real_db(self, client_with_db):
-        # Full happy path requires both Valkey + Postgres.
-        resp = await client_with_db.get("/health")
-        assert resp.status_code == 200
+    async def test_happy_path_with_real_db(self, client_with_db, app_with_db):
+        # The happy path needs Valkey + Postgres *and* the four mandatory SQS
+        # queues. There is no SQS in the test env, so stub the client -- the
+        # point here is that all-healthy yields 200/ok, not that SQS works.
+        from flashback.http.deps import get_sqs_client
+
+        class _OkSQS:
+            async def get_queue_attributes(self, queue_url):
+                return {"ApproximateNumberOfMessages": "0"}
+
+        app_with_db.dependency_overrides[get_sqs_client] = lambda: _OkSQS()
+        try:
+            resp = await client_with_db.get("/health")
+        finally:
+            app_with_db.dependency_overrides.pop(get_sqs_client, None)
+
+        assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["status"] == "ok"
         assert body["checks"]["valkey"] == "ok"
         assert body["checks"]["postgres"] == "ok"
+
+    async def test_unconfigured_render_queues_do_not_flip_health(
+        self, client_with_db, app_with_db
+    ):
+        """An unset optional render queue is reported but stays green."""
+        from flashback.http.deps import get_sqs_client
+
+        class _OkSQS:
+            async def get_queue_attributes(self, queue_url):
+                return {"ApproximateNumberOfMessages": "0"}
+
+        app_with_db.dependency_overrides[get_sqs_client] = lambda: _OkSQS()
+        try:
+            resp = await client_with_db.get("/health")
+        finally:
+            app_with_db.dependency_overrides.pop(get_sqs_client, None)
+
+        assert resp.status_code == 200, resp.text
+        checks = resp.json()["checks"]
+        # Whatever their state, an "unconfigured" optional queue never degrades.
+        assert not any(v.startswith("error:") for v in checks.values())
