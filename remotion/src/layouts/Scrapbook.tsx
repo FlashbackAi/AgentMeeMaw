@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayoutProps } from "../theme";
 import { pop, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak } from "../FX";
 
 // Polaroids toss in from below with rotation overshoot + gentle sway, each with
@@ -28,6 +29,15 @@ export const Scrapbook: React.FC<LayoutProps> = ({ text, display, image, image2,
   const t2 = pop(frame, fps, 9, 11);
   const write = ramp(frame, 24, 46);
   const star = pop(frame, fps, 30, 9);
+  const size = useFit({
+    text: caption,
+    font: (s) => `400 ${s}px "${recipe.fonts.script_family ?? "Caveat"}", cursive`,
+    maxWidth: 896 * 0.78,
+    maxHeight: 1600 * 0.16,
+    maxSize: 96,
+    minSize: 38,
+    lineHeight: 1.2,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#efe6d3" }}>
       <LightLeak hue="#ffd27a" strength={0.14} />
@@ -35,21 +45,29 @@ export const Scrapbook: React.FC<LayoutProps> = ({ text, display, image, image2,
       <Polaroid image={image2 ?? image} rest={6} top={"40%"} left={"39%"} t={t2} frame={frame} phase={40} />
       <span
         style={{
-          position: "absolute", bottom: "10%", left: "11%", transform: "rotate(-4deg)",
-          fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: 96, color: "#2a4d69",
+          position: "absolute", bottom: "10%", left: "11%", right: "11%",
+          transform: "rotate(-4deg)", transformOrigin: "left center",
+          fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: size,
+          lineHeight: 1.2, color: "#2a4d69",
           clipPath: `inset(0 ${(1 - write) * 100}% -10% 0)`,
         }}
       >
         {caption}
       </span>
-      <span
+      {/* An SVG star, not "★": none of the four bundled webfonts carry U+2605,
+          so Chrome drew the missing-glyph box on every scrapbook page. */}
+      <svg
+        viewBox="0 0 100 100" width={90} height={90}
         style={{
-          position: "absolute", top: "8%", right: "12%", fontSize: 90, color: "#e8552e",
+          position: "absolute", top: "8%", right: "12%",
           transform: `scale(${star}) rotate(${interpolate(star, [0, 1], [-40, 0])}deg)`, transformOrigin: "center",
         }}
       >
-        ★
-      </span>
+        <path
+          d="M50 4 L61.8 35.5 L95 37.5 L69.2 58.5 L77.6 91 L50 72.5 L22.4 91 L30.8 58.5 L5 37.5 L38.2 35.5 Z"
+          fill={recipe.ink.accent ?? "#e8552e"}
+        />
+      </svg>
       <Grain opacity={0.06} />
     </AbsoluteFill>
   );

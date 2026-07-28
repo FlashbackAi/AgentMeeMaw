@@ -3,6 +3,7 @@ import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame } from "rem
 import { LayoutProps } from "../theme";
 import { drift, ramp } from "../anim";
 import { KineticWords } from "../Kinetic";
+import { useFit } from "../fit";
 import { Grain, Vignette } from "../FX";
 
 // The art shows through one giant word (the first word of the line), then the
@@ -15,7 +16,28 @@ export const WordMask: React.FC<LayoutProps> = ({ text, display, image, recipe }
   const rest = display ? text : text.trim().split(/\s+/).slice(1).join(" ");
   const settle = ramp(frame, 0, 26);
   const dim = ramp(frame, 34, 56);
-  const heroSize = Math.min(300, 1350 / Math.max(3, hero.length));
+  // The old estimate (1350 / length) assumed a narrower face than Nunito 900
+  // and let long words bleed off both edges; measure instead. The word also
+  // scales up 1.25x on entry, so fit inside that headroom.
+  const heroSize = useFit({
+    text: hero,
+    font: (s) => `900 ${s}px "${recipe.fonts.display_family ?? "Nunito"}", sans-serif`,
+    maxWidth: (896 * 0.9) / 1.25,
+    maxSize: 300,
+    minSize: 46,
+    perWord: true,
+    lineHeight: 0.95,
+    trackingEm: -4 / 300,
+  });
+  const restSize = useFit({
+    text: rest || " ",
+    font: (s) => `italic 400 ${s}px "${recipe.fonts.main_family}", serif`,
+    maxWidth: 896 * 0.86,
+    maxHeight: 1600 * 0.26,
+    maxSize: 58,
+    minSize: 26,
+    lineHeight: 1.2,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#0d0b09" }}>
       <Img
@@ -40,14 +62,14 @@ export const WordMask: React.FC<LayoutProps> = ({ text, display, image, recipe }
           {hero}
         </span>
         {rest && (
-          <div style={{ marginTop: 30, textAlign: "center" }}>
+          <div style={{ marginTop: 30, textAlign: "center", maxWidth: "90%" }}>
             <KineticWords
               text={rest}
               inline
               delay={30}
               stagger={3}
               up={60}
-              style={{ color: "#fff", fontFamily: recipe.fonts.main_family, fontStyle: "italic", fontSize: 58, textShadow: "0 2px 20px rgba(0,0,0,.6)" }}
+              style={{ color: "#fff", fontFamily: recipe.fonts.main_family, fontStyle: "italic", fontSize: restSize, lineHeight: 1.2, textShadow: "0 2px 20px rgba(0,0,0,.6)" }}
             />
           </div>
         )}

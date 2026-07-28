@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayoutProps } from "../theme";
 import { pop, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak, Vignette } from "../FX";
 
 // A dotted route draws itself across parchment to the scene, which pops in
@@ -16,6 +17,15 @@ export const MapJourney: React.FC<LayoutProps> = ({ text, image, recipe }) => {
   const photo = pop(frame, fps, 40, 12);
   const write = ramp(frame, 52, 92);
   const accent = recipe.ink.accent ?? "#c2503b";
+  const size = useFit({
+    text,
+    font: (s) => `400 ${s}px "${recipe.fonts.script_family ?? "Caveat"}", cursive`,
+    maxWidth: 896 * 0.8,
+    maxHeight: 1600 * 0.3,
+    maxSize: 86,
+    minSize: 32,
+    lineHeight: 1.35,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#e9d9b6" }}>
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(90% 70% at 50% 40%, transparent 55%, rgba(130,96,50,.28))" }} />
@@ -45,7 +55,7 @@ export const MapJourney: React.FC<LayoutProps> = ({ text, image, recipe }) => {
         <span
           style={{
             display: "inline-block",
-            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: 86, lineHeight: 1.35,
+            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: size, lineHeight: 1.35,
             color: "#4a3822", transform: "rotate(-1.5deg)",
             clipPath: `inset(0 ${(1 - write) * 100}% -12% 0)`,
           }}

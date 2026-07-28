@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame } from "remotion";
 import { LayoutProps } from "../theme";
 import { drift, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak, Vignette } from "../FX";
 
 // Two cream paper layers tear apart to reveal the scene full-bleed between
@@ -15,6 +16,15 @@ export const TornReveal: React.FC<LayoutProps> = ({ text, image, recipe }) => {
   const frame = useCurrentFrame();
   const tear = ramp(frame, 4, 34);
   const caption = ramp(frame, 30, 52);
+  const size = useFit({
+    text,
+    font: (s) => `italic 400 ${s}px "${recipe.fonts.main_family}", serif`,
+    maxWidth: 896 * 0.8,
+    maxHeight: 1600 * 0.18,
+    maxSize: 58,
+    minSize: 26,
+    lineHeight: 1.2,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#111" }}>
       <Img
@@ -30,19 +40,26 @@ export const TornReveal: React.FC<LayoutProps> = ({ text, image, recipe }) => {
           boxShadow: "0 18px 40px rgba(0,0,0,.35)",
         }}
       />
+      {/* The sheet slides down past the frame edge, so it can only be paper --
+          the caption used to ride it and was carried clean off-screen. */}
       <div
         style={{
           position: "absolute", left: 0, right: 0, bottom: 0, height: "40%",
           background: "#f3ead7", clipPath: BOTTOM_TEAR,
           transform: `translateY(${tear * 52}%)`,
-          display: "flex", alignItems: "flex-end", justifyContent: "center",
-          paddingBottom: "6%",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute", left: 0, right: 0, bottom: "6%",
+          display: "flex", justifyContent: "center",
         }}
       >
         <span
           style={{
-            fontFamily: recipe.fonts.main_family, fontStyle: "italic", fontSize: 58,
-            color: recipe.ink.main_fill, textAlign: "center", padding: "0 9%",
+            fontFamily: recipe.fonts.main_family, fontStyle: "italic", fontSize: size,
+            lineHeight: 1.2, color: recipe.ink.main_fill, textAlign: "center",
+            padding: "0 10%", textShadow: "0 2px 18px rgba(243,234,215,.85)",
             opacity: caption, transform: `translateY(${(1 - caption) * 40}px)`,
           }}
         >
