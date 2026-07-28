@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 
-def p2_result(entity_id: str) -> dict:
+def p2_result(entity_id: str, subject_name: str = "the subject") -> dict:
+    # P2 drops any question that is not subject-centered, so the text has to
+    # name the subject (or use a pronoun) -- not just the target entity.
     return {
         "questions": [
             {
-                "text": "What did Uncle Raj do that made the kitchen feel alive?",
+                "text": (
+                    f"How did {subject_name} and Uncle Raj spend time "
+                    "together at the shop?"
+                ),
                 "targets_entity_id": entity_id,
                 "themes": ["family", "place"],
             }

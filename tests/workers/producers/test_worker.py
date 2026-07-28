@@ -39,8 +39,14 @@ def test_per_session_worker_runs_p2_and_acks(
     db_pool, make_person, stub_settings, monkeypatch
 ):
     person_id = make_person("P2 worker")
-    entity_id = seed_entity(db_pool, person_id=person_id, name="Uncle Raj")
-    monkeypatch.setattr(p2_mod, "call_with_tool", queued_call_with_tool([p2_result(entity_id)]))
+    entity_id = seed_entity(
+        db_pool, person_id=person_id, name="Uncle Raj",
+        description="P2 worker worked at his shop",
+    )
+    monkeypatch.setattr(
+        p2_mod, "call_with_tool",
+        queued_call_with_tool([p2_result(entity_id, "P2 worker")]),
+    )
     worker = _worker(db_pool, stub_settings, allowed={"P2"})
     msg = make_producer_message(person_id=person_id, producer="P2")
 
