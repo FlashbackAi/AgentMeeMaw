@@ -161,13 +161,22 @@ async def fetch_open_tribute_id_async(
     (ensure_open_tribute) that intentionally pin the current version; without
     either, any open tribute (pre-CRM behavior).
     """
+    # A campaign-scoped lookup NEVER adopts a standalone row. Both branches used
+    # to carry `OR campaign_id IS NULL`, which predates the two-meter model: once
+    # every legacy owned a keepsake row (0048 + the 2026-07-22 backfill), a
+    # campaign flow landing on a legacy with no campaign row of its own latched
+    # onto the KEEPSAKE and later stamped it — converting it, and so adding a
+    # message slot the row had never been asked to fill. Prod 2026-07-28: three
+    # keepsakes rendered fine and then read 65% + not-ready with a finished video
+    # on them. Campaign and keepsake tributes stay separate rows; the unscoped
+    # branch (no campaign at all) still matches anything open.
     if campaign_slug:
         campaign_filter = (
-            "AND (campaign_id IN (SELECT id FROM tribute_campaigns "
-            "WHERE slug = %(campaign_slug)s) OR campaign_id IS NULL)"
+            "AND campaign_id IN (SELECT id FROM tribute_campaigns "
+            "WHERE slug = %(campaign_slug)s)"
         )
     elif campaign_id:
-        campaign_filter = "AND (campaign_id = %(campaign_id)s OR campaign_id IS NULL)"
+        campaign_filter = "AND campaign_id = %(campaign_id)s"
     else:
         campaign_filter = ""
     await cur.execute(
@@ -244,9 +253,27 @@ async def ensure_open_tribute_async(
     """Return an open tribute for (person, theme[, campaign]), creating a
     draft if none. Idempotent within a session: a second call returns the
     same row. A fresh draft created under a campaign is stamped at insert.
+
+    The LOOKUP resolves the campaign's slug and matches any version of it,
+    while creation still pins the current version id. Matching the exact id
+    forked a second row for the same occasion every time the CRM republished
+    the campaign (10 versions of the friendship-day slug by 2026-07-28), which
+    left the gallery showing two cards per legacy — one of them stranded at
+    whatever the abandoned row's meter said.
     """
+    campaign_slug: str | None = None
+    if campaign_id:
+        await cur.execute(
+            "SELECT slug FROM tribute_campaigns WHERE id = %s", (str(campaign_id),)
+        )
+        row = await cur.fetchone()
+        campaign_slug = row[0] if row else None
     existing = await fetch_open_tribute_id_async(
-        cur, person_id=person_id, theme_id=theme_id, campaign_id=campaign_id
+        cur,
+        person_id=person_id,
+        theme_id=theme_id,
+        campaign_id=None if campaign_slug else campaign_id,
+        campaign_slug=campaign_slug,
     )
     if existing is not None:
         return existing
@@ -517,12 +544,21 @@ async def fetch_theme_scene_moments_async(
 async def fetch_tribute_for_assembly_async(
     cur, *, tribute_id: UUID | str
 ) -> dict[str, Any] | None:
-    """Return the tribute + its subject's name/relationship for assembly."""
+    """Return the tribute + its subject's name/relationship for assembly.
+
+    Also carries the render LIFECYCLE (``status``, ``video_url``,
+    ``render_composed_at``) because /generate uses this same read as its
+    idempotence gate: a repeat click must not start a second paid render.
+    ``render_composed_at`` is the tribute_video context's stale-check token,
+    i.e. when the current in-flight render was composed.
+    """
     await cur.execute(
         """
         SELECT tr.id::text, tr.person_id::text, tr.message_text,
                p.name, p.relationship, tr.theme_id::text,
-               p.gender, p.contributor_gender
+               p.gender, p.contributor_gender,
+               tr.status, tr.video_url,
+               tr.latest_generation_context -> 'tribute_video' ->> 'composed_at'
           FROM tributes tr
           JOIN persons p ON p.id = tr.person_id
          WHERE tr.id = %(id)s
@@ -541,6 +577,9 @@ async def fetch_tribute_for_assembly_async(
         "theme_id": row[5],
         "gender": row[6],
         "contributor_gender": row[7],
+        "status": row[8],
+        "video_url": row[9],
+        "render_composed_at": row[10],
     }
 
 

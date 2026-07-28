@@ -147,11 +147,17 @@ async def test_open_tribute_of_another_campaign_is_not_hijacked(
                 )
 
 
-async def test_campaign_entry_adopts_an_unstamped_open_draft(
+async def test_campaign_entry_does_not_adopt_a_neutral_draft(
     async_pool,
 ) -> None:
-    """Pre-0039 shape: an open neutral draft is adopted by the first
-    campaign entry instead of spawning a duplicate."""
+    """A campaign entry gets its OWN row; it never adopts the neutral draft.
+
+    It used to (pre-0039 shape: adopt rather than spawn a duplicate). Once every
+    legacy owned a standalone keepsake row -- 0048's two-meter model plus the
+    2026-07-22 backfill -- that adoption started converting keepsakes into
+    campaign rows, which retroactively added a message slot they had never been
+    asked to fill. Prod 2026-07-28: finished videos reading 65% + not-ready.
+    """
     person_id = await _make_person(async_pool)
     theme_id = await _seed_theme(async_pool, person_id)
     camp = await _campaign_id(async_pool, "adopting_campaign_test")
@@ -162,11 +168,16 @@ async def test_campaign_entry_adopts_an_unstamped_open_draft(
                 neutral = await ensure_open_tribute_async(
                     cur, person_id=person_id, theme_id=theme_id
                 )
-                adopted = await ensure_open_tribute_async(
+                under_campaign = await ensure_open_tribute_async(
                     cur, person_id=person_id, theme_id=theme_id,
                     campaign_id=camp,
                 )
-                assert adopted == neutral
+                assert under_campaign != neutral
+                # The neutral row keeps its identity (and so its meter).
+                await cur.execute(
+                    "SELECT campaign_id FROM tributes WHERE id = %s", (neutral,)
+                )
+                assert (await cur.fetchone())[0] is None
 
 
 async def test_tribute_status_view_exposes_campaign(async_pool) -> None:

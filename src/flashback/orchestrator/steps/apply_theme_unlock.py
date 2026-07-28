@@ -34,7 +34,6 @@ from flashback.tribute.relationships import ensure_relationship_group
 from flashback.tribute.repository import (
     ensure_open_tribute_async,
     merge_tribute_archetype_answers_async,
-    stamp_tribute_campaign_async,
 )
 
 log = structlog.get_logger("flashback.orchestrator.apply_theme_unlock")
@@ -133,14 +132,15 @@ async def apply_theme_unlock(
                                 campaign_row.id if campaign_row else None
                             ),
                         )
-                        # Adopt an unstamped open row (pre-0039 drafts) into
-                        # the entry campaign; no-op when already stamped.
-                        if campaign_row is not None:
-                            await stamp_tribute_campaign_async(
-                                cur,
-                                tribute_id=tribute_id,
-                                campaign_id=campaign_row.id,
-                            )
+                        # No adoption stamp here. This line is where prod's
+                        # keepsake rows got converted (2026-07-28): the open-
+                        # tribute lookup used to match campaign_id IS NULL, so a
+                        # campaign entry landed on the legacy's STANDALONE row and
+                        # this stamped it into a campaign row -- adding a message
+                        # slot it was never asked for, which is why finished
+                        # videos read 65% + not-ready. The lookup is now
+                        # campaign-scoped and ensure_open_tribute stamps at
+                        # insert, so a campaign flow always gets its own row.
                         # Per-campaign answers (0042): THIS campaign's
                         # tribute accumulates the answers given under it —
                         # the meter and leads for a new occasion no longer
