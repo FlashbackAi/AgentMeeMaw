@@ -3,14 +3,29 @@ import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame } from "rem
 import { LayoutProps } from "../theme";
 import { drift, ramp } from "../anim";
 import { KineticWords } from "../Kinetic";
+import { useFit } from "../fit";
 import { Grain, LightLeak, Vignette } from "../FX";
 
 // Giant kinetic headline over a hard-pushing crop. Words punch up behind a
 // mask; a highlight underline wipes in beneath the payoff line.
+const COL_W = 896 * 0.86; // frame minus the 7% padding each side
+
 export const TypeOverCrop: React.FC<LayoutProps> = ({ text, display, image, recipe }) => {
   const frame = useCurrentFrame();
   const title = display || text;
-  const words = title.toUpperCase().split(" ");
+  const upper = title.toUpperCase();
+  const words = upper.split(" ");
+  const size = useFit({
+    text: upper,
+    font: (s) => `900 ${s}px "${recipe.fonts.display_family ?? "Nunito"}", sans-serif`,
+    maxWidth: COL_W,
+    maxHeight: 1600 * 0.7,
+    maxSize: 132,
+    minSize: 44,
+    perWord: true,
+    lineHeight: 0.92,
+    trackingEm: -3 / 132,
+  });
   const land = 5 * (words.length - 1) + 22;
   const float = interpolate(frame, [0, 120], [0, -22]);
   const underline = ramp(frame, land, land + 16);
@@ -24,11 +39,11 @@ export const TypeOverCrop: React.FC<LayoutProps> = ({ text, display, image, reci
       <LightLeak hue="#ff7a2d" strength={0.14} />
       <AbsoluteFill style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 7%", transform: `translateY(${float}px)` }}>
         <KineticWords
-          text={title.toUpperCase()}
+          text={upper}
           stagger={5}
           up={130}
           scaleFrom={1.25}
-          style={{ color: "#fff", fontFamily: recipe.fonts.display_family ?? "Nunito", fontWeight: 900, fontSize: 132, lineHeight: 0.92, textTransform: "uppercase", letterSpacing: -3, textShadow: "0 6px 30px rgba(0,0,0,.4)" }}
+          style={{ color: "#fff", fontFamily: recipe.fonts.display_family ?? "Nunito", fontWeight: 900, fontSize: size, lineHeight: 0.92, textTransform: "uppercase", letterSpacing: -3, textShadow: "0 6px 30px rgba(0,0,0,.4)" }}
         />
         <div style={{ height: 16, width: `${underline * 58}%`, marginTop: 22, borderRadius: 8, background: recipe.ink.accent ?? "#e8552e" }} />
       </AbsoluteFill>

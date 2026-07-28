@@ -12,11 +12,21 @@ export type Fonts = {
   script_family?: string;   // handwritten scrawl (Caveat)
 };
 
+// Small pieces of chrome a layout paints alongside the line. They used to be
+// hard-coded per layout, which put memorial copy ("A LIFE REMEMBERED") on a
+// Friendship-Day tribute; the occasion owns them now. Empty string = omit.
+export type Labels = {
+  chapter?: string;    // split_duotone eyebrow
+  editorial?: string;  // magazine vertical eyebrow
+  stamp?: string;      // postcard postmark
+};
+
 export type Recipe = {
   fonts: Fonts;
   ink: Ink;
   pacing: { hold: number; transition: number };
   motion_preset?: string; // calm | playful | punchy | cinematic
+  labels?: Labels;
 };
 
 export type Scene = {

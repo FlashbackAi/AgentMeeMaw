@@ -2,10 +2,21 @@ import React from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayoutProps } from "../theme";
 import { pop, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak } from "../FX";
 
 // The scene lands as a tilted vintage postcard — stamp in the corner, a
 // circular postmark rolling over it, and the wish handwritten beneath.
+
+// Card geometry, in frame pixels. The image used to be 980px tall, which put
+// the card's bottom edge below where the caption starts — a long wish was
+// written straight over the photo. The caption owns everything below CARD_END.
+const CARD_TOP = 1600 * 0.12;
+const CARD_IMG_H = 800;
+const CARD_END = CARD_TOP + 22 + CARD_IMG_H + 22;
+const CAPTION_BOTTOM = 1600 * 0.09;
+const CAPTION_H = 1600 - CAPTION_BOTTOM - CARD_END - 24;
+
 export const Postcard: React.FC<LayoutProps> = ({ text, image, recipe }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -14,6 +25,15 @@ export const Postcard: React.FC<LayoutProps> = ({ text, image, recipe }) => {
   const write = ramp(frame, 26, 68);
   const sway = Math.sin(frame / 30) * 0.8;
   const accent = recipe.ink.accent ?? "#e8552e";
+  const size = useFit({
+    text,
+    font: (s) => `400 ${s}px "${recipe.fonts.script_family ?? "Caveat"}", cursive`,
+    maxWidth: 896 * 0.78,
+    maxHeight: CAPTION_H,
+    maxSize: 92,
+    minSize: 34,
+    lineHeight: 1.3,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#eee4cf" }}>
       <LightLeak hue="#ffd27a" strength={0.13} />
@@ -24,7 +44,7 @@ export const Postcard: React.FC<LayoutProps> = ({ text, image, recipe }) => {
           background: "#fdfaf2", padding: 22, boxShadow: "0 26px 60px rgba(0,0,0,.3)",
         }}
       >
-        <Img src={staticFile(image)} style={{ width: "100%", height: 980, objectFit: "cover", display: "block" }} />
+        <Img src={staticFile(image)} style={{ width: "100%", height: CARD_IMG_H, objectFit: "cover", display: "block" }} />
         <div
           style={{
             position: "absolute", top: 44, right: 44, width: 130, height: 160, padding: 8,
@@ -41,7 +61,7 @@ export const Postcard: React.FC<LayoutProps> = ({ text, image, recipe }) => {
           }}
         >
           <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", fontSize: 22, letterSpacing: 4, color: "rgba(60,48,32,0.6)", textTransform: "uppercase", textAlign: "center" }}>
-            with love
+            {recipe.labels?.stamp ?? "with love"}
           </span>
         </div>
       </div>
@@ -49,7 +69,7 @@ export const Postcard: React.FC<LayoutProps> = ({ text, image, recipe }) => {
         <span
           style={{
             display: "inline-block",
-            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: 92, lineHeight: 1.3,
+            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: size, lineHeight: 1.3,
             color: "#2a4d69", transform: "rotate(-2deg)",
             clipPath: `inset(0 ${(1 - write) * 100}% -12% 0)`,
           }}

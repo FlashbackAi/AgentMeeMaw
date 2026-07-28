@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayoutProps } from "../theme";
 import { pop, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak, Vignette } from "../FX";
 
 // Framed paintings on a quiet gallery wall, the camera drifting past; a small
@@ -26,6 +27,16 @@ export const GalleryWall: React.FC<LayoutProps> = ({ text, image, image2, recipe
   const t2 = ramp(frame, 12, 32);
   const plaque = pop(frame, fps, 26, 13);
   const pan = interpolate(frame, [0, 150], [16, -16]);
+  const size = useFit({
+    text,
+    font: (s) => `400 ${s}px "${recipe.fonts.eyebrow_family ?? "EB Garamond"}", serif`,
+    maxWidth: 896 * 0.78 - 88,
+    maxHeight: 1600 * 0.17,
+    maxSize: 38,
+    minSize: 20,
+    lineHeight: 1.25,
+    trackingEm: 3 / 38,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#e6dccb" }}>
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(255,250,235,.5), transparent 40%, rgba(70,58,40,.18))" }} />
@@ -42,7 +53,7 @@ export const GalleryWall: React.FC<LayoutProps> = ({ text, image, image2, recipe
           padding: "22px 44px", boxShadow: "0 10px 26px rgba(0,0,0,.3)", maxWidth: "78%",
         }}
       >
-        <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", fontSize: 38, letterSpacing: 3, color: "#2e2416", textAlign: "center", display: "block" }}>
+        <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", fontSize: size, lineHeight: 1.25, letterSpacing: 3, color: "#2e2416", textAlign: "center", display: "block" }}>
           {text}
         </span>
       </div>

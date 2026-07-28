@@ -2,16 +2,27 @@ import React from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayoutProps } from "../theme";
 import { pop, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak } from "../FX";
 
 // The caption inks itself onto ruled letter paper; a small painted photo is
-// tucked under a strip of tape up top. Intimate — the message register.
+// tucked under a strip of tape up top. Intimate — the message register, so it
+// takes the contributor's own free text and must hold a long one.
 export const LetterNote: React.FC<LayoutProps> = ({ text, image, recipe }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const photoIn = pop(frame, fps, 4, 13);
   const write = ramp(frame, 20, 74);
   const flourish = ramp(frame, 76, 96);
+  const size = useFit({
+    text,
+    font: (s) => `400 ${s}px "${recipe.fonts.script_family ?? "Caveat"}", cursive`,
+    maxWidth: 896 * 0.77,
+    maxHeight: 1600 * 0.34,
+    maxSize: 84,
+    minSize: 30,
+    lineHeight: 1.45,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#f6eedd" }}>
       <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(to bottom, transparent 0 86px, rgba(122,96,58,0.14) 86px 88px)" }} />
@@ -31,7 +42,7 @@ export const LetterNote: React.FC<LayoutProps> = ({ text, image, recipe }) => {
         <span
           style={{
             display: "inline-block",
-            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: 84, lineHeight: 1.45,
+            fontFamily: recipe.fonts.script_family ?? "Caveat", fontSize: size, lineHeight: 1.45,
             color: "#3c3020", clipPath: `inset(0 ${(1 - write) * 100}% -10% 0)`,
           }}
         >

@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame } from "remotion";
 import { LayoutProps } from "../theme";
 import { drift, ramp } from "../anim";
+import { useFit } from "../fit";
 import { Grain, LightLeak, Vignette } from "../FX";
 
 // A vertical film strip slides slowly upward through two painted frames,
@@ -21,6 +22,16 @@ export const Filmstrip: React.FC<LayoutProps> = ({ text, display, image, image2,
   const frame = useCurrentFrame();
   const slideY = interpolate(frame, [0, 150], [40, -110]);
   const labelIn = ramp(frame, 18, 40);
+  const size = useFit({
+    text: label,
+    font: (s) => `400 ${s}px "${recipe.fonts.eyebrow_family ?? "EB Garamond"}", serif`,
+    maxWidth: 896 * 0.84,
+    maxHeight: 1600 * 0.12,
+    maxSize: 34,
+    minSize: 18,
+    lineHeight: 1.3,
+    trackingEm: 8 / 34,
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: "#171310" }}>
       <LightLeak hue="#ff9a4d" strength={0.1} />
@@ -42,8 +53,8 @@ export const Filmstrip: React.FC<LayoutProps> = ({ text, display, image, image2,
           </div>
         ))}
       </div>
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: "5.5%", textAlign: "center", opacity: labelIn }}>
-        <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", color: "rgba(245,240,228,0.9)", letterSpacing: 8, fontSize: 34, textTransform: "uppercase" }}>
+      <div style={{ position: "absolute", left: "6%", right: "6%", bottom: "5.5%", textAlign: "center", opacity: labelIn }}>
+        <span style={{ fontFamily: recipe.fonts.eyebrow_family ?? "EB Garamond", color: "rgba(245,240,228,0.9)", letterSpacing: 8, fontSize: size, lineHeight: 1.3, textTransform: "uppercase" }}>
           {label}
         </span>
       </div>
