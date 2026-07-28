@@ -8,7 +8,7 @@ artifact_generation job. Node's compiled renderer reads the context.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -418,6 +418,73 @@ async def generate_tribute(
     )
 
 
+# How long a freshly composed render may stay in flight before /generate lets a
+# retry through. A tribute video renders in minutes; anything still 'generating'
+# well past that is a DEAD render (worker not deployed / crashed hard -- the prod
+# failure mode from 2026-07-16), and the contributor has to be able to retry.
+# Ordinary render failures unblock immediately: the worker writes
+# status='failed', which this guard never blocks.
+RENDER_INFLIGHT_GRACE = timedelta(minutes=30)
+
+
+def _parse_iso(raw: str | None) -> datetime | None:
+    """Parse a stored ISO timestamp; None when absent or unparseable."""
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _reject_duplicate_render(*, tribute_id: UUID, tribute: dict) -> None:
+    """409 a repeat /generate so one more click can't buy one more render.
+
+    /generate is the FIRST mint and is not retry-safe: it overwrites the render
+    context with fresh presigned URLs + a new ``composed_at``, flips the row
+    back to 'generating', and enqueues another (paid) render -- which also
+    stales the in-flight one and leaves the card holding a finished video_url
+    while the status says 'generating'. Node's FE is supposed to gate the button
+    (TributesController.generate: "NOT retry-safe"), but the boundary that
+    spends the money owns the guard. /regenerate and /edit remain the deliberate
+    re-render paths.
+    """
+    row_status = (tribute.get("status") or "").strip()
+    if row_status in ("complete", "superseded") or tribute.get("video_url"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "tribute already rendered; use /regenerate to re-roll it "
+                "(or /edit to change it)"
+            ),
+        )
+    if row_status != "generating":
+        return
+    composed_at = _parse_iso(tribute.get("render_composed_at"))
+    if composed_at is None:
+        # An in-flight render we cannot age. Let the retry through rather than
+        # wedging the tribute shut forever.
+        log.warning(
+            "tribute.inflight_render_undatable", tribute_id=str(tribute_id)
+        )
+        return
+    age = datetime.now(timezone.utc) - composed_at
+    if age < RENDER_INFLIGHT_GRACE:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "a tribute render is already in progress; wait for it to "
+                "finish before generating again"
+            ),
+        )
+    log.info(
+        "tribute.stale_render_retry_allowed",
+        tribute_id=str(tribute_id),
+        age_seconds=int(age.total_seconds()),
+    )
+
+
 async def _generate_video(
     *,
     tribute_id: UUID,
@@ -438,6 +505,7 @@ async def _generate_video(
     2026-07-22): soft slots (appearance/signature, unless a campaign requires
     them) add to the bar but never block generation, so a video unlocks before
     the bar fills."""
+    _reject_duplicate_render(tribute_id=tribute_id, tribute=tribute)
     if not progress.ready:
         raise HTTPException(
             status_code=409,
@@ -487,15 +555,17 @@ async def _generate_video(
                     cur, person_id=str(body.person_id),
                     tribute_id=tribute_id, campaign_slug=body.campaign,
                     settings=settings))
-            # Backstop stamp (prod 2026-07-16: rows arrived unstamped because
-            # the entry path didn't carry the campaign slug). The snapshot
-            # already pins the campaign; stamping the ROW is what lets the
-            # tribute_status gallery label each video by campaign. No-op when
-            # already stamped.
-            if campaign.id:
-                await stamp_tribute_campaign_async(
-                    cur, tribute_id=tribute_id, campaign_id=campaign.id)
-                await conn.commit()
+            # No backstop stamp. It was added for prod 2026-07-16 (campaign rows
+            # arriving unstamped because the entry path didn't carry the slug),
+            # but a row's campaign identity is now settled at creation: the entry
+            # path stamps at insert, and the open-tribute lookup no longer adopts
+            # a standalone row into a campaign flow. So the only row this could
+            # still change is a STANDALONE keepsake -- and since 0048 campaign_id
+            # decides meter_kind, converting one retroactively adds a message slot
+            # it was never asked to fill. Prod 2026-07-28: three keepsakes
+            # rendered fine, then read 65% + not-ready with a finished video on
+            # them (Srinidhi, Bot, Padma). A keepsake stays a keepsake; the render
+            # still gets the campaign skin from the snapshot.
 
     gt_scene = render_ground_truth_block(ground_truth, "scene_subject") or ""
 
@@ -562,6 +632,33 @@ async def _generate_video(
         scene_count=min(len(candidates), STORYBOOK_MAX_PAGES))
 
 
+async def _rederive_candidates(
+    *, tribute_id: UUID, person_id: UUID, db_pool: AsyncConnectionPool
+) -> list[dict]:
+    """Compose the candidate pool the way /generate does, from live moments.
+
+    Same two-step as ``_generate_video``: the tribute theme's tagged moments,
+    widened to the person-wide qualifying pool when the theme pool is thinner
+    than the story floor.
+    """
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            row = await fetch_tribute_for_assembly_async(cur, tribute_id=tribute_id)
+            themed: list = []
+            if row and row.get("theme_id"):
+                themed = await fetch_theme_scene_moments_async(
+                    cur, person_id=person_id, theme_id=row["theme_id"],
+                    limit=STORYBOOK_MAX_PAGES)
+            candidates = themed
+            if len(themed) < MEMORIES_TARGET:
+                candidates = choose_candidate_pool(
+                    themed,
+                    await fetch_scene_moments_async(
+                        cur, person_id=person_id, limit=STORYBOOK_MAX_PAGES),
+                    target=MEMORIES_TARGET)
+    return order_candidates_for_narrative(candidates)
+
+
 async def _reenqueue_tribute_render(
     *,
     tribute_id: UUID,
@@ -595,13 +692,12 @@ async def _reenqueue_tribute_render(
             # into the render all carry an empty list.
             archetype_answers = await fetch_render_archetype_answers_async(
                 cur, tribute_id=tribute_id)
-            # Backstop stamp (mirrors /generate): once the campaign is known,
-            # pin it on the row so progress reads and later regenerates stop
-            # depending on the snapshot hint. No-op when already stamped.
-            if campaign.id:
-                await stamp_tribute_campaign_async(
-                    cur, tribute_id=tribute_id, campaign_id=campaign.id)
-                await conn.commit()
+            # No backstop stamp here. It used to mirror /generate's, but the
+            # only row it could ever change is one with campaign_id NULL --
+            # which since 0048 IS a standalone keepsake, and converting one
+            # retroactively adds a message slot it never had (the 65%-with-a-
+            # finished-video rows, prod 2026-07-28). The snapshot still pins
+            # the campaign for the render itself.
     if directives is not None:
         style = _style_dict(visual_theme)
         profile_id = profile.id if profile is not None else ""
@@ -629,6 +725,20 @@ async def _reenqueue_tribute_render(
     # page count is re-derived (idempotent) so a regenerate repairs a snapshot
     # taken while it was still a fixed 13.
     candidates = list(stored.get("candidates") or [])
+    # ...but a slice thinner than the story floor is not a choice, it is damage:
+    # snapshots composed before 3fb262f carry only the theme-tagged moments (one
+    # memory for a legacy with eighteen), and reusing them verbatim meant the
+    # 1-page book could never heal -- /generate re-derives, but it 409s once a
+    # video exists. Re-read the live pool instead, exactly as /generate composes
+    # it (fresh fetch => narrative order applied here, not reversed).
+    if len(candidates) < MEMORIES_TARGET:
+        widened = await _rederive_candidates(
+            tribute_id=tribute_id, person_id=person_id, db_pool=db_pool)
+        if len(widened) > len(candidates):
+            log.info("tribute.rerender_widened_thin_slice",
+                     tribute_id=str(tribute_id),
+                     stored=len(candidates), widened=len(widened))
+            candidates = widened
     leads = leads_to_lines(build_leads(archetype_answers))
 
     context = build_context_dict(

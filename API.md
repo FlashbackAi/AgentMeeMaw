@@ -1046,8 +1046,16 @@ Full handshake: `NODE_INTEGRATION.md` §7b.
 
 ### `POST /tributes/{tribute_id}/generate`
 
-Trigger a tribute video render. Call when the meter is at **100%**
-(`tribute_status.percent = 100`).
+Trigger a tribute video render. Gate the button on **`tribute_status.ready`**,
+not `percent = 100` (two-meter model, migrations 0048/0050): soft slots
+(signature; appearance is unscored) add to the bar but never block generation,
+so a tribute is legitimately generatable well below 100%.
+
+**Single-shot.** This is the FIRST mint and it is not a re-render surface — the
+agent `409`s a repeat call (see Errors) so a double-tap cannot buy a second
+paid render. Re-render deliberately via `/regenerate` or `/edit`. The FE should
+still disable the button while `status = 'generating'` or a `video_url` exists,
+so the 409 is a backstop rather than the user's first feedback.
 
 Request:
 
@@ -1088,7 +1096,15 @@ Response `200`:
 Errors:
 
 - `404` — tribute not found / not owned by `person_id`, or status unavailable.
-- `409` — meter below 100% (`detail` carries the current percent).
+- `409` — not generatable. Three distinct causes, split on `detail`:
+  * `"tribute not ready to generate (percent=…)"` — `ready` is false; the
+    detail names what's missing.
+  * `"tribute already rendered; use /regenerate …"` — status `complete` /
+    `superseded`, or a `video_url` already exists.
+  * `"a tribute render is already in progress …"` — status `generating` and the
+    render was composed less than **30 min** ago. Past that window the render is
+    presumed dead (worker down) and a retry is allowed, so a stuck tribute never
+    wedges shut; ordinary failures unblock immediately via `status='failed'`.
 - `400` — missing `video_put_url` / `pdf_put_url`.
 - `410` — `artifact_kind='storybook'`: the tribute storybook is retired; use
   `tribute_video`. (The standalone `/storybooks` feature is separate.)
@@ -1097,8 +1113,7 @@ Generation is **async**: `200` means enqueued. The `tribute_render` worker
 renders + PUTs the MP4/PDF, flips `tributes.status` `generating → complete` (or
 `failed`), and fires the transactional `tribute_render_complete` NOTIFY. Node
 reads the `tribute_status` view (now exposing `pdf_url` + `rendered_at`) and
-writes `video_url` / `pdf_url` on that NOTIFY. **Not retry-safe** — a repeat
-call re-renders.
+writes `video_url` / `pdf_url` on that NOTIFY.
 
 ### `GET /tributes/{tribute_id}/progress`
 
