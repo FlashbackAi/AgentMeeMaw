@@ -5,8 +5,10 @@ from __future__ import annotations
 from flashback.tribute.checklist import SLOT_KEYS, SLOTS
 
 
-def test_slot_keys_are_the_four_expected() -> None:
-    assert SLOT_KEYS == ("memories", "message", "appearance", "signature")
+def test_slot_keys_are_the_three_expected() -> None:
+    # 'appearance' was retired by migration 0050 -- it could never be filled,
+    # which deadlocked the meter and blocked the message slot behind it.
+    assert SLOT_KEYS == ("memories", "message", "signature")
 
 
 def test_weights_sum_to_100() -> None:

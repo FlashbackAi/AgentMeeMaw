@@ -9,6 +9,7 @@ here we patch to keep it deterministic).
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 import pytest
 
@@ -31,7 +32,16 @@ async def _identity_polish(**kw):
 
 
 async def _seed(pool, *, relationship: str | None = None,
-                relationship_group: str | None = None) -> tuple[str, str]:
+                relationship_group: str | None = None,
+                message_card_copy: str | None = None) -> tuple[str, str]:
+    """Seed a *campaign* tribute.
+
+    The message slot is campaign-only (two-meter model, design
+    2026-07-22) -- a standalone keepsake 409s on POST /message -- so
+    every test here needs a campaign stamped. Leaving
+    ``message_card_copy`` None is what makes the card fall back to the
+    relationship profile's invitation copy.
+    """
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -79,8 +89,17 @@ async def _seed(pool, *, relationship: str | None = None,
                     display_name=TRIBUTE_DISPLAY_NAME,
                     description=TRIBUTE_DESCRIPTION,
                 )
+                await cur.execute(
+                    "INSERT INTO tribute_campaigns "
+                    "(slug, display_name, message_card_copy, state) "
+                    "VALUES (%s, %s, %s, 'published') RETURNING id::text",
+                    (f"test-campaign-{uuid4().hex[:12]}", "Test Campaign",
+                     message_card_copy),
+                )
+                campaign_id = (await cur.fetchone())[0]
                 tribute_id = await ensure_open_tribute_async(
-                    cur, person_id=person_id, theme_id=theme_id
+                    cur, person_id=person_id, theme_id=theme_id,
+                    campaign_id=campaign_id,
                 )
     return person_id, tribute_id
 
@@ -118,7 +137,7 @@ async def test_message_fills_slot_and_returns_progress(
 async def test_message_hint_uses_relationship_profile_copy(
     client_with_db, async_db_pool, monkeypatch
 ) -> None:
-    """No campaign stamped -> the friend profile's invitation line shows."""
+    """Campaign with no message_card_copy -> friend profile's line shows."""
     monkeypatch.setattr(message_capture, "polish_message", _identity_polish)
     person_id, tribute_id = await _seed(
         async_db_pool, relationship="best friend", relationship_group="friend"
