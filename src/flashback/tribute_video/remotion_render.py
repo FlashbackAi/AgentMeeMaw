@@ -63,6 +63,9 @@ def recipe_kwargs_from_style(style: dict | None) -> dict:
         "transition": float(pacing.get("transition", DEFAULT_TRANSITION)),
         "accent": accent,
         "motion_preset": recipe.get("motion_preset") or DEFAULT_MOTION_PRESET,
+        # Per-occasion chrome (chapter / editorial eyebrow, postmark). Absent
+        # from the snapshot -> props.py derives them from the cover title.
+        "labels": dict(recipe.get("labels") or {}),
     }
 
 
@@ -75,6 +78,7 @@ def render_book_remotion(
     palette: list[str] | None = None, pins: dict[str, str] | None = None,
     hold: float = 2.4, transition: float = 0.7, accent: str = "#e8552e",
     motion_preset: str = DEFAULT_MOTION_PRESET,
+    labels: dict[str, str] | None = None,
     subject_gender: str | None = None,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
@@ -110,7 +114,7 @@ def render_book_remotion(
         props = build_props(book, kit=kit, image_names=image_names,
                             palette=palette, pins=pins, fps=fps, hold=hold,
                             transition=transition, accent=accent,
-                            motion_preset=motion_preset)
+                            motion_preset=motion_preset, labels=labels)
         props_path = os.path.join(td, "props.json")
         with open(props_path, "w", encoding="utf-8") as fh:
             json.dump(props, fh)
