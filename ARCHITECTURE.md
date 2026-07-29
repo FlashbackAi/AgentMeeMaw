@@ -909,8 +909,15 @@ Three triggers for changes to existing rows.
 
 For every newly extracted moment, run:
 
-1. Vector search over existing active moments for the person.
-2. Entity-overlap filter on the candidates.
+1. Similarity search over existing active moments for the person:
+   vector search over embedded rows (distance < 0.35), plus query-side
+   comparison against recent rows the embedding worker hasn't reached
+   yet (retells cluster within minutes — exactly the window where the
+   stored embedding doesn't exist).
+2. Entity-overlap filter on the candidates. Missing evidence is not
+   negative evidence: when either side has no entity links, near-twins
+   (distance < 0.20) still pass to the judge. Only both-sides-linked
+   with zero overlap drops a candidate.
 3. LLM compatibility check on each survivor.
 
 Verdicts:

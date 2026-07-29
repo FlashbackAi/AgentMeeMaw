@@ -290,6 +290,11 @@ class HttpConfig:
     # Tribute sessions churn topics fast to maximize coverage before the
     # deadline, so the Segment Detector runs far more often than the default.
     tribute_segment_detector_user_turn_cadence: int = 2
+    # Floor on buffered entries (user+assistant each count 1) before the
+    # detector may run. Only bites on switch turns — they bypass the
+    # cadence — and stops a pivot right after a boundary from pushing a
+    # 1-turn segment whose extraction re-mines the rolling summary.
+    segment_detector_min_turns: int = 4
     llm_response_provider: str = "anthropic"
     llm_response_model: str = "claude-sonnet-4-6"
     llm_response_timeout_seconds: float = 12.0
@@ -411,6 +416,9 @@ class HttpConfig:
             ),
             tribute_segment_detector_user_turn_cadence=int(
                 os.environ.get("TRIBUTE_SEGMENT_DETECTOR_USER_TURN_CADENCE", "2")
+            ),
+            segment_detector_min_turns=int(
+                os.environ.get("SEGMENT_DETECTOR_MIN_TURNS", "4")
             ),
             llm_response_provider=os.environ.get("LLM_RESPONSE_PROVIDER", "anthropic"),
             llm_response_model=os.environ.get("LLM_RESPONSE_MODEL", llm_big_model),

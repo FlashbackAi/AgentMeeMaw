@@ -185,6 +185,29 @@ async def test_switch_turn_bypasses_cadence():
     assert wm.reset_counter_calls == 1
 
 
+async def test_switch_turn_below_min_segment_turns_skips_detector():
+    """A pivot right after a boundary must not push a 1-turn segment —
+    its extraction can only re-mine the rolling summary (the prod-test-5
+    double extraction, 2026-07-29)."""
+    state = _state()
+    state.effective_intent = "switch"
+    wm = FakeWorkingMemory(
+        segment_turns=SAMPLE_SEGMENT[:2],
+        user_turns_since_segment_check=1,
+    )
+    detector = FakeDetector()
+    queue = FakeExtractionQueue()
+    deps = _deps(wm=wm, detector=detector, queue=queue)
+    deps.settings.segment_detector_min_turns = 4
+
+    await detect_segment(state, deps)
+
+    assert detector.calls == []
+    assert queue.calls == []
+    # Counter keeps accumulating so the next cadence check still fires.
+    assert wm.reset_counter_calls == 0
+
+
 async def test_boundary_pushes_queue_then_updates_wm_and_state():
     state = _state()
     wm = FakeWorkingMemory(segment_turns=SAMPLE_SEGMENT)

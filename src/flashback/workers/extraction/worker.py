@@ -190,6 +190,9 @@ class ExtractionWorker:
     redis_client: object | None = None
     refinement_distance_threshold: float = 0.35
     refinement_candidate_limit: int = 3
+    # Stricter floor for candidates missing entity evidence on either side
+    # (absence is not disagreement; see refinement.py module docstring).
+    refinement_no_entity_distance_threshold: float = 0.20
     sqs_wait_seconds: int = 20
     visibility_timeout_seconds: int = 120
     visibility_heartbeat_interval_seconds: int = 45
@@ -677,6 +680,9 @@ class ExtractionWorker:
                 embedding_model_version=self.embedding_model_version,
                 distance_threshold=self.refinement_distance_threshold,
                 candidate_limit=self.refinement_candidate_limit,
+                no_entity_distance_threshold=(
+                    self.refinement_no_entity_distance_threshold
+                ),
             )
             decision = MomentDecision(moment=moment)
             for candidate in candidates:

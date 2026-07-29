@@ -3,12 +3,24 @@ Refinement candidate search.
 
 Per ARCHITECTURE.md §8(A) the algorithm is two-stage:
 
-  1. Vector search over ``active_moments`` for the same person, using the
+  1. Similarity over ``active_moments`` for the same person, using the
      new moment's narrative embedded **as a query**. Cosine distance must
-     be below a tunable threshold (default 0.35).
-  2. Entity-overlap filter — at least one entity name in common between
-     the new moment (resolved from its ``involves_entity_indexes``) and
-     the candidate (joined via ``edges``).
+     be below a tunable threshold (default 0.35). Moments the embedding
+     worker hasn't caught up with yet (rows with a NULL embedding, written
+     in the last hour) are compared query-side with the same Voyage
+     embedder — retells cluster within minutes, exactly the window where
+     the stored embedding doesn't exist yet, so skipping them minted
+     duplicates (prod-test-5, 2026-07-29: twin extracted 36s after the
+     original, whose embedding landed 12 minutes later).
+  2. Entity-overlap filter — a shared entity name confirms a candidate.
+     Missing evidence is NOT negative evidence: when either side carries
+     no entity links at all, the candidate is still admitted under a
+     stricter distance floor (default 0.20) and the compatibility LLM
+     decides. Only a genuine disagreement — both sides linked, zero
+     overlap — drops the candidate (two different weddings can share a
+     narrative shape). The old hard requirement dropped 0.10-distance
+     twins whenever the retell was extracted without entity links
+     (Swetha, 2026-07-29).
 
 The compatibility LLM only fires once per candidate that survives both
 stages. Most segments produce zero candidates and zero LLM calls.
@@ -16,6 +28,7 @@ stages. Most segments produce zero candidates and zero LLM calls.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import structlog
@@ -47,6 +60,9 @@ def find_refinement_candidates(
     embedding_model_version: str,
     distance_threshold: float = 0.35,
     candidate_limit: int = 3,
+    no_entity_distance_threshold: float = 0.20,
+    unembedded_lookback_minutes: int = 60,
+    unembedded_candidate_limit: int = 3,
 ) -> list[RefinementCandidate]:
     """
     Return zero or more refinement candidates for ``new_moment``.
@@ -91,16 +107,26 @@ def find_refinement_candidates(
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            rows = cur.fetchall()
+            rows = list(cur.fetchall())
+
+    rows.extend(
+        _recent_unembedded_hits(
+            person_id=person_id,
+            query_vector=query_vector,
+            voyage=voyage,
+            db_pool=db_pool,
+            distance_threshold=distance_threshold,
+            lookback_minutes=unembedded_lookback_minutes,
+            limit=unembedded_candidate_limit,
+        )
+    )
 
     if not rows:
         return []
+    rows.sort(key=lambda r: r[3])
+    rows = rows[:candidate_limit]
 
     new_names = {n.lower() for n in new_moment_entity_names if n}
-    if not new_names:
-        # No entities on the new moment means the entity-overlap filter
-        # admits nothing. Return early.
-        return []
 
     candidates: list[RefinementCandidate] = []
     with db_pool.connection() as conn:
@@ -121,7 +147,15 @@ def find_refinement_candidates(
                     (moment_id,),
                 )
                 existing_names = {r[0] for r in cur.fetchall()}
-                if new_names & existing_names:
+                if new_names and existing_names:
+                    # Both sides carry entity evidence: require agreement.
+                    admitted = bool(new_names & existing_names)
+                else:
+                    # Evidence missing on at least one side: absence is not
+                    # disagreement — admit near-twins and let the compat
+                    # LLM decide.
+                    admitted = float(distance) < no_entity_distance_threshold
+                if admitted:
                     candidates.append(
                         RefinementCandidate(
                             id=moment_id,
@@ -138,6 +172,73 @@ def find_refinement_candidates(
         kept=len(candidates),
     )
     return candidates
+
+
+def _recent_unembedded_hits(
+    *,
+    person_id: str,
+    query_vector: list[float],
+    voyage: SyncVoyageQueryEmbedder,
+    db_pool,
+    distance_threshold: float,
+    lookback_minutes: int,
+    limit: int,
+) -> list[tuple[str, str, str, float]]:
+    """Distance-scored rows for recent moments with no stored embedding.
+
+    Their narratives are embedded query-side (nothing is written back —
+    the embedding worker still owns the stored vector, invariant #4).
+    Per-narrative Voyage failure just skips that candidate.
+    """
+    if limit <= 0:
+        return []
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text, title, narrative
+                  FROM active_moments
+                 WHERE person_id = %(person_id)s
+                   AND narrative_embedding IS NULL
+                   AND created_at > now() - make_interval(mins => %(lookback)s)
+                 ORDER BY created_at DESC
+                 LIMIT %(limit)s
+                """,
+                {
+                    "person_id": person_id,
+                    "lookback": lookback_minutes,
+                    "limit": limit,
+                },
+            )
+            recent = cur.fetchall()
+
+    hits: list[tuple[str, str, str, float]] = []
+    for moment_id, title, narrative in recent:
+        candidate_vector = voyage.embed(narrative)
+        if candidate_vector is None:
+            continue
+        distance = _cosine_distance(query_vector, candidate_vector)
+        if distance is not None and distance < distance_threshold:
+            hits.append((moment_id, title, narrative, distance))
+    if recent:
+        log.info(
+            "refinement.unembedded_candidates",
+            person_id=person_id,
+            considered=len(recent),
+            within_threshold=len(hits),
+        )
+    return hits
+
+
+def _cosine_distance(a: list[float], b: list[float]) -> float | None:
+    if len(a) != len(b) or not a:
+        return None
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return None
+    return 1.0 - (dot / (norm_a * norm_b))
 
 
 def collect_entity_names_for_moment(

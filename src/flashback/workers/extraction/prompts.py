@@ -376,6 +376,13 @@ a guess from a name alone is never high confidence.
 CRITICAL RULES:
 - UNDER-EXTRACT. If uncertain whether something is a moment, drop it. Better \
 to miss material than to pollute the graph.
+- Extract ONLY from the CLOSED SEGMENT turns. The PRIOR rolling summary is \
+read-only context (pronouns, continuity, attribution) — everything in it was \
+already extracted from earlier segments, so NEVER emit a moment, entity, or \
+trait whose evidence appears only in the rolling summary. Re-emitting a \
+summarized story creates a duplicate moment. If the CLOSED SEGMENT merely \
+alludes back to a summarized story without adding new tellable substance, \
+emit nothing for it.
 - Use the contributor's own words for narrative when reasonable — paraphrase \
 only when needed for coherence.
 - Preserve the contributor's tense and knowledge position. Do not force \

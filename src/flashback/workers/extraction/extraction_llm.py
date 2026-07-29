@@ -27,7 +27,7 @@ from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TOOL
 from .schema import ExtractionResult, SegmentAnchor, SegmentTurn
 
 log = structlog.get_logger("flashback.workers.extraction.extraction_llm")
-EXTRACTION_PROMPT_VERSION = "extraction.v1"
+EXTRACTION_PROMPT_VERSION = "extraction.v2"
 
 
 @dataclass
