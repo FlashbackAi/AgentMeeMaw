@@ -937,10 +937,14 @@ Dismiss an auto-merge notification (sets `acknowledged=true`). Idempotent.
 
 ### `POST /identity_merges/{suggestion_id}/unmerge`
 
-Reverse an auto-merge (or an approved merge). The survivor stays intact;
-the merged-away entity is resurrected as a **fresh standalone entity**
-with its repointed edges moved back and its deleted duplicate edges
-re-created. Pushes a re-embed for the resurrected entity.
+Reverse an auto-merge (or an approved merge). The merged-away entity is
+resurrected as a **fresh standalone entity** with its repointed edges
+moved back and its deleted duplicate edges re-created. The survivor
+keeps its blended description, but the labels the merge folded into its
+aliases are stripped back out, and the suggestion row is repointed to
+the resurrected entity's id — both are what stop the next scan from
+silently re-auto-merging the pair the user just pulled apart. Pushes a
+re-embed for the resurrected entity.
 
 **Response 200**:
 ```json

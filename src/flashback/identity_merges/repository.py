@@ -283,16 +283,22 @@ async def unmerge_async(
 ) -> UnmergeResponse | None:
     """Reverse an auto-merge (or approved merge), per the 2026-06-06 design.
 
-    The survivor stays intact (its blended name/description/aliases are
-    NOT un-blended). The merged-away entity is resurrected as a brand-new
-    active entity; the edges that were repointed onto the survivor are
-    moved back to it, and edges deleted as duplicates are re-created on it.
-    Returns ``None`` if the suggestion is not in a reversible state.
+    The survivor keeps its blended description, but the labels this merge
+    folded into its aliases are stripped back out, and the suggestion row
+    is repointed to the resurrected entity's id. Unmerge is the user
+    saying "these are different" — leaving the alias evidence in place
+    (or leaving the dedup gate keyed to the dead source id) let the next
+    scan re-detect and silently re-auto-merge the exact pair the user
+    just pulled apart. The merged-away entity is resurrected as a
+    brand-new active entity; the edges that were repointed onto the
+    survivor are moved back to it, and edges deleted as duplicates are
+    re-created on it. Returns ``None`` if the suggestion is not in a
+    reversible state.
     """
     await cursor.execute(
         """
         SELECT person_id::text, source_entity_id::text,
-               target_entity_id::text, undo_snapshot
+               target_entity_id::text, undo_snapshot, proposed_alias
           FROM identity_merge_suggestions
          WHERE id = %s
            AND status IN ('auto_merged', 'approved')
@@ -303,7 +309,7 @@ async def unmerge_async(
     row = await cursor.fetchone()
     if row is None:
         return None
-    person_id, source_id, target_id, snapshot = row
+    person_id, source_id, target_id, snapshot, proposed_alias = row
     if not snapshot:
         return None
 
@@ -311,7 +317,21 @@ async def unmerge_async(
     repointed_ids = snapshot.get("repointed_edge_ids") or []
     deleted_edges = snapshot.get("deleted_edges") or []
 
-    # 1. Resurrect the merged-away entity as a FRESH active entity.
+    await cursor.execute(
+        """
+        SELECT name, aliases
+          FROM entities
+         WHERE id = %s
+         FOR UPDATE
+        """,
+        (target_id,),
+    )
+    survivor = await cursor.fetchone()
+    survivor_name, survivor_aliases = survivor if survivor else ("", [])
+
+    # 1. Resurrect the merged-away entity as a FRESH active entity. Its
+    #    aliases drop the survivor's name — alias↔name overlap in either
+    #    direction is what forms scan candidates.
     await cursor.execute(
         """
         INSERT INTO entities
@@ -325,12 +345,39 @@ async def unmerge_async(
             source_row.get("kind"),
             source_row.get("name"),
             source_row.get("description"),
-            list(source_row.get("aliases") or []),
+            [
+                alias
+                for alias in (source_row.get("aliases") or [])
+                if _norm(alias) != _norm(survivor_name)
+            ],
             Json(source_row.get("attributes") or {}),
             source_row.get("generation_prompt"),
         ),
     )
     new_entity_id = (await cursor.fetchone())[0]
+
+    # 1b. Strip the labels this merge folded into the survivor's aliases
+    #     (the source's name/aliases and the proposed alias).
+    folded_labels = {
+        _norm(source_row.get("name")),
+        _norm(proposed_alias),
+        *(_norm(alias) for alias in source_row.get("aliases") or []),
+    }
+    folded_labels.discard("")
+    kept_aliases = [
+        alias
+        for alias in (survivor_aliases or [])
+        if _norm(alias) not in folded_labels
+    ]
+    if kept_aliases != list(survivor_aliases or []):
+        await cursor.execute(
+            """
+            UPDATE entities
+               SET aliases = %s
+             WHERE id = %s
+            """,
+            (kept_aliases, target_id),
+        )
 
     # 2. Move the repointed edges off the survivor back onto the new entity.
     if repointed_ids:
@@ -378,16 +425,25 @@ async def unmerge_async(
             ),
         )
 
-    # 4. Mark the suggestion reversed. The original source row stays a
-    #    'merged' tombstone; the resurrected entity is a new identity.
+    # 4. Mark the suggestion reversed and repoint it at the resurrected
+    #    entity. The scanner's dedup gate is keyed on live entity ids, so
+    #    the row only keeps suppressing re-detection of this pair if it
+    #    follows the resurrection (the original source row stays a
+    #    'merged' tombstone with a dead id). The original id is kept in
+    #    the snapshot for audit.
+    snapshot = dict(snapshot)
+    snapshot["original_source_entity_id"] = source_id
+    snapshot["resurrected_entity_id"] = new_entity_id
     await cursor.execute(
         """
         UPDATE identity_merge_suggestions
            SET status = 'unmerged',
-               unmerged_at = now()
+               unmerged_at = now(),
+               source_entity_id = %s,
+               undo_snapshot = %s
          WHERE id = %s
         """,
-        (suggestion_id,),
+        (new_entity_id, Json(snapshot), suggestion_id),
     )
 
     # 5. Re-embed the resurrected entity's description.

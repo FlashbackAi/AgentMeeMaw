@@ -142,8 +142,9 @@ async def unmerge_suggestion(
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
     cfg: HttpConfig = Depends(get_http_config),
 ) -> UnmergeResponse:
-    """Reverse an auto-merge (or approved merge): survivor stays intact, the
-    merged-away entity is resurrected as a fresh standalone entity."""
+    """Reverse an auto-merge (or approved merge): the merged-away entity is
+    resurrected as a fresh standalone entity, the survivor loses the aliases
+    the merge folded in, and the pair is suppressed from future scans."""
     push_embedding = None
     if cfg.embedding_queue_url:
         push_embedding = EmbeddingJobSender(

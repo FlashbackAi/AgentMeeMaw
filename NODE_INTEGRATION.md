@@ -1007,9 +1007,11 @@ unaffected.
    silent merges; render a toast using `notification_text` with an "Undo"
    action. Dismiss → `POST /identity_merges/{id}/acknowledge`.
 4. **Undo (new).** "Undo" → `POST /identity_merges/{id}/unmerge`. The
-   survivor stays intact; the merged-away entity is resurrected as a fresh
-   standalone entity with its edges moved back. Works for both auto-merges
-   and user-approved merges.
+   merged-away entity is resurrected as a fresh standalone entity with its
+   edges moved back; the survivor keeps its blended description but loses
+   the aliases the merge folded in, and the pair is suppressed from future
+   scans (no re-auto-merge ping-pong). Works for both auto-merges and
+   user-approved merges.
 
 Approval and auto-merge mutate the graph atomically (repoint edges, mark
 source `merged`, queue survivor re-embedding) and capture an undo snapshot.

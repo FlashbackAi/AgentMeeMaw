@@ -300,9 +300,14 @@ Every piece of code touching the graph or queues must respect these.
     Auto-merge and approval both capture an `undo_snapshot` (source row
     + repointed/deleted edges) and repoint edges atomically (#5), mark
     the source `merged`, clear survivor embedding, and queue a re-embed.
-    `POST /identity_merges/{id}/unmerge` reverses either: the survivor
-    stays intact and the merged-away entity is resurrected as a **fresh
-    standalone entity** with its edges moved back. Auto-merges surface
+    `POST /identity_merges/{id}/unmerge` reverses either: the
+    merged-away entity is resurrected as a **fresh standalone entity**
+    with its edges moved back, the aliases the merge folded into the
+    survivor are stripped back out (blended description stays), and the
+    suggestion row is repointed to the resurrected id so the scanner's
+    dedup gate keeps suppressing the pair — otherwise the next scan
+    re-detects the same evidence and silently re-auto-merges what the
+    user just pulled apart. Auto-merges surface
     via `GET /identity_merges/auto_merged` (toast feed) and are cleared
     with `POST /identity_merges/{id}/acknowledge`.
 18. **Traits are anchored, deduped, and behavior-described.** Three
@@ -1042,9 +1047,14 @@ We expose an HTTP service. Node calls us; we never call Node.
 - `POST /identity_merges/{id}/acknowledge` — dismiss an auto-merge
   notification. Idempotent.
 - `POST /identity_merges/{id}/unmerge` — reverse an auto-merge (or an
-  approved merge): the survivor stays intact and the merged-away entity
-  is resurrected as a fresh standalone entity with its edges moved back.
-  Pushes a re-embed for the resurrected entity.
+  approved merge): the merged-away entity is resurrected as a fresh
+  standalone entity with its edges moved back. The survivor keeps its
+  blended description but the aliases the merge folded in are stripped,
+  and the suggestion row is repointed to the resurrected id so the
+  scanner's dedup gate keeps suppressing the pair — unmerge is the user
+  saying "these are different", and without both steps the next scan
+  would silently re-auto-merge the exact pair (the ping-pong observed
+  in prod 2026-06-17→19). Pushes a re-embed for the resurrected entity.
 - `POST /themes/{theme_id}/unlock_prepare` — body: `{ person_id,
   campaign? }`. Returns the cached or lazily-generated archetype MC
   questions for a locked theme, plus any `archetype_answers_draft` so the
