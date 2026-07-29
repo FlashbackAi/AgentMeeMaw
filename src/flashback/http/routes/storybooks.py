@@ -48,6 +48,7 @@ from flashback.storybook.generation import (
     StorybookGenerationResult,
     StorybookIdConflict,
     StorybookNotFound,
+    StorybookRenderUnavailable,
     StorybookSelectionOutOfBounds,
     StorybookTooThin,
     UnknownCollection,
@@ -74,7 +75,10 @@ def _to_response(
         storybook_id=UUID(result.storybook_id),
         person_id=person_id,
         collection=result.collection,
-        status="generating",
+        # Only ever reported when the trigger actually landed -- the generation
+        # layer raises StorybookRenderUnavailable otherwise, so this can no
+        # longer claim a render is underway when nothing was queued.
+        status="generating" if result.enqueued else "failed",
         source=source,  # type: ignore[arg-type]
         moments_count=result.moments_count,
         enqueued=result.enqueued,
@@ -185,6 +189,10 @@ async def create_storybook(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+    except StorybookRenderUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     return _to_response(result, person_id=body.person_id, source="manual")
 
 
@@ -222,6 +230,10 @@ async def regenerate_storybook_route(
     except StorybookNotFound as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except StorybookRenderUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
     return _to_response(result, person_id=body.person_id, source="regenerate")
 
@@ -261,5 +273,9 @@ async def edit_storybook_route(
     except StorybookNotFound as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except StorybookRenderUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
     return _to_response(result, person_id=body.person_id, source="edit")

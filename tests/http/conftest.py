@@ -160,9 +160,42 @@ def fake_orchestrator() -> FakeOrchestrator:
     return FakeOrchestrator()
 
 
+class FakeRenderQueue:
+    """Stand-in for the tribute / storybook render queue producers.
+
+    ``push`` returns a message id, i.e. the enqueue LANDED. The routes now
+    refuse to start a render they cannot enqueue (503 rather than a 200 that
+    strands the row at 'generating'), so a fixture without a queue would make
+    every render test exercise the misconfigured-box path. Set
+    ``fail_mode='raise'`` or ``'no_id'`` to drive the two failure branches.
+    """
+
+    def __init__(self, fail_mode: str | None = None) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.fail_mode = fail_mode
+
+    async def push(self, **kwargs) -> str | None:
+        self.calls.append(dict(kwargs))
+        if self.fail_mode == "raise":
+            raise RuntimeError("simulated SQS failure")
+        if self.fail_mode == "no_id":
+            return None
+        return "fake-render-message-id"
+
+
 @pytest.fixture
 def fake_profile_picture_queue() -> FakeProfilePictureQueue:
     return FakeProfilePictureQueue()
+
+
+@pytest.fixture
+def fake_tribute_render_queue() -> FakeRenderQueue:
+    return FakeRenderQueue()
+
+
+@pytest.fixture
+def fake_storybook_render_queue() -> FakeRenderQueue:
+    return FakeRenderQueue()
 
 
 @pytest_asyncio.fixture
@@ -269,12 +302,19 @@ def _ensure_schema(url: str) -> None:
 
 @pytest_asyncio.fixture
 async def app_with_db(
-    fake_redis, fake_orchestrator, async_db_pool, fake_profile_picture_queue
+    fake_redis,
+    fake_orchestrator,
+    async_db_pool,
+    fake_profile_picture_queue,
+    fake_tribute_render_queue,
+    fake_storybook_render_queue,
 ):
     cfg = _make_test_config()
     application = create_app(cfg)
     application.state.redis = fake_redis
     application.state.db_pool = async_db_pool
+    application.state.tribute_render_queue = fake_tribute_render_queue
+    application.state.storybook_render_queue = fake_storybook_render_queue
     application.state.working_memory = WorkingMemory(
         redis_client=fake_redis,
         ttl_seconds=cfg.working_memory_ttl_seconds,

@@ -47,6 +47,7 @@ from flashback.storybook.repository import (
     fetch_storybook_for_regen_async,
     fetch_storybook_usage_async,
     insert_storybook_async,
+    set_storybook_status_async,
     update_storybook_for_rerender_async,
 )
 
@@ -98,6 +99,18 @@ class StorybookTooThin(Exception):
 class StorybookNotFound(Exception):
     """Raised when a generate/regenerate/edit targets a missing person or
     a missing/unowned storybook."""
+
+
+class StorybookRenderUnavailable(Exception):
+    """Raised when the render trigger could not be enqueued.
+
+    ``STORYBOOK_RENDER_QUEUE_URL`` is optional at boot, so a box that doesn't
+    render books still starts — but the route used to accept the work anyway,
+    mint a row at ``status='generating'``, and answer 200 with
+    ``enqueued: false``. Prod carries 5 books stranded that way since June
+    (38-41 days, spinning on 4 legacies' cards). The route maps this to 503 so
+    the caller learns nothing was started.
+    """
 
 
 class StorybookIdConflict(Exception):
@@ -282,25 +295,68 @@ async def _enqueue(
     storybook_id: str,
     person_id: str,
     composed_at: str,
-) -> tuple[str, bool]:
+    db_pool: AsyncConnectionPool,
+) -> str:
+    """Push the render trigger and return the job id, or raise.
+
+    The row already reads ``status='generating'`` by the time we get here (the
+    worker must never receive a job for a row that still says otherwise), so a
+    push that never lands would leave the book spinning forever with nothing to
+    retry it. On failure the row is flipped to ``'failed'`` — a state the user
+    can act on — and :class:`StorybookRenderUnavailable` is raised so the route
+    answers 503 instead of a 200 that claims a render is underway.
+    """
+    if queue is None:
+        await _mark_render_failed(db_pool, storybook_id=storybook_id)
+        raise StorybookRenderUnavailable(
+            "STORYBOOK_RENDER_QUEUE_URL not configured"
+        )
     job_id = str(uuid4())
-    enqueued = False
-    if queue is not None:
-        try:
-            msg_id = await queue.push(
-                job_id=job_id,
-                storybook_id=storybook_id,
-                person_id=person_id,
-                composed_at=composed_at,
-            )
-            enqueued = msg_id is not None
-        except Exception:
-            log.warning(
-                "storybook.enqueue_failed",
-                storybook_id=storybook_id,
-                exc_info=True,
-            )
-    return job_id, enqueued
+    try:
+        msg_id = await queue.push(
+            job_id=job_id,
+            storybook_id=storybook_id,
+            person_id=person_id,
+            composed_at=composed_at,
+        )
+    except Exception as exc:
+        log.warning(
+            "storybook.enqueue_failed",
+            storybook_id=storybook_id,
+            exc_info=True,
+        )
+        await _mark_render_failed(db_pool, storybook_id=storybook_id)
+        raise StorybookRenderUnavailable(
+            "could not enqueue the storybook render; nothing was started"
+        ) from exc
+    if msg_id is None:
+        log.warning(
+            "storybook.enqueue_no_message_id", storybook_id=storybook_id
+        )
+        await _mark_render_failed(db_pool, storybook_id=storybook_id)
+        raise StorybookRenderUnavailable(
+            "could not enqueue the storybook render; nothing was started"
+        )
+    return job_id
+
+
+async def _mark_render_failed(
+    db_pool: AsyncConnectionPool, *, storybook_id: str
+) -> None:
+    """Move a never-enqueued book off 'generating'. Best-effort: the raised
+    StorybookRenderUnavailable is the signal that matters."""
+    try:
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await set_storybook_status_async(
+                    cur, storybook_id=storybook_id, status="failed"
+                )
+    except Exception:  # noqa: BLE001
+        log.warning(
+            "storybook.mark_failed_after_enqueue_failure_failed",
+            storybook_id=storybook_id,
+            exc_info=True,
+        )
 
 
 async def generate_storybook(
@@ -380,25 +436,26 @@ async def generate_storybook(
                 )
     except UniqueViolation as exc:
         raise StorybookIdConflict(str(storybook_id)) from exc
-    job_id, enqueued = await _enqueue(
+    job_id = await _enqueue(
         queue,
         storybook_id=storybook_id,
         person_id=person_id,
         composed_at=composed_at,
+        db_pool=db_pool,
     )
     log.info(
         "storybook.generate_enqueued",
         storybook_id=storybook_id,
         collection=collection,
         moments=len(moments),
-        enqueued=enqueued,
+        enqueued=True,
     )
     return StorybookGenerationResult(
         storybook_id=storybook_id,
         job_id=job_id,
         collection=collection,
         moments_count=len(moments),
-        enqueued=enqueued,
+        enqueued=True,
     )
 
 
@@ -496,11 +553,12 @@ async def _rerender(
         raise StorybookNotFound(
             f"storybook {storybook_id} not found for person {person_id}"
         )
-    job_id, enqueued = await _enqueue(
+    job_id = await _enqueue(
         queue,
         storybook_id=storybook_id,
         person_id=person_id,
         composed_at=composed_at,
+        db_pool=db_pool,
     )
     log.info(
         "storybook.rerender_enqueued",
@@ -508,14 +566,14 @@ async def _rerender(
         collection=collection,
         source=source,
         reuse_script=reuse_script,
-        enqueued=enqueued,
+        enqueued=True,
     )
     return StorybookGenerationResult(
         storybook_id=storybook_id,
         job_id=job_id,
         collection=collection,
         moments_count=len(moments),
-        enqueued=enqueued,
+        enqueued=True,
     )
 
 

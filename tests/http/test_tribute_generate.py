@@ -342,3 +342,72 @@ async def test_video_retry_allowed_after_a_dead_render(
     status_val, fresh = await _render_state(async_db_pool, tribute_id)
     assert status_val == "generating"
     assert fresh not in (None, composed_at)
+
+
+async def test_503_when_render_queue_unconfigured_and_status_untouched(
+    app_with_db, async_db_pool
+) -> None:
+    """A box with no TRIBUTE_RENDER_QUEUE_URL must refuse, not accept.
+
+    This is the 2026-07-16 failure mode: /generate flipped the row to
+    'generating', found no queue, and returned 200 with ``enqueued: false`` --
+    a tribute spinning forever with an empty DLQ. The row must be left exactly
+    as it was so a retry (once the queue is configured) still works.
+    """
+    import httpx
+
+    person_id, tribute_id, _ = await _seed(async_db_pool, ready=True)
+    app_with_db.state.tribute_render_queue = None
+    transport = httpx.ASGITransport(app=app_with_db)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            f"/tributes/{tribute_id}/generate",
+            json=_body(person_id, "1"),
+            headers=_HEADERS,
+        )
+    assert resp.status_code == 503, resp.text
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM tributes WHERE id = %s", (tribute_id,)
+            )
+            assert (await cur.fetchone())[0] != "generating"
+
+
+async def test_lost_push_restores_prior_status_and_503s(
+    app_with_db, async_db_pool, fake_tribute_render_queue
+) -> None:
+    """A push that raises must roll the 'generating' flip back.
+
+    The flip has to happen before the push (the worker reads the row at job
+    time), which is exactly why an unrolled failure strands the tribute.
+    """
+    import httpx
+
+    person_id, tribute_id, _ = await _seed(async_db_pool, ready=True)
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM tributes WHERE id = %s", (tribute_id,)
+            )
+            before = (await cur.fetchone())[0]
+
+    fake_tribute_render_queue.fail_mode = "raise"
+    transport = httpx.ASGITransport(app=app_with_db)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            f"/tributes/{tribute_id}/generate",
+            json=_body(person_id, "1"),
+            headers=_HEADERS,
+        )
+    assert resp.status_code == 503, resp.text
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM tributes WHERE id = %s", (tribute_id,)
+            )
+            assert (await cur.fetchone())[0] == before

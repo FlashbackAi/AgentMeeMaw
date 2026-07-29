@@ -20,6 +20,7 @@ from flashback.storybook.generation import (
     StorybookBadMomentIds,
     StorybookIdConflict,
     StorybookNotFound,
+    StorybookRenderUnavailable,
     StorybookSelectionOutOfBounds,
     StorybookTooThin,
     UnknownCollection,
@@ -160,11 +161,11 @@ async def test_regenerate_sets_reuse_script(async_pool) -> None:
     pid = await _make_person(async_pool)
     await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     made = await generate_storybook(
-        db_pool=async_pool, queue=None, person_id=pid,
+        db_pool=async_pool, queue=_queue(), person_id=pid,
         collection="festivals", **_urls(),
     )
     result = await regenerate_storybook(
-        db_pool=async_pool, queue=None,
+        db_pool=async_pool, queue=_queue(),
         storybook_id=made.storybook_id, person_id=pid, **_urls(),
     )
     assert result.collection == "festivals"
@@ -178,11 +179,11 @@ async def test_edit_accumulates_instructions(async_pool) -> None:
     pid = await _make_person(async_pool)
     await _add_qualifying_moments(async_pool, pid, STORYBOOK_MIN_MOMENTS)
     made = await generate_storybook(
-        db_pool=async_pool, queue=None, person_id=pid,
+        db_pool=async_pool, queue=_queue(), person_id=pid,
         collection="wisdom", **_urls(),
     )
     await edit_storybook(
-        db_pool=async_pool, queue=None,
+        db_pool=async_pool, queue=_queue(),
         storybook_id=made.storybook_id, person_id=pid,
         instructions="warmer",
         prior_instructions=["more about the pond"],
@@ -201,7 +202,7 @@ async def test_caller_supplied_id_is_used(async_pool) -> None:
     await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     supplied = "11111111-2222-3333-4444-555555555555"
     result = await generate_storybook(
-        db_pool=async_pool, queue=None, person_id=pid,
+        db_pool=async_pool, queue=_queue(), person_id=pid,
         collection="childhood", storybook_id=supplied, **_urls(),
     )
     assert result.storybook_id == supplied
@@ -213,7 +214,7 @@ async def test_duplicate_caller_supplied_id_conflicts(async_pool) -> None:
     await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
     supplied = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     await generate_storybook(
-        db_pool=async_pool, queue=None, person_id=pid,
+        db_pool=async_pool, queue=_queue(), person_id=pid,
         collection="childhood", storybook_id=supplied, **_urls(),
     )
     with pytest.raises(StorybookIdConflict):
@@ -221,6 +222,64 @@ async def test_duplicate_caller_supplied_id_conflicts(async_pool) -> None:
             db_pool=async_pool, queue=None, person_id=pid,
             collection="nostalgia", storybook_id=supplied, **_urls(),
         )
+
+
+async def test_unconfigured_queue_refuses_and_never_leaves_generating(
+    async_pool,
+) -> None:
+    """A book we cannot enqueue must not be left spinning.
+
+    Prod carries 5 books stuck at 'generating' since June (38-41 days) because
+    the route minted the row, failed to enqueue, and answered 200 with
+    ``enqueued: false``. The row now lands on 'failed', which the user can act
+    on, and the caller is told nothing started.
+    """
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
+    supplied = "cccccccc-dddd-eeee-ffff-000000000001"
+    with pytest.raises(StorybookRenderUnavailable):
+        await generate_storybook(
+            db_pool=async_pool, queue=None, person_id=pid,
+            collection="childhood", storybook_id=supplied, **_urls(),
+        )
+    row = await _fetch_row(async_pool, supplied)
+    assert row is not None, "the row was minted before the enqueue attempt"
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM storybooks WHERE id = %s", (supplied,)
+            )
+            assert (await cur.fetchone())[0] == "failed"
+
+
+@pytest.mark.parametrize("fail_mode", ["raise", "no_id"])
+async def test_lost_push_marks_failed_not_generating(
+    async_pool, fail_mode
+) -> None:
+    """Both enqueue failure shapes are handled: an exception from the producer
+    and a silent ``None`` message id (the shape that produced ``enqueued:
+    false``)."""
+
+    class _Failing:
+        async def push(self, **_kwargs):
+            if fail_mode == "raise":
+                raise RuntimeError("simulated SQS failure")
+            return None
+
+    pid = await _make_person(async_pool)
+    await _add_qualifying_moments(async_pool, pid, STORYBOOK_COLLECTION_FLOOR)
+    supplied = f"cccccccc-dddd-eeee-ffff-00000000000{2 if fail_mode == 'raise' else 3}"
+    with pytest.raises(StorybookRenderUnavailable):
+        await generate_storybook(
+            db_pool=async_pool, queue=_Failing(), person_id=pid,
+            collection="childhood", storybook_id=supplied, **_urls(),
+        )
+    async with async_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM storybooks WHERE id = %s", (supplied,)
+            )
+            assert (await cur.fetchone())[0] == "failed"
 
 
 async def test_regenerate_unknown_storybook_raises(async_pool) -> None:

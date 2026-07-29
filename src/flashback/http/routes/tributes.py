@@ -418,6 +418,102 @@ async def generate_tribute(
     )
 
 
+def _require_render_queue(queue: "TributeRenderQueueProducer | None") -> None:
+    """503 when the render queue isn't configured, before anything is written.
+
+    ``TRIBUTE_RENDER_QUEUE_URL`` is optional at boot (config.py reads it with a
+    ``""`` default) so a box that doesn't render tributes still starts. The cost
+    was that /generate accepted the work, flipped the row to 'generating', and
+    returned 200 with ``enqueued: false`` — a tribute that spins forever with an
+    empty DLQ, which is exactly how 2026-07-16 was lost. Fail loudly instead,
+    matching /profile_facts, /nodes and /identity_merges.
+    """
+    if queue is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TRIBUTE_RENDER_QUEUE_URL not configured",
+        )
+
+
+async def _enqueue_render_or_restore(
+    *,
+    tribute_id: UUID,
+    person_id: UUID | str,
+    composed_at: str,
+    job_id: str,
+    prior_status: str,
+    db_pool: AsyncConnectionPool,
+    tribute_render_queue: "TributeRenderQueueProducer | None",
+) -> None:
+    """Push the render trigger; restore the prior status and 503 on failure.
+
+    The row must read 'generating' BEFORE the push — the worker reads the row
+    at job time and must never find one that still says 'draft'. That ordering
+    is what makes a lost push dangerous: the status has already moved, so a
+    push that never lands strands the tribute at 'generating' with nothing to
+    retry it (prod: 5 storybooks stuck 40 days on the sibling pipeline). So a
+    failed push is rolled back here and surfaced, instead of being logged under
+    a 200 that claims a render is underway.
+    """
+    try:
+        msg_id = await tribute_render_queue.push(  # type: ignore[union-attr]
+            job_id=job_id,
+            tribute_id=str(tribute_id),
+            person_id=str(person_id),
+            composed_at=composed_at,
+        )
+    except Exception as exc:
+        await _restore_status(
+            db_pool, tribute_id=tribute_id, prior_status=prior_status
+        )
+        log.warning(
+            "tribute.render_enqueue_failed",
+            tribute_id=str(tribute_id),
+            restored_status=prior_status,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="could not enqueue the tribute render; nothing was started",
+        ) from exc
+    if msg_id is None:
+        await _restore_status(
+            db_pool, tribute_id=tribute_id, prior_status=prior_status
+        )
+        log.warning(
+            "tribute.render_enqueue_no_message_id",
+            tribute_id=str(tribute_id),
+            restored_status=prior_status,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="could not enqueue the tribute render; nothing was started",
+        )
+
+
+async def _restore_status(
+    db_pool: AsyncConnectionPool, *, tribute_id: UUID, prior_status: str
+) -> None:
+    """Undo the 'generating' flip. Best-effort: a failure here is already
+    being reported as a 503, and leaving the row alone is no worse than the
+    behaviour this replaces."""
+    if not prior_status:
+        return
+    try:
+        async with db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await set_status_async(
+                    cur, tribute_id=tribute_id, status=prior_status
+                )
+    except Exception:  # noqa: BLE001 — the 503 is the signal that matters
+        log.warning(
+            "tribute.status_restore_failed",
+            tribute_id=str(tribute_id),
+            prior_status=prior_status,
+            exc_info=True,
+        )
+
+
 # How long a freshly composed render may stay in flight before /generate lets a
 # retry through. A tribute video renders in minutes; anything still 'generating'
 # well past that is a DEAD render (worker not deployed / crashed hard -- the prod
@@ -605,6 +701,12 @@ async def _generate_video(
         fallback_closing=directives.fallback_closing if directives else "",
     )
 
+    # Last gate before the first mutation. Deliberately AFTER the 400/409
+    # request checks: whether a request is well-formed or a duplicate must not
+    # depend on how this box is configured.
+    _require_render_queue(tribute_render_queue)
+
+    prior_status = (tribute.get("status") or "").strip()
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -615,20 +717,19 @@ async def _generate_video(
                     cur, tribute_id=tribute_id, status="generating")
 
     job_id = str(uuid4())
-    enqueued = False
-    if tribute_render_queue is not None:
-        try:
-            msg_id = await tribute_render_queue.push(
-                job_id=job_id, tribute_id=str(tribute_id),
-                person_id=str(body.person_id), composed_at=composed_at)
-            enqueued = msg_id is not None
-        except Exception:
-            log.warning("tribute.render_enqueue_failed",
-                        tribute_id=str(tribute_id), exc_info=True)
+    await _enqueue_render_or_restore(
+        tribute_id=tribute_id,
+        person_id=body.person_id,
+        composed_at=composed_at,
+        job_id=job_id,
+        prior_status=prior_status,
+        db_pool=db_pool,
+        tribute_render_queue=tribute_render_queue,
+    )
 
     return TributeGenerateResponse(
         job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
-        enqueued=enqueued, percent=progress.percent, ready=progress.ready,
+        enqueued=True, percent=progress.percent, ready=progress.ready,
         scene_count=min(len(candidates), STORYBOOK_MAX_PAGES))
 
 
@@ -781,9 +882,18 @@ async def _reenqueue_tribute_render(
         fallback_closing=fallback_closing,
     )
 
+    # Last gate before the first mutation (see _generate_video).
+    _require_render_queue(tribute_render_queue)
+
     async with db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT status FROM tributes WHERE id = %s",
+                    (str(tribute_id),),
+                )
+                row = await cur.fetchone()
+                prior_status = ((row[0] if row else "") or "").strip()
                 await write_tribute_generation_context_async(
                     cur, tribute_id=tribute_id,
                     artifact_kind=CONTEXT_KEY, context=context)
@@ -791,21 +901,20 @@ async def _reenqueue_tribute_render(
                     cur, tribute_id=tribute_id, status="generating")
 
     job_id = str(uuid4())
-    enqueued = False
-    if tribute_render_queue is not None:
-        try:
-            msg_id = await tribute_render_queue.push(
-                job_id=job_id, tribute_id=str(tribute_id),
-                person_id=str(person_id), composed_at=composed_at)
-            enqueued = msg_id is not None
-        except Exception:
-            log.warning("tribute.rerender_enqueue_failed",
-                        tribute_id=str(tribute_id), exc_info=True)
+    await _enqueue_render_or_restore(
+        tribute_id=tribute_id,
+        person_id=person_id,
+        composed_at=composed_at,
+        job_id=job_id,
+        prior_status=prior_status,
+        db_pool=db_pool,
+        tribute_render_queue=tribute_render_queue,
+    )
 
     scene_count = min(len(context["candidates"]), STORYBOOK_MAX_PAGES)
     return TributeGenerateResponse(
         job_id=job_id, tribute_id=tribute_id, artifact_kind="tribute_video",
-        enqueued=enqueued, percent=100, ready=True, scene_count=scene_count)
+        enqueued=True, percent=100, ready=True, scene_count=scene_count)
 
 
 @router.post(
