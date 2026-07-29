@@ -23,8 +23,8 @@ class TributeSlot:
     hint: str
     filled: bool
     # Granular progress for slots that fill incrementally. Only the
-    # memories slot uses these today (count of qualifying stories vs the
-    # target of 3); other slots leave them None and are purely binary.
+    # memories slot uses these today (count of qualifying stories vs
+    # MEMORIES_TARGET); other slots leave them None and are purely binary.
     count: int | None = None
     target: int | None = None
 

@@ -16,11 +16,13 @@ from dataclasses import dataclass
 
 
 # Stories needed for the memories slot to read as FILLED and for the tribute
-# to be READY (the raw qualifying-count gate, unchanged by 0030). The view's
-# DISPLAYED percent now also credits an archetype answer-floor and weights
-# moments by depth (0030), but neither can flip "filled"/"ready" without 3 real
-# qualifying moments. Exposed so the live meter can render "2 of 3 stories".
-MEMORIES_TARGET = 3
+# to be READY (the raw qualifying-count gate; raised 3 -> 12 in migration
+# 0051). The view's DISPLAYED percent is count-based against the same target
+# since 0051 (the 0030 depth weighting is retired), with the archetype
+# answer-floor still credited on campaign rows -- neither can flip
+# "filled"/"ready" without 12 real qualifying moments. Exposed so the live
+# meter can render "2 of 12 stories".
+MEMORIES_TARGET = 12
 
 # Archetype layers in the Father's Day bank (tribute/theme.py). The view's
 # answer-floor divides answered_layers by this, so keep it in sync with the
@@ -47,7 +49,7 @@ SLOTS: tuple[SlotMeta, ...] = (
     SlotMeta(
         key="memories",
         label="Shared memories",
-        hint="Tell three stories about a time with them.",
+        hint="Tell twelve stories about a time with them.",
         weight=50,
     ),
     SlotMeta(

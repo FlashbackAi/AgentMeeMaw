@@ -54,9 +54,10 @@ renders the standalone bar always and a campaign bar per opted-in campaign.
 `percent` is a smooth progress bar. `ready` is a separate boolean that flips
 when the **hard gate** is met:
 
-- **standalone**: enough stories (the story floor). Appearance + signature are
-  *soft* — they raise the bar toward 100% and the AI pursues them, but they
-  never block. So a standalone can be `ready: true` at, say, 42%.
+- **standalone**: enough stories (the story floor — 12 qualifying moments
+  since migration 0051). Signature is *soft* — it raises the bar toward 100%
+  and the AI pursues it, but it never blocks. So a standalone can be
+  `ready: true` at 85%.
 - **campaign**: enough stories **+ the message present** — plus appearance
   and/or signature *only if that campaign has `require_appearance` /
   `require_signature` on* (CRM toggles, default off).
