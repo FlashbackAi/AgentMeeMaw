@@ -31,7 +31,13 @@ from flashback.http.deps import get_db_pool, get_profile_picture_queue, get_redi
 from flashback.http.idempotency import idempotency_key_header, run_idempotent
 from flashback.http.models import PersonCreateRequest, PersonCreateResponse
 from flashback.persons import insert_person
-from flashback.profile_picture import compose_image_prompt, map_gender
+from flashback.profile_picture import (
+    NEGATIVE_PROMPT,
+    REPRESENTATIONAL_NEGATIVE_PROMPT,
+    compose_image_prompt,
+    compose_representational_prompt,
+    map_gender,
+)
 
 if TYPE_CHECKING:
     from flashback.queues.profile_picture import ProfilePictureQueueProducer
@@ -99,20 +105,32 @@ async def _create_once(
     )
     if profile_picture_queue is not None:
         try:
-            image_prompt = compose_image_prompt(
-                name=created.name,
-                gender=created.gender,
-                relationship=created.relationship,
-            )
+            if reference_s3_key:
+                image_prompt = compose_image_prompt(
+                    name=created.name,
+                    gender=created.gender,
+                    relationship=created.relationship,
+                )
+                negative_prompt = NEGATIVE_PROMPT
+            else:
+                # No photo to anchor a likeness — a portrait prompt would
+                # invent a stranger's face for the name. Generate the
+                # banner-language representational figure instead
+                # (design 2026-07-29). Onboarding auto path only; the
+                # regenerate/edit endpoints keep portrait behavior.
+                image_prompt = compose_representational_prompt(
+                    gender=created.gender,
+                    relationship=created.relationship,
+                )
+                negative_prompt = REPRESENTATIONAL_NEGATIVE_PROMPT
             from flashback.artifacts import (
                 build_generation_context,
                 write_latest_generation_context_async,
             )
-            from flashback.profile_picture import NEGATIVE_PROMPT
 
             context = build_generation_context(
                 prompt=image_prompt,
-                negative_prompt=NEGATIVE_PROMPT,
+                negative_prompt=negative_prompt,
                 mode="with_reference" if reference_s3_key else "no_reference",
                 reference_s3_key=reference_s3_key,
                 preset=None,

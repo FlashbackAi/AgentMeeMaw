@@ -195,6 +195,43 @@ class TestCreateHappyPath:
         assert "Painterly semi-realistic portrait" in context["prompt"]
         assert fake_profile_picture_queue.calls[0]["source"] == "onboarding"
 
+    async def test_onboarding_without_photo_gets_representational_prompt(
+        self,
+        client_with_db,
+        async_db_pool,
+        fake_profile_picture_queue: FakeProfilePictureQueue,
+    ):
+        # No reference photo: a portrait prompt would invent a stranger's
+        # face for the name. The onboarding fallback is the banner-language
+        # figure seen from behind (design 2026-07-29) — name kept out of
+        # the prompt entirely.
+        from flashback.profile_picture import REPRESENTATIONAL_NEGATIVE_PROMPT
+
+        resp = await client_with_db.post(
+            "/persons",
+            headers=auth_headers(),
+            json=person_payload(name="Krishna Rao", gender="he"),
+        )
+        assert resp.status_code == 200, resp.text
+        person_id = resp.json()["person_id"]
+
+        async with async_db_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT latest_generation_context FROM persons WHERE id = %s",
+                    (str(person_id),),
+                )
+                row = await cur.fetchone()
+        context = dict(row[0]) if row and row[0] else {}
+        assert context["mode"] == "no_reference"
+        assert context["reference_s3_key"] is None
+        assert "seen from behind" in context["prompt"]
+        assert "face never visible" in context["prompt"]
+        assert "Painterly semi-realistic portrait" not in context["prompt"]
+        assert "Krishna Rao" not in context["prompt"]
+        assert context["negative_prompt"] == REPRESENTATIONAL_NEGATIVE_PROMPT
+        assert fake_profile_picture_queue.calls[0]["source"] == "onboarding"
+
     async def test_two_legacies_with_same_name_both_succeed(
         self, client_with_db
     ):

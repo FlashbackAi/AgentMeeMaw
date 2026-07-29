@@ -2,7 +2,13 @@
 
 import pytest
 
-from flashback.profile_picture import NEGATIVE_PROMPT, compose_image_prompt, map_gender
+from flashback.profile_picture import (
+    NEGATIVE_PROMPT,
+    REPRESENTATIONAL_NEGATIVE_PROMPT,
+    compose_image_prompt,
+    compose_representational_prompt,
+    map_gender,
+)
 
 
 class TestMapGender:
@@ -182,3 +188,64 @@ class TestNegativePromptBlocksDeityIconography:
         a = compose_image_prompt(name="Maya", gender="she")
         b = compose_image_prompt(name="Maya", gender="she", user_instructions=[])
         assert a == b
+
+
+class TestComposeRepresentationalPrompt:
+    """No-photo onboarding fallback — design 2026-07-29."""
+
+    def test_always_from_behind_and_faceless(self):
+        prompt = compose_representational_prompt(gender="she", relationship="friend")
+        assert "seen from behind" in prompt
+        assert "face never visible" in prompt
+        assert "storybook illustration" in prompt
+
+    def test_gender_shapes_the_figure(self):
+        assert "female figure" in compose_representational_prompt(
+            gender="she", relationship="friend"
+        )
+        assert "male figure" in compose_representational_prompt(
+            gender="he", relationship="friend"
+        )
+
+    def test_neutral_gender_gets_androgynous_figure(self):
+        prompt = compose_representational_prompt(gender="they", relationship="friend")
+        assert "male figure" not in prompt
+        assert "female figure" not in prompt
+        assert "androgynous silhouette" in prompt
+
+    def test_grandparent_becomes_elderly_figure(self):
+        prompt = compose_representational_prompt(
+            gender="he", relationship="grandfather"
+        )
+        assert "elderly male figure" in prompt
+        assert "grandfather's gentle posture" in prompt
+
+    def test_parent_gets_middle_years_clause(self):
+        prompt = compose_representational_prompt(gender="she", relationship="mother")
+        assert "mother's warm unhurried posture" in prompt
+        assert "middle years" in prompt
+
+    def test_peer_dresses_casually(self):
+        prompt = compose_representational_prompt(gender="she", relationship="friend")
+        assert "dressed casually like a close friend" in prompt
+
+    def test_unknown_relationship_falls_back_to_everyday_clothing(self):
+        prompt = compose_representational_prompt(gender="she", relationship="mentor")
+        assert "simple everyday clothing" in prompt
+
+    def test_name_is_never_needed_or_present(self):
+        # The composer doesn't even accept a name — the prompt must carry
+        # no name-driven priors. Guard the scene text stays name-free.
+        prompt = compose_representational_prompt(gender=None, relationship=None)
+        assert "portrait" not in prompt.lower()
+
+    def test_negative_prompt_forbids_faces_and_crowds(self):
+        for term in [
+            "visible face",
+            "frontal view",
+            "multiple people",
+            "photograph",
+            "religious deity iconography",
+            "watermark",
+        ]:
+            assert term in REPRESENTATIONAL_NEGATIVE_PROMPT, term
