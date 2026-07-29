@@ -397,6 +397,54 @@ async def test_regenerate_keeps_a_healthy_slice_verbatim(
     assert ctx["candidates"] == prior["candidates"]
 
 
+# --- Gender heals on re-render (prod 2026-07-29) ----------------------------
+
+
+async def test_regenerate_reresolves_gender_from_persons(
+    client_with_db, async_db_pool
+) -> None:
+    """Snapshots composed before 2026-07-22 carry no gender at all, and the
+    re-render used to inherit that blindness verbatim -- so the recovery
+    path could never fix a gender-flipping video (prod: Srinidhi's second
+    render lost the gender its sibling had). Gender is an identity fact,
+    not a content input: re-resolve it from persons on every re-render."""
+    person_id, tribute_id = await _seed_ready(async_db_pool)
+    await _generate(client_with_db, person_id, tribute_id)
+
+    async with async_db_pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE persons SET gender = 'she', "
+                    "contributor_gender = 'he' WHERE id = %s", (person_id,))
+                # Simulate the pre-2026-07-22 snapshot: no gender keys.
+                await cur.execute(
+                    "UPDATE tributes SET latest_generation_context = "
+                    "latest_generation_context #- '{tribute_video,gender}' "
+                    "#- '{tribute_video,contributor_gender}' WHERE id = %s",
+                    (tribute_id,))
+
+    resp = await client_with_db.post(
+        f"/tributes/{tribute_id}/regenerate",
+        json={
+            "person_id": person_id,
+            "video_put_url": "https://s3.example/put/video?sig=2",
+            "pdf_put_url": "https://s3.example/put/pdf?sig=2",
+        },
+        headers=_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with async_db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT latest_generation_context -> 'tribute_video' "
+                "FROM tributes WHERE id = %s", (tribute_id,))
+            ctx = (await cur.fetchone())[0]
+    assert ctx["gender"] == "she"
+    assert ctx["contributor_gender"] == "he"
+
+
 # --- A keepsake stays a keepsake (prod 2026-07-28) --------------------------
 
 

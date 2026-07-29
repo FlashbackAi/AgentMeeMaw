@@ -692,6 +692,15 @@ async def _reenqueue_tribute_render(
             # into the render all carry an empty list.
             archetype_answers = await fetch_render_archetype_answers_async(
                 cur, tribute_id=tribute_id)
+            # Gender is an identity fact, not a content input: snapshots
+            # composed before 2026-07-22 carry none, and regenerate is the
+            # recovery path -- re-resolve from persons instead of inheriting
+            # the snapshot's blindness (also picks up a corrected row).
+            await cur.execute(
+                "SELECT gender, contributor_gender FROM persons WHERE id = %s",
+                (str(person_id),))
+            gender_row = await cur.fetchone()
+            gender, contributor_gender = gender_row or (None, None)
             # No backstop stamp here. It used to mirror /generate's, but the
             # only row it could ever change is one with campaign_id NULL --
             # which since 0048 IS a standalone keepsake, and converting one
@@ -745,8 +754,8 @@ async def _reenqueue_tribute_render(
         subject_name=stored.get("subject_name") or "",
         relationship=stored.get("relationship"),
         gt_context=stored.get("gt_context") or "",
-        gender=stored.get("gender"),
-        contributor_gender=stored.get("contributor_gender"),
+        gender=gender,
+        contributor_gender=contributor_gender,
         candidates=candidates,
         message_text=stored.get("message_text") or "",
         archetype_leads=leads or list(stored.get("archetype_leads") or []),
