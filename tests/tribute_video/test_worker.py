@@ -216,8 +216,9 @@ def test_render_and_upload_passes_subject_gender_to_render_book(monkeypatch):
         seen.update(kw)
 
     monkeypatch.setattr(worker_mod, "render_book", fake_render_book)
-    ctx = _render_ctx(gender="she")
+    ctx = _render_ctx(gender="she", contributor_gender="he")
     worker_mod.render_and_upload(
         ctx, artist=None, tmpdir="/tmp", settings=SimpleNamespace())
     assert seen["subject_gender"] == "she"
+    assert seen["contributor_gender"] == "he"
     assert uploaded  # sanity: render still completed

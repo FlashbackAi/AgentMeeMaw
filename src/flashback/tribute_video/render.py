@@ -46,6 +46,7 @@ def _generate_illustrations(
     art_mood: str | None = None,
     aspect: str | None = None,
     subject_gender: str | None = None,
+    contributor_gender: str | None = None,
 ) -> tuple[Image.Image, list[Image.Image], Image.Image]:
     """Generate (opener, [beat...], closing) illustrations concurrently.
 
@@ -56,12 +57,14 @@ def _generate_illustrations(
     so one likeness refusal can't strand the whole tribute in 'failed'.
     """
     reference = artist.character_reference(
-        name=subject_name, relationship=relationship, gt_context=gt_context)
+        name=subject_name, relationship=relationship, gt_context=gt_context,
+        gender=subject_gender)
 
     def _illustrated_opener() -> Image.Image:
         return artist.illustrate(book.opener.art_direction, gt_context, blend,
                                  reference=reference, art_mood=art_mood,
-                                 aspect=aspect)
+                                 aspect=aspect, subject_gender=subject_gender,
+                                 contributor_gender=contributor_gender)
 
     def gen_opener() -> Image.Image:
         if prime_photo is not None:
@@ -83,12 +86,14 @@ def _generate_illustrations(
     def gen_beat(b: Beat) -> Image.Image:
         return artist.illustrate(b.art_direction, gt_context, blend,
                                  reference=reference, art_mood=art_mood,
-                                 aspect=aspect)
+                                 aspect=aspect, subject_gender=subject_gender,
+                                 contributor_gender=contributor_gender)
 
     def gen_closing() -> Image.Image:
         return artist.illustrate(book.closing.art_direction, gt_context, blend,
                                  reference=reference, art_mood=art_mood,
-                                 aspect=aspect)
+                                 aspect=aspect, subject_gender=subject_gender,
+                                 contributor_gender=contributor_gender)
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
         fut_opener = ex.submit(gen_opener)
@@ -128,6 +133,7 @@ def render_book(
     kit: style.StyleKit | None = None,
     art_mood: str | None = None,
     subject_gender: str | None = None,
+    contributor_gender: str | None = None,
 ) -> RenderResult:
     kit = kit or style.DEFAULT_KIT
     template = compose.load_template(kit)
@@ -144,7 +150,7 @@ def render_book(
         relationship=relationship, gt_context=gt_context,
         prime_photo=prime_photo, deage=deage, blend=blend,
         concurrency=concurrency, art_mood=art_mood,
-        subject_gender=subject_gender)
+        subject_gender=subject_gender, contributor_gender=contributor_gender)
 
     # Assemble pages in order; the message page reuses the opener illustration
     # as a visual bookend (no extra generation).

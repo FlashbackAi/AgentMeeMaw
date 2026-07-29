@@ -132,3 +132,55 @@ def test_portrait_prompt_neutral_for_unknown_gender(monkeypatch) -> None:
     assert "restore their prime-years" in prompt
     assert not _words("his", prompt)
     assert not _words("her", prompt)
+
+
+def test_build_prompt_states_subject_gender() -> None:
+    p = art_mod.build_prompt("A figure kneads dough at dawn.", "", "cream",
+                             subject_gender="she")
+    assert "the recurring main figure is a woman" in p
+    assert "storyteller" not in p  # contributor unknown -> no clause
+
+
+def test_build_prompt_states_storyteller_gender() -> None:
+    p = art_mod.build_prompt("Two figures walk to the market.", "", "cream",
+                             subject_gender="she", contributor_gender="he")
+    assert "the recurring main figure is a woman" in p
+    assert "the storyteller, when the scene shows them, is a man" in p
+
+
+def test_build_prompt_silent_when_gender_unknown() -> None:
+    # Unknown/neutral must add nothing -- never push a wrong guess.
+    for g in (None, "they", "junk"):
+        p = art_mod.build_prompt("A quiet porch at dusk.", "", "cream",
+                                 subject_gender=g, contributor_gender=g)
+        assert "Gender presentation" not in p
+
+
+def test_character_reference_prompt_gendered(monkeypatch) -> None:
+    a = _artist()
+    prompts = _capture_prompt(a, monkeypatch)
+    a.character_reference(name="Meera", relationship="friend",
+                          gt_context="", gender="she")
+    assert "a woman, the storyteller's friend (Meera)" in prompts[0]
+
+
+def test_character_reference_prompt_unchanged_without_gender(monkeypatch) -> None:
+    a = _artist()
+    prompts = _capture_prompt(a, monkeypatch)
+    a.character_reference(name="Meera", relationship="friend", gt_context="")
+    assert "Character reference of friend (Meera)" in prompts[0]
+    a.character_reference(name="Meera", relationship=None, gt_context="")
+    assert "Character reference of an elder (Meera)" in prompts[1]
+
+
+def test_illustrate_prompt_carries_gender(monkeypatch) -> None:
+    a = _artist()
+    prompts: list = []
+
+    def fake_generate(contents, aspect):
+        prompts.append(contents[0])
+        return Image.new("RGB", (4, 4))
+
+    monkeypatch.setattr(a, "_generate", fake_generate)
+    a.illustrate("Hands shelling peas.", "", "cream", subject_gender="he")
+    assert "the recurring main figure is a man" in prompts[0]

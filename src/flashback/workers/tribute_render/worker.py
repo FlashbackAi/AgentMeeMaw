@@ -126,6 +126,7 @@ def render_and_upload(ctx: RenderContext, *, artist: Artist,
         concurrency=getattr(settings, "render_concurrency", 4),
         kit=kit, art_mood=ctx.art_mood or None,
         subject_gender=ctx.gender,
+        contributor_gender=ctx.contributor_gender,
     )
     if engine == "remotion":
         try:

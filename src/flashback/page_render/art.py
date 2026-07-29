@@ -20,6 +20,7 @@ from flashback.artifacts.compose import (
     COVER_PORTRAIT_NEGATIVE_PROMPT,
     SCENE_NEGATIVE_PROMPT,
 )
+from flashback.artifacts.people import figure_noun
 
 from flashback.tribute_video import style
 from flashback.usage import recorder as usage_recorder
@@ -72,8 +73,32 @@ def _background_instruction(blend: str) -> str:
     )
 
 
+def _gender_clause(subject_gender: str | None,
+                   contributor_gender: str | None) -> str:
+    """Each page is an independent Gemini call, so a gender the prompt leaves
+    unstated is re-guessed on every slide — the art_direction text alone can't
+    be relied on to carry it. Unknown genders emit nothing: never push a wrong
+    guess (CLAUDE.md §1 — no demographic invention)."""
+    subject_fig = figure_noun(subject_gender)
+    contributor_fig = figure_noun(contributor_gender)
+    clauses = []
+    if subject_fig:
+        clauses.append(f"the recurring main figure is {subject_fig}")
+    if contributor_fig:
+        clauses.append(
+            f"the storyteller, when the scene shows them, is {contributor_fig}")
+    if not clauses:
+        return ""
+    return (
+        "Gender presentation must read correctly even from behind or in "
+        "silhouette (build, hair, clothing): " + "; ".join(clauses) + "."
+    )
+
+
 def build_prompt(art_direction: str, gt_context: str, blend: str,
-                 art_mood: str | None = None) -> str:
+                 art_mood: str | None = None,
+                 subject_gender: str | None = None,
+                 contributor_gender: str | None = None) -> str:
     mood = (art_mood or "").strip() or DEFAULT_MOOD
     parts = [art_direction.strip(), f"{REGISTER}; {mood}"]
     if gt_context:
@@ -84,6 +109,7 @@ def build_prompt(art_direction: str, gt_context: str, blend: str,
         "silhouette, the thing they are doing). No visible faces, no one facing "
         "the viewer."
     )
+    parts.append(_gender_clause(subject_gender, contributor_gender))
     parts.append("Avoid: " + NEGATIVE)
     return " ".join(p for p in parts if p)
 
@@ -157,8 +183,16 @@ class Artist:
         return self._generate([prompt], aspect)
 
     def character_reference(self, *, name: str, relationship: str | None,
-                            gt_context: str) -> Image.Image:
-        who = relationship or "an elder"
+                            gt_context: str,
+                            gender: str | None = None) -> Image.Image:
+        # The reference anchors every scene, but it is painted from behind —
+        # without a stated gender the figure is a name-based guess AND stays
+        # ambiguous to the scenes that bind to it.
+        fig = figure_noun(gender)
+        if fig:
+            who = f"{fig}, the storyteller's {relationship}" if relationship else fig
+        else:
+            who = relationship or "an elder"
         prompt = (
             f"Character reference of {who} ({name}), single full-length figure "
             f"seen from behind and in three-quarter back view. {gt_context} "
@@ -198,8 +232,12 @@ class Artist:
     def illustrate(self, art_direction: str, gt_context: str, blend: str, *,
                    reference: Image.Image | None = None,
                    aspect: str | None = None,
-                   art_mood: str | None = None) -> Image.Image:
-        prompt = build_prompt(art_direction, gt_context, blend, art_mood)
+                   art_mood: str | None = None,
+                   subject_gender: str | None = None,
+                   contributor_gender: str | None = None) -> Image.Image:
+        prompt = build_prompt(art_direction, gt_context, blend, art_mood,
+                              subject_gender=subject_gender,
+                              contributor_gender=contributor_gender)
         contents: list = [prompt]
         if reference is not None:
             contents.append(

@@ -37,7 +37,9 @@ class _FakeArtist:
         img.info["label"] = label
         return img
 
-    def character_reference(self, *, name, relationship, gt_context):
+    def character_reference(self, *, name, relationship, gt_context,
+                            gender=None):
+        self.reference_gender = gender
         return self._tag("reference")
 
     def portrait_from_photo(self, photo, *, name, gt_context, deage, blend,
@@ -45,7 +47,9 @@ class _FakeArtist:
         return self._tag("opener_portrait")
 
     def illustrate(self, art_direction, gt_context, blend, *, reference=None,
-                   aspect=None, art_mood=None):
+                   aspect=None, art_mood=None, subject_gender=None,
+                   contributor_gender=None):
+        self.illustrate_genders = (subject_gender, contributor_gender)
         return self._tag(f"illustrate:{art_direction}")
 
 
@@ -110,12 +114,15 @@ def test_scene_refusal_still_propagates():
     # render so SQS redrives and the row is eventually marked 'failed'.
     class _RefusingBeatArtist(_FakeArtist):
         def illustrate(self, art_direction, gt_context, blend, *,
-                       reference=None, aspect=None, art_mood=None):
+                       reference=None, aspect=None, art_mood=None,
+                       subject_gender=None, contributor_gender=None):
             if art_direction == "B2":
                 raise GeminiError("Gemini generation failed: no image in response")
             return super().illustrate(art_direction, gt_context, blend,
                                       reference=reference, aspect=aspect,
-                                      art_mood=art_mood)
+                                      art_mood=art_mood,
+                                      subject_gender=subject_gender,
+                                      contributor_gender=contributor_gender)
 
     import pytest
     with pytest.raises(GeminiError):
@@ -123,6 +130,19 @@ def test_scene_refusal_still_propagates():
             artist=_RefusingBeatArtist(), book=_book(), subject_name="Dad",
             relationship="father", gt_context="", prime_photo=None,
             deage=False, blend="cream", concurrency=4)
+
+
+def test_gender_reaches_reference_and_every_scene():
+    # Slides are independent Gemini calls: gender must ride BOTH the anchor
+    # reference and each illustrate prompt, not just the script text.
+    artist = _FakeArtist()
+    _generate_illustrations(
+        artist=artist, book=_book(), subject_name="Meera",
+        relationship="friend", gt_context="", prime_photo=None, deage=False,
+        blend="cream", concurrency=1, subject_gender="she",
+        contributor_gender="he")
+    assert artist.reference_gender == "she"
+    assert artist.illustrate_genders == ("she", "he")
 
 
 def test_runs_pages_concurrently():
