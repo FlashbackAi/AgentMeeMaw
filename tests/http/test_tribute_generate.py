@@ -84,7 +84,7 @@ async def _seed(pool, *, ready: bool) -> tuple[str, str, str | None]:
                         "UPDATE persons SET ground_truth = %s WHERE id = %s",
                         (gt, person_id),
                     )
-                    for i in range(3):
+                    for i in range(12):
                         await cur.execute(
                             "INSERT INTO moments (person_id, title, narrative, "
                             "sensory_details) VALUES (%s, %s, %s, %s) "
@@ -153,9 +153,9 @@ async def test_video_200_stores_context_inputs_and_enqueues(
     assert ctx["pdf_put_url"].startswith("https://s3.example/put/pdf")
     assert ctx["poster_put_url"].startswith("https://s3.example/put/poster")
     # The route stores assembly INPUTS, not a pre-built Book (assembly is the
-    # worker's job now). The 3 seeded moments are the candidates.
+    # worker's job now). The 12 seeded moments are the candidates.
     assert "book" not in ctx
-    assert len(ctx["candidates"]) == 3
+    assert len(ctx["candidates"]) == 12
     assert ctx["message_text"] == "Thank you, Dad."
     assert ctx["composed_at"]
 

@@ -69,11 +69,11 @@ async def _seed_tribute(
     *,
     with_signature: bool,
     with_appearance: bool = True,
-    moments: int = 3,
+    moments: int = 12,
 ) -> str:
-    """A tribute with ``moments`` qualifying memories (3 = the story floor, so
-    the memories slot reads FILLED) and, optionally, appearance ground truth and
-    a trait (so the signature slot fills). Message stays empty.
+    """A tribute with ``moments`` qualifying memories (12 = the story floor,
+    0051, so the memories slot reads FILLED) and, optionally, appearance ground
+    truth and a trait (so the signature slot fills). Message stays empty.
 
     Appearance is no longer a scored slot (migration 0050) and no longer gates
     the invitation, so ``with_appearance`` is purely about whether the person
@@ -266,21 +266,9 @@ async def test_warm_gate_thin_story_pool_no_tap(async_pool) -> None:
     person_id, tribute_id = await _seed_tribute(
         async_pool, with_signature=True, moments=1
     )
-    # Give the one memory its depth bonuses (long sensory + a year), which is
-    # what carried the real prod row over 40 on a single story.
-    async with async_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE moments SET sensory_details = %s, time_anchor = %s "
-                "WHERE person_id = %s",
-                (
-                    "diesel smoke off the road, wet earth after the first rain, "
-                    "and the radio playing thin through the workshop wall",
-                    json.dumps({"year": 2009}),
-                    person_id,
-                ),
-            )
-    # The meter really is in the band the old floor would have let through.
+    # One story + signature: nowhere near the 65 floor now that the memories
+    # percent is count-based against the 12-story floor (0051) -- depth
+    # bonuses, which carried the real prod row over 40, no longer score.
     async with async_pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -289,7 +277,7 @@ async def test_warm_gate_thin_story_pool_no_tap(async_pool) -> None:
                 (tribute_id,),
             )
             percent, memories_count, signature = await cur.fetchone()
-    assert percent >= 40 and memories_count == 1 and signature is True
+    assert percent < 65 and memories_count == 1 and signature is True
 
     deps = _Deps(async_pool)
     state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
@@ -299,9 +287,9 @@ async def test_warm_gate_thin_story_pool_no_tap(async_pool) -> None:
 
 
 async def test_warm_climax_fires_once_the_stories_are_in(async_pool) -> None:
-    """The same legacy, once it reaches the 3-story floor, does get asked."""
+    """The same legacy, once it reaches the 12-story floor, does get asked."""
     person_id, tribute_id = await _seed_tribute(
-        async_pool, with_signature=True, moments=3
+        async_pool, with_signature=True, moments=12
     )
     deps = _Deps(async_pool)
     state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))
@@ -328,7 +316,7 @@ async def test_warm_gate_no_signature_stays_silent(async_pool) -> None:
                 (tribute_id,),
             )
             percent, memories_count, signature = await cur.fetchone()
-    assert memories_count >= 3 and signature is False and percent == 50
+    assert memories_count >= 12 and signature is False and percent == 50
 
     deps = _Deps(async_pool)
     state = _TurnState(person_id=person_id, wm=_WMState(current_tribute_id=tribute_id))

@@ -49,8 +49,8 @@ async def _seed_ready(pool) -> tuple[str, str]:
                     cur, person_id=person_id, theme_id=theme_id)
                 # The meter needs all four components at full weight:
                 # appearance = region + birth_era/era_span + attire-or-features,
-                # signature = any active trait, moments >= 3 qualifying,
-                # message present (2026-06 meter, view 0030/0033).
+                # signature = any active trait, moments >= 12 qualifying
+                # (the 0051 story floor), message present.
                 gt = json.dumps({
                     "region": {"value": "South India"},
                     "birth_era": {"value": "1950s"},
@@ -59,7 +59,7 @@ async def _seed_ready(pool) -> tuple[str, str]:
                 await cur.execute(
                     "UPDATE persons SET ground_truth = %s WHERE id = %s",
                     (gt, person_id))
-                for i in range(3):
+                for i in range(12):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
                         "sensory_details, time_anchor) "
@@ -122,7 +122,7 @@ async def test_edit_stores_cumulative_instructions(
     assert ctx["edit_instructions"] == [
         "Make it warmer.", "Lean on the fishing trips."]
     assert ctx["video_put_url"].endswith("sig=E")
-    assert len(ctx["candidates"]) == 3  # inputs reused
+    assert len(ctx["candidates"]) == 12  # inputs reused
 
 
 async def test_edit_400_without_instructions(

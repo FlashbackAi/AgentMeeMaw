@@ -62,14 +62,15 @@ async def _seed(pool, *, relationship: str | None = None,
                     "UPDATE persons SET ground_truth = %s WHERE id = %s",
                     (gt, person_id),
                 )
-                # Deep moments (>80 chars sensory + year anchor) so the
-                # 0030 depth-weighted percent can actually reach 100.
+                # 12 qualifying moments: the memories percent is count-based
+                # against the 0051 story floor, so hitting 100 needs the full
+                # dozen (depth bonuses no longer score).
                 long_sensory = (
                     "chai steam and monsoon rain on the hostel steps, his "
                     "cracked phone screen, the smell of vada pav at the "
                     "corner stall after the 6 a.m. train"
                 )
-                for i in range(3):
+                for i in range(12):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
                         "sensory_details, time_anchor) "

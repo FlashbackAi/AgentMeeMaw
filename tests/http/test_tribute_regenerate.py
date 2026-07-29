@@ -50,7 +50,8 @@ async def _seed_ready(pool) -> tuple[str, str]:
                     cur, person_id=person_id, theme_id=theme_id)
                 # Meter needs all four components: appearance = region +
                 # birth_era + attire-or-features, signature = a trait,
-                # >= 3 qualifying moments, message present.
+                # >= 12 qualifying moments (the 0051 story floor), message
+                # present.
                 gt = json.dumps({
                     "region": {"value": "South India"},
                     "birth_era": {"value": "1950s"},
@@ -59,7 +60,7 @@ async def _seed_ready(pool) -> tuple[str, str]:
                 await cur.execute(
                     "UPDATE persons SET ground_truth = %s WHERE id = %s",
                     (gt, person_id))
-                for i in range(3):
+                for i in range(12):
                     await cur.execute(
                         "INSERT INTO moments (person_id, title, narrative, "
                         "sensory_details, time_anchor) "
@@ -115,7 +116,7 @@ async def test_regenerate_reuses_inputs_with_fresh_urls(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["artifact_kind"] == "tribute_video"
-    assert body["scene_count"] == 3
+    assert body["scene_count"] == 12
 
     async with async_db_pool.connection() as conn:
         async with conn.cursor() as cur:
@@ -321,15 +322,15 @@ async def test_regenerate_widens_a_thin_stored_slice(
     person_id, tribute_id = await _seed_ready(async_db_pool)
     await _generate(client_with_db, person_id, tribute_id)
 
-    # Simulate the pre-3fb262f snapshot: one candidate stored, pool has 3.
+    # Simulate the pre-3fb262f snapshot: one candidate stored, pool has 12.
     async with async_db_pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
                 await cur.execute(
                     "UPDATE tributes SET latest_generation_context = jsonb_set("
                     "latest_generation_context, '{tribute_video,candidates}', "
-                    "(latest_generation_context -> 'tribute_video' -> 'candidates')"
-                    " - 1 - 1) WHERE id = %s",
+                    "jsonb_build_array(latest_generation_context "
+                    "-> 'tribute_video' -> 'candidates' -> 0)) WHERE id = %s",
                     (tribute_id,),
                 )
                 await cur.execute(
@@ -349,7 +350,7 @@ async def test_regenerate_widens_a_thin_stored_slice(
         headers=_HEADERS,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["scene_count"] == 3
+    assert resp.json()["scene_count"] == 12
 
     async with async_db_pool.connection() as conn:
         async with conn.cursor() as cur:
@@ -357,8 +358,8 @@ async def test_regenerate_widens_a_thin_stored_slice(
                 "SELECT latest_generation_context -> 'tribute_video' "
                 "FROM tributes WHERE id = %s", (tribute_id,))
             ctx = (await cur.fetchone())[0]
-    assert len(ctx["candidates"]) == 3
-    assert ctx["n_pages"] == 3
+    assert len(ctx["candidates"]) == 12
+    assert ctx["n_pages"] == 12
 
 
 async def test_regenerate_keeps_a_healthy_slice_verbatim(
