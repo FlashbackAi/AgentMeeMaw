@@ -156,6 +156,12 @@ class ArchetypeAnswerInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_id: str
+    # The question wording. It's the STABLE match key for re-ask suppression
+    # (ids differ across campaign versions; text identifies a repeated ask).
+    # Carry it on every answer -- including skips -- so a skipped question
+    # lands in tribute_answered and is never re-asked (2026-07-27). Optional
+    # for back-compat; the commit path (session_metadata) already sends it.
+    question_text: str | None = None
     # Multi-select shape; legacy single option_id/option_label stays
     # accepted. Chips and free_text may combine on one answer.
     option_ids: list[str] | None = None
