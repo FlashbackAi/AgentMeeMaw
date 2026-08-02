@@ -58,6 +58,31 @@ Where to send it (both paths now accept `question_text`):
   persisting skips does **not** inflate the percentage. It only suppresses the
   re-ask. Correct and intended.
 
+## Node changes — only if your proxy is not transparent
+
+The skip data makes two round-trips through Node; both must preserve
+`question_text` **and** `skipped`. If Node forwards these payloads opaquely
+(most likely), **no Node change**. If Node validates/whitelists fields, open the
+gate for those two keys:
+
+1. **Answers → agent (request):**
+   - `POST /session/start` — the skips ride inside
+     `session_metadata.archetype_answers`. `session_metadata` is a free-form
+     blob on the agent, so a passthrough proxy needs nothing. Only if Node
+     reshapes the answer objects: allow `question_text` + `skipped`.
+   - `POST /themes/{id}/archetype_progress` — the `answers[]`. Same: if Node
+     schema-checks each answer, allow `question_text` + `skipped` (the agent's
+     model now accepts them, `2710868`).
+2. **`unlock_prepare` → frontend (response):** the agent returns
+   `tribute_answered` with each entry carrying `question_text` + `skipped`
+   (plus `next_step` / `archetype_complete`). Passthrough → nothing. If Node
+   maps the response to a frontend shape, forward those fields and **keep
+   `question_text` on every `tribute_answered` entry** — it's the match key; drop
+   it and the re-ask returns.
+
+Net: transparent proxy → no Node work. Field-whitelisting proxy → allow
+`question_text` + `skipped` through in both directions.
+
 ## Verify
 
 1. Start a campaign, **skip** 3 of N questions, answer the rest, commit.
